@@ -1,0 +1,87 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { Roles } from 'src/auth/roles.decorator';
+import { RolesGuard } from 'src/auth/roles/roles.guard';
+import { CreateAdminDto } from './dto/create-admin.dto';
+import { UsersService } from './users.service';
+import { UpdateAdminDto } from './dto/update-admin.dto';
+import { AssignUserDto } from 'src/projects/dto/assign-user.dto';
+import { CreateManagerDto } from './dto/create-manager.dto';
+import { UpdateManagerDto } from './dto/update-manager.dto';
+@Controller('users')
+export class UsersController {
+  constructor(private usersService: UsersService) {}
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Post('create-admin')
+  createAdmin(@Body() dto: CreateAdminDto) {
+    return this.usersService.createAdmin(dto);
+  }
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Put('admin/:id')
+  updateAdmin(@Param('id') id: string, @Body() dto: UpdateAdminDto) {
+    return this.usersService.updateAdmin(+id, dto);
+  }
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Patch('admin/:id/deactivate')
+  deactivateAdmin(@Param('id') id: string) {
+    return this.usersService.deactivateAdmin(+id);
+  }
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Get('admins')
+  getAllAdmins() {
+    return this.usersService.getAllAdmins();
+  }
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Get('admins/:id')
+  getAdminById(@Param('id') id: string) {
+    return this.usersService.getAdminById(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Get('admins/search')
+  searchAdminByName(@Query('name') name: string) {
+    return this.usersService.searchAdminByName(name);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Post('assign')
+  assignUser(@Body() dto: AssignUserDto) {
+    return this.usersService.assignUser(dto);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Post('create-manager')
+  createManager(@Body() dto: CreateManagerDto, @Req() req) {
+    return this.usersService.createManager(dto, req.user);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN','MANAGER')
+  @Put('manager/:id')
+  updateManager(
+    @Param('id') id: string,
+    @Body() dto: UpdateManagerDto,
+    @Req() req,
+  ) {
+    return this.usersService.updateManager(+id, dto, req.user);
+  }
+}

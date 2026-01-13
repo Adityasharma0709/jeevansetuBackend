@@ -1,0 +1,286 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/**
+ * =========================
+ * USER & RBAC MODELS
+ * =========================
+ */
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  mobile    String?
+  password  String
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roles                UserRole[]
+  projectAssignments   UserProjectLocation[]
+  createdBeneficiaries Beneficiary[]
+  approvalsRequested   ApprovalRequest[]     @relation("requestedBy")
+  approvalsApproved    ApprovalRequest[]     @relation("approvedBy")
+  activityReports      ActivityReport[]
+  auditLogs            AuditLog[]
+}
+
+model Role {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+
+  users UserRole[]
+}
+
+model UserRole {
+  id     Int @id @default(autoincrement())
+  userId Int
+  roleId Int
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+}
+
+/**
+ * =========================
+ * PROJECT & LOCATION
+ * =========================
+ */
+
+model Project {
+  id          Int     @id @default(autoincrement())
+  projectCode String  @unique @db.VarChar(4)
+  name        String
+  description String?
+  status      String  @default("ACTIVE")
+
+  locations     Location[]
+  assignments   UserProjectLocation[]
+  beneficiaries Beneficiary[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Location {
+  id           Int      @id @default(autoincrement())
+  locationCode String   @db.VarChar(8)
+  projectId    Int
+
+  state    String
+  district String
+  block    String
+  village  String
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  beneficiaries Beneficiary[]
+  assignments UserProjectLocation[]
+
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, locationCode])
+}
+
+
+model UserProjectLocation {
+  id         Int @id @default(autoincrement())
+  userId     Int
+  projectId  Int
+  locationId Int
+
+  user     User     @relation(fields: [userId], references: [id])
+  project  Project  @relation(fields: [projectId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  // Prevent duplicate assignment
+  @@unique([userId, projectId, locationId])
+}
+
+
+/**
+ * =========================
+ * APPROVAL WORKFLOW
+ * =========================
+ */
+
+model ApprovalRequest {
+  id          Int       @id @default(autoincrement())
+  requestType String
+  status      String    @default("PENDING")
+  remarks     String?
+  createdAt   DateTime  @default(now())
+  approvedAt  DateTime?
+
+  requestedById Int
+  approvedById  Int?
+
+  requestedBy User  @relation("requestedBy", fields: [requestedById], references: [id])
+  approvedBy  User? @relation("approvedBy", fields: [approvedById], references: [id])
+}
+
+/**
+ * =========================
+ * BENEFICIARY MODELS
+ * =========================
+ */
+
+model Beneficiary {
+  id  Int    @id @default(autoincrement())
+  uid String @unique @db.VarChar(10)
+
+  projectId   Int
+  locationId  Int
+  createdById Int
+
+  mobileNumber         String
+  name                 String
+  gender               String
+  guardianName         String
+  dateOfBirth          DateTime
+  maritalStatus        String?
+  dateOfMarriage       String?
+  womanAgeAtMarriage   Int?
+  husbandAgeAtMarriage Int?
+
+  qualification String
+  religion      String
+  caste         String
+
+  monthlyIncome       Float
+  economicStatus      String
+  primaryIncomeSource String
+  employmentStatus    String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  location  Location @relation(fields: [locationId], references: [id])
+  createdBy User     @relation(fields: [createdById], references: [id])
+
+  children   BeneficiaryChild[]
+  activities BeneficiaryActivity[]
+  reports    ActivityReport[]
+}
+
+model BeneficiaryChild {
+  id            Int @id @default(autoincrement())
+  beneficiaryId Int
+
+  name            String
+  dateOfBirth     DateTime
+  gender          String
+  schoolingStatus String
+
+  beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
+}
+
+/**
+ * =========================
+ * ACTIVITIES & SESSIONS
+ * =========================
+ */
+
+model BeneficiaryGroup {
+  id     Int    @id @default(autoincrement())
+  name   String
+  minAge Int
+  maxAge Int
+
+  activities GroupActivity[]
+}
+
+model Activity {
+  id          Int     @id @default(autoincrement())
+  name        String
+  description String?
+
+  groups        GroupActivity[]
+  sessions      Session[]
+  beneficiaries BeneficiaryActivity[]
+  reports       ActivityReport[]
+}
+
+model GroupActivity {
+  id         Int @id @default(autoincrement())
+  groupId    Int
+  activityId Int
+
+  group    BeneficiaryGroup @relation(fields: [groupId], references: [id])
+  activity Activity         @relation(fields: [activityId], references: [id])
+}
+
+model Session {
+  id          Int      @id @default(autoincrement())
+  activityId  Int
+  name        String
+  sessionDate DateTime
+
+  activity      Activity              @relation(fields: [activityId], references: [id])
+  beneficiaries BeneficiaryActivity[]
+  reports       ActivityReport[]
+}
+
+model BeneficiaryActivity {
+  id            Int @id @default(autoincrement())
+  beneficiaryId Int
+  activityId    Int
+  sessionId     Int
+
+  beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
+  activity    Activity    @relation(fields: [activityId], references: [id])
+  session     Session     @relation(fields: [sessionId], references: [id])
+}
+
+/**
+ * =========================
+ * ACTIVITY REPORTING
+ * =========================
+ */
+
+model ActivityReport {
+  id            Int @id @default(autoincrement())
+  beneficiaryId Int
+  activityId    Int
+  sessionId     Int
+  reportedById  Int
+
+  reportData Json
+  createdAt  DateTime @default(now())
+
+  beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
+  activity    Activity    @relation(fields: [activityId], references: [id])
+  session     Session     @relation(fields: [sessionId], references: [id])
+  reportedBy  User        @relation(fields: [reportedById], references: [id])
+}
+
+/**
+ * =========================
+ * AUDIT LOGS (DSS READY)
+ * =========================
+ */
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  entity    String
+  entityId  Int
+  action    String
+  oldValue  Json?
+  newValue  Json?
+  createdAt DateTime @default(now())
+
+  performedById Int
+  performedBy   User @relation(fields: [performedById], references: [id])
+}
