@@ -19,6 +19,7 @@ import { UpdateAdminDto } from './dto/update-admin.dto';
 import { AssignUserDto } from 'src/projects/dto/assign-user.dto';
 import { CreateManagerDto } from './dto/create-manager.dto';
 import { UpdateManagerDto } from './dto/update-manager.dto';
+import { AssignProjectDto } from './dto/assign-project.dto';
 @Controller('users')
 export class UsersController {
   constructor(private usersService: UsersService) {}
@@ -75,7 +76,7 @@ export class UsersController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN','MANAGER')
+  @Roles('ADMIN', 'MANAGER')
   @Put('manager/:id')
   updateManager(
     @Param('id') id: string,
@@ -83,5 +84,11 @@ export class UsersController {
     @Req() req,
   ) {
     return this.usersService.updateManager(+id, dto, req.user);
+  }
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Post('assign-project-location')
+  assignProjectLocation(@Body() dto: AssignProjectDto) {
+    return this.usersService.assignProjectLocation(dto);
   }
 }

@@ -1,13 +1,10 @@
--- CreateEnum
-CREATE TYPE "UserStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'SUSPENDED');
-
 -- CreateTable
 CREATE TABLE "User" (
-    "id" TEXT NOT NULL,
+    "id" SERIAL NOT NULL,
     "name" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "password" TEXT NOT NULL,
-    "status" "UserStatus" NOT NULL DEFAULT 'ACTIVE',
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -16,65 +13,91 @@ CREATE TABLE "User" (
 
 -- CreateTable
 CREATE TABLE "Role" (
-    "id" TEXT NOT NULL,
+    "id" SERIAL NOT NULL,
     "name" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Role_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "UserRole" (
-    "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
-    "roleId" TEXT NOT NULL,
+    "id" SERIAL NOT NULL,
+    "userId" INTEGER NOT NULL,
+    "roleId" INTEGER NOT NULL,
 
     CONSTRAINT "UserRole_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Project" (
-    "id" TEXT NOT NULL,
+    "id" SERIAL NOT NULL,
+    "projectCode" VARCHAR(4) NOT NULL,
     "name" TEXT NOT NULL,
-    "projectCode" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
 
     CONSTRAINT "Project_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Location" (
-    "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "locationCode" TEXT NOT NULL,
-    "projectId" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "id" SERIAL NOT NULL,
+    "locationCode" VARCHAR(8) NOT NULL,
+    "projectId" INTEGER NOT NULL,
+    "state" TEXT NOT NULL,
+    "district" TEXT NOT NULL,
+    "block" TEXT NOT NULL,
+    "village" TEXT NOT NULL,
 
     CONSTRAINT "Location_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "UserProjectLocation" (
-    "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
-    "projectId" TEXT NOT NULL,
-    "locationId" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "id" SERIAL NOT NULL,
+    "userId" INTEGER NOT NULL,
+    "projectId" INTEGER NOT NULL,
+    "locationId" INTEGER NOT NULL,
 
     CONSTRAINT "UserProjectLocation_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
-CREATE TABLE "AuditLog" (
-    "id" TEXT NOT NULL,
-    "action" TEXT NOT NULL,
-    "entity" TEXT NOT NULL,
-    "entityId" TEXT,
-    "performedBy" TEXT NOT NULL,
-    "metadata" JSONB,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+CREATE TABLE "BeneficiaryGroup" (
+    "id" SERIAL NOT NULL,
+    "name" TEXT NOT NULL,
+    "minAge" INTEGER NOT NULL,
+    "maxAge" INTEGER NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
 
-    CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "BeneficiaryGroup_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Activity" (
+    "id" SERIAL NOT NULL,
+    "name" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+
+    CONSTRAINT "Activity_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "GroupActivity" (
+    "id" SERIAL NOT NULL,
+    "groupId" INTEGER NOT NULL,
+    "activityId" INTEGER NOT NULL,
+
+    CONSTRAINT "GroupActivity_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Session" (
+    "id" SERIAL NOT NULL,
+    "activityId" INTEGER NOT NULL,
+    "name" TEXT NOT NULL,
+    "date" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Session_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -90,10 +113,22 @@ CREATE UNIQUE INDEX "UserRole_userId_roleId_key" ON "UserRole"("userId", "roleId
 CREATE UNIQUE INDEX "Project_projectCode_key" ON "Project"("projectCode");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Location_locationCode_key" ON "Location"("locationCode");
+CREATE UNIQUE INDEX "Location_projectId_locationCode_key" ON "Location"("projectId", "locationCode");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "UserProjectLocation_userId_projectId_locationId_key" ON "UserProjectLocation"("userId", "projectId", "locationId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "BeneficiaryGroup_name_key" ON "BeneficiaryGroup"("name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Activity_name_key" ON "Activity"("name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "GroupActivity_groupId_activityId_key" ON "GroupActivity"("groupId", "activityId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Session_activityId_name_key" ON "Session"("activityId", "name");
 
 -- AddForeignKey
 ALTER TABLE "UserRole" ADD CONSTRAINT "UserRole_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -112,6 +147,3 @@ ALTER TABLE "UserProjectLocation" ADD CONSTRAINT "UserProjectLocation_projectId_
 
 -- AddForeignKey
 ALTER TABLE "UserProjectLocation" ADD CONSTRAINT "UserProjectLocation_locationId_fkey" FOREIGN KEY ("locationId") REFERENCES "Location"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_performedBy_fkey" FOREIGN KEY ("performedBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

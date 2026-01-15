@@ -3,14 +3,16 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
-import * as bcrypt from 'bcrypt';
 import { UpdateAdminDto } from './dto/update-admin.dto';
 import { AssignUserDto } from 'src/projects/dto/assign-user.dto';
 import { CreateManagerDto } from './dto/create-manager.dto';
 import { UpdateManagerDto } from './dto/update-manager.dto';
+import { AssignProjectDto } from './dto/assign-project.dto';
 
 @Injectable()
 export class UsersService {
@@ -50,10 +52,10 @@ export class UsersService {
         roleId: role.id,
       },
     });
-
+const { password, ...safeUser } = user;
     return {
       message: 'Admin created successfully',
-      user,
+      safeUser,
     };
   }
   async updateAdmin(id: number, dto: UpdateAdminDto) {
@@ -249,88 +251,103 @@ export class UsersService {
         locationId: dto.locationId,
       },
     });
- const { password, ...safeManager } = manager;
+    const { password, ...safeManager } = manager;
     return {
       message: 'Manager created successfully',
       safeManager,
     };
   }
 
-async updateManager(
-  managerId: number,
-  dto: UpdateManagerDto,
-  loggedUser: any
-) {
+  async updateManager(
+    managerId: number,
+    dto: UpdateManagerDto,
+    loggedUser: any,
+  ) {
+    const manager = await this.prisma.user.findUnique({
+      where: { id: managerId },
+      include: {
+        roles: { include: { role: true } },
+      },
+    });
 
-  const manager = await this.prisma.user.findUnique({
-    where: { id: managerId },
-    include: {
-      roles: { include: { role: true } }
+    if (!manager) {
+      throw new NotFoundException('Manager not found');
     }
+
+    const isManager = manager.roles.some((r) => r.role.name === 'MANAGER');
+
+    if (!isManager) {
+      throw new BadRequestException('User is not a Manager');
+    }
+
+    // 🔥 CASE 1: MANAGER updating self
+    if (loggedUser.role === 'MANAGER' && loggedUser.id !== managerId) {
+      throw new ForbiddenException('You can update only your own profile');
+    }
+
+    // 🔥 CASE 2: ADMIN updating manager
+    if (loggedUser.role === 'ADMIN') {
+      const allowed = await this.prisma.userProjectLocation.findFirst({
+        where: {
+          userId: loggedUser.id,
+          projectId: {
+            in: (
+              await this.prisma.userProjectLocation.findMany({
+                where: { userId: managerId },
+                select: { projectId: true },
+              })
+            ).map((p) => p.projectId),
+          },
+        },
+      });
+
+      if (!allowed) {
+        throw new ForbiddenException('You cannot modify this manager');
+      }
+    }
+
+    // Hash password if updating
+    if (dto.password) {
+      dto.password = await bcrypt.hash(dto.password, 10);
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: managerId },
+      data: dto,
+    });
+
+    const { password, ...safe } = updated;
+
+    return {
+      message: 'Profile updated successfully',
+      user: safe,
+    };
+  }
+
+  async assignProjectLocation(dto: AssignProjectDto) {
+
+  // check duplicate
+  const exists = await this.prisma.userProjectLocation.findFirst({
+    where: {
+      userId: dto.userId,
+      projectId: dto.projectId,
+      locationId: dto.locationId,
+    },
   });
 
-  if (!manager) {
-    throw new NotFoundException('Manager not found');
-  }
-
-  const isManager = manager.roles.some(
-    r => r.role.name === 'MANAGER'
-  );
-
-  if (!isManager) {
-    throw new BadRequestException('User is not a Manager');
-  }
-
-  // 🔥 CASE 1: MANAGER updating self
-  if (
-    loggedUser.role === 'MANAGER' &&
-    loggedUser.id !== managerId
-  ) {
-    throw new ForbiddenException(
-      'You can update only your own profile'
+  if (exists) {
+    throw new ConflictException(
+      'User already assigned to this project & location',
     );
   }
 
-  // 🔥 CASE 2: ADMIN updating manager
-  if (loggedUser.role === 'ADMIN') {
-
-    const allowed = await this.prisma.userProjectLocation.findFirst({
-      where: {
-        userId: loggedUser.id,
-        projectId: {
-          in: (
-            await this.prisma.userProjectLocation.findMany({
-              where: { userId: managerId },
-              select: { projectId: true }
-            })
-          ).map(p => p.projectId)
-        }
-      }
-    });
-
-    if (!allowed) {
-      throw new ForbiddenException(
-        'You cannot modify this manager'
-      );
-    }
-  }
-
-  // Hash password if updating
-  if (dto.password) {
-    dto.password = await bcrypt.hash(dto.password, 10);
-  }
-
-  const updated = await this.prisma.user.update({
-    where: { id: managerId },
-    data: dto
+  return this.prisma.userProjectLocation.create({
+    data: {
+      userId: dto.userId,
+      projectId: dto.projectId,
+      locationId: dto.locationId,
+    },
   });
-
-  const { password, ...safe } = updated;
-
-  return {
-    message: 'Profile updated successfully',
-    user: safe
-  };
 }
 
 }

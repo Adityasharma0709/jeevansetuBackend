@@ -9,6 +9,7 @@ import { LocationsModule } from './locations/locations.module';
 // import { PrismaModule } from 'prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { PrismaModule } from './prisma/prisma.module';
     LocationsModule,
     PrismaModule,
     ConfigModule.forRoot({ isGlobal: true }),
+    AdminModule
   ],
   controllers: [AppController],
   providers: [AppService],

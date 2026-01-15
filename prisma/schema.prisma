@@ -9,7 +9,7 @@ datasource db {
 
 /**
  * =========================
- * USER & RBAC MODELS
+ * USER & RBAC
  * =========================
  */
 
@@ -17,19 +17,24 @@ model User {
   id        Int      @id @default(autoincrement())
   name      String
   email     String   @unique
-  mobile    String?
   password  String
   status    String   @default("ACTIVE")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  roles                UserRole[]
-  projectAssignments   UserProjectLocation[]
-  createdBeneficiaries Beneficiary[]
-  approvalsRequested   ApprovalRequest[]     @relation("requestedBy")
-  approvalsApproved    ApprovalRequest[]     @relation("approvedBy")
-  activityReports      ActivityReport[]
-  auditLogs            AuditLog[]
+  roles              UserRole[]
+  projectAssignments UserProjectLocation[]
+
+  createdGroups      BeneficiaryGroup[]
+  createdActivities  Activity[]
+  createdSessions    Session[]
+  createdBeneficiary Beneficiary[]
+
+  approvalsRequested ApprovalRequest[] @relation("requestedBy")
+  approvalsApproved  ApprovalRequest[] @relation("approvedBy")
+
+  activityReports ActivityReport[]
+  auditLogs       AuditLog[]
 }
 
 model Role {
@@ -63,17 +68,18 @@ model Project {
   description String?
   status      String  @default("ACTIVE")
 
-  locations     Location[]
-  assignments   UserProjectLocation[]
-  beneficiaries Beneficiary[]
+  locations   Location[]
+  assignments UserProjectLocation[]
+
+  beneficiaries Beneficiary[] // ✅ ADD THIS
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Location {
-  id           Int      @id @default(autoincrement())
-  locationCode String   @db.VarChar(8)
+  id           Int    @id @default(autoincrement())
+  locationCode String
   projectId    Int
 
   state    String
@@ -81,18 +87,18 @@ model Location {
   block    String
   village  String
 
+  status String @default("ACTIVE")
+
   project Project @relation(fields: [projectId], references: [id])
 
   beneficiaries Beneficiary[]
-  assignments UserProjectLocation[]
+  assignments   UserProjectLocation[]
 
-  status    String   @default("ACTIVE")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([projectId, locationCode])
 }
-
 
 model UserProjectLocation {
   id         Int @id @default(autoincrement())
@@ -104,10 +110,8 @@ model UserProjectLocation {
   project  Project  @relation(fields: [projectId], references: [id])
   location Location @relation(fields: [locationId], references: [id])
 
-  // Prevent duplicate assignment
   @@unique([userId, projectId, locationId])
 }
-
 
 /**
  * =========================
@@ -132,23 +136,24 @@ model ApprovalRequest {
 
 /**
  * =========================
- * BENEFICIARY MODELS
+ * BENEFICIARY
  * =========================
  */
 
 model Beneficiary {
   id  Int    @id @default(autoincrement())
-  uid String @unique @db.VarChar(10)
+  uid String @unique
 
   projectId   Int
   locationId  Int
   createdById Int
 
-  mobileNumber         String
-  name                 String
-  gender               String
-  guardianName         String
-  dateOfBirth          DateTime
+  mobileNumber String
+  name         String
+  gender       String
+  guardianName String
+  dateOfBirth  DateTime
+
   maritalStatus        String?
   dateOfMarriage       String?
   womanAgeAtMarriage   Int?
@@ -189,28 +194,38 @@ model BeneficiaryChild {
 
 /**
  * =========================
- * ACTIVITIES & SESSIONS
+ * GROUPS / ACTIVITIES / SESSIONS
  * =========================
  */
 
 model BeneficiaryGroup {
   id     Int    @id @default(autoincrement())
-  name   String
+   name String @unique
   minAge Int
   maxAge Int
+status String @default("ACTIVE") 
+  createdById Int
+  creator     User @relation(fields: [createdById], references: [id])
 
   activities GroupActivity[]
+
+  createdAt DateTime @default(now())
 }
 
 model Activity {
   id          Int     @id @default(autoincrement())
   name        String
   description String?
+status String @default("ACTIVE")
+  createdById Int
+  creator     User @relation(fields: [createdById], references: [id])
 
   groups        GroupActivity[]
   sessions      Session[]
   beneficiaries BeneficiaryActivity[]
   reports       ActivityReport[]
+
+  createdAt DateTime @default(now())
 }
 
 model GroupActivity {
@@ -220,6 +235,8 @@ model GroupActivity {
 
   group    BeneficiaryGroup @relation(fields: [groupId], references: [id])
   activity Activity         @relation(fields: [activityId], references: [id])
+
+  @@unique([groupId, activityId])
 }
 
 model Session {
@@ -228,9 +245,14 @@ model Session {
   name        String
   sessionDate DateTime
 
+  createdById Int
+  creator     User @relation(fields: [createdById], references: [id])
+
   activity      Activity              @relation(fields: [activityId], references: [id])
   beneficiaries BeneficiaryActivity[]
   reports       ActivityReport[]
+
+  createdAt DateTime @default(now())
 }
 
 model BeneficiaryActivity {
@@ -242,11 +264,13 @@ model BeneficiaryActivity {
   beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
   activity    Activity    @relation(fields: [activityId], references: [id])
   session     Session     @relation(fields: [sessionId], references: [id])
+
+  @@unique([beneficiaryId, activityId, sessionId])
 }
 
 /**
  * =========================
- * ACTIVITY REPORTING
+ * REPORTS
  * =========================
  */
 
@@ -268,7 +292,7 @@ model ActivityReport {
 
 /**
  * =========================
- * AUDIT LOGS (DSS READY)
+ * AUDIT LOGS
  * =========================
  */
 
