@@ -19,97 +19,133 @@ import { CreateActivityDto } from './dto/create-activity.dto';
 import { TagGroupActivityDto } from './dto/tag-group-activity.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { UpdateActivityDto } from './dto/update-activity.dto';
-
+import { CreateSessionDto } from './dto/create-session.dto';
+import { UpdateSessionDto } from './dto/update-session.dto';
 
 @Controller('admin')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('ADMIN')
+@Get('dashboard/admin')
+getAdminDashboard() {
+  return this.adminService.adminDashboard();
+}
+
+
+  //activities
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Post('activities')
+  createActivity(@Body() dto: CreateActivityDto, @Req() req) {
+    return this.adminService.createActivity(dto, req.user);
+  }
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Put('activity/:id')
+  updateActivity(@Param('id') id: string, @Body() dto: UpdateActivityDto) {
+    return this.adminService.updateActivity(+id, dto);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Patch('activity/:id/deactivate')
+  deactivateActivity(@Param('id') id: string) {
+    return this.adminService.deactivateActivity(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Patch('activity/:id/activate')
+  activateActivity(@Param('id') id: string) {
+    return this.adminService.activateActivity(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Get('activities/active')
+  getActiveActivities() {
+    return this.adminService.getActiveActivities();
+  }
+
+  //tag
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Post('tag-group-activity')
+  tagGroupWithActivity(@Body() dto: TagGroupActivityDto, @Req() req) {
+    return this.adminService.tagGroupWithActivity(dto, req.user);
+  }
+
+  //group
   //groups
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Post('groups')
+  createGroup(@Body() dto: CreateGroupDto, @Req() req) {
+    return this.adminService.createGroup(dto, req.user);
+  }
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Get('groups')
+  getAllGroups() {
+    return this.adminService.getAllGroups();
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Put('group/:id')
+  updateGroup(@Param('id') id: string, @Body() dto: UpdateGroupDto) {
+    return this.adminService.updateGroup(+id, dto);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Patch('group/:id/deactivate')
+  deactivateGroup(@Param('id') id: string) {
+    return this.adminService.deactivateGroup(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Patch('group/:id/activate')
+  activateGroup(@Param('id') id: string) {
+    return this.adminService.activateGroup(+id);
+  }
+
+  //session
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('ADMIN')
-@Post('groups')
-createGroup(@Body() dto: CreateGroupDto, @Req() req) {
-  return this.adminService.createGroup(dto, req.user);
+@Post('session')
+createSession(
+  @Body() dto: CreateSessionDto,
+  @Req() req
+) {
+  return this.adminService.createSession(dto, req.user);
 }
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('ADMIN')
-@Post('activities')
-createActivity(@Body() dto: CreateActivityDto, @Req() req) {
-  return this.adminService.createActivity(dto, req.user);
-}
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('ADMIN')
-@Put('activity/:id')
-updateActivity(
+@Put('session/:id')
+updateSession(
   @Param('id') id: string,
-  @Body() dto: UpdateActivityDto
+  @Body() dto: UpdateSessionDto
 ) {
-  return this.adminService.updateActivity(+id, dto);
+  return this.adminService.updateSession(+id, dto);
 }
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('ADMIN')
-@Patch('activity/:id/deactivate')
-deactivateActivity(@Param('id') id: string) {
-  return this.adminService.deactivateActivity(+id);
+@Patch('session/:id/deactivate')
+deactivateSession(@Param('id') id: string) {
+  return this.adminService.deactivateSession(+id);
 }
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('ADMIN')
-@Patch('activity/:id/activate')
-activateActivity(@Param('id') id: string) {
-  return this.adminService.activateActivity(+id);
-}
-
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('ADMIN')
-@Get('activities/active')
-getActiveActivities() {
-  return this.adminService.getActiveActivities();
-}
-
-//tag
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('ADMIN')
-@Post('tag-group-activity')
-tagGroupWithActivity(
-  @Body() dto: TagGroupActivityDto,
-  @Req() req,
-) {
-  return this.adminService.tagGroupWithActivity(dto, req.user);
-}
-
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('ADMIN')
-@Get('groups')
-getAllGroups() {
-  return this.adminService.getAllGroups();
-}
-
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('ADMIN')
-@Put('group/:id')
-updateGroup(
-  @Param('id') id: string,
-  @Body() dto: UpdateGroupDto,
-) {
-  return this.adminService.updateGroup(+id, dto);
-}
-
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('ADMIN')
-@Patch('group/:id/deactivate')
-deactivateGroup(@Param('id') id: string) {
-  return this.adminService.deactivateGroup(+id);
-}
-
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('ADMIN')
-@Patch('group/:id/activate')
-activateGroup(@Param('id') id: string) {
-  return this.adminService.activateGroup(+id);
+@Get('activity/:id/sessions')
+getSessions(@Param('id') id: string) {
+  return this.adminService.getSessionsByActivity(+id);
 }
 
 }

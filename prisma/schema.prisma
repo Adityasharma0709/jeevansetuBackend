@@ -126,7 +126,7 @@ model ApprovalRequest {
   remarks     String?
   createdAt   DateTime  @default(now())
   approvedAt  DateTime?
-
+payload       Json
   requestedById Int
   approvedById  Int?
 
@@ -244,7 +244,7 @@ model Session {
   activityId  Int
   name        String
   sessionDate DateTime
-
+status String @default("ACTIVE")
   createdById Int
   creator     User @relation(fields: [createdById], references: [id])
 

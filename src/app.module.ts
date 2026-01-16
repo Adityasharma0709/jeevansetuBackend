@@ -10,6 +10,9 @@ import { LocationsModule } from './locations/locations.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { AdminModule } from './admin/admin.module';
+import { ManagerModule } from './manager/manager.module';
+import { OutreachService } from './outreach/outreach.service';
+import { OutreachModule } from './outreach/outreach.module';
 
 @Module({
   imports: [
@@ -20,9 +23,11 @@ import { AdminModule } from './admin/admin.module';
     LocationsModule,
     PrismaModule,
     ConfigModule.forRoot({ isGlobal: true }),
-    AdminModule
+    AdminModule,
+    ManagerModule,
+    OutreachModule
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, OutreachService],
 })
 export class AppModule {}
