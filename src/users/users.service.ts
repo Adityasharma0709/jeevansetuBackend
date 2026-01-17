@@ -349,5 +349,29 @@ const { password, ...safeUser } = user;
     },
   });
 }
+//super-admin dashboard
+async superAdminDashboard() {
+
+  const totalProjects = await this.prisma.project.count();
+  const totalLocations = await this.prisma.location.count();
+
+  const beneficiariesPerProject =
+    await this.prisma.project.findMany({
+      select: {
+        id: true,
+        name: true,
+        projectCode: true,
+        _count: {
+          select: { beneficiaries: true }
+        }
+      }
+    });
+
+  return {
+    totalProjects,
+    totalLocations,
+    beneficiariesPerProject
+  };
+}
 
 }

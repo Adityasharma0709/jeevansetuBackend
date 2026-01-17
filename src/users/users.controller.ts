@@ -91,4 +91,13 @@ export class UsersController {
   assignProjectLocation(@Body() dto: AssignProjectDto) {
     return this.usersService.assignProjectLocation(dto);
   }
+
+  //super-admin dashboard
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('SUPER_ADMIN')
+@Get('dashboard/super-admin')
+getSuperAdminDashboard() {
+  return this.usersService.superAdminDashboard();
+}
+
 }
