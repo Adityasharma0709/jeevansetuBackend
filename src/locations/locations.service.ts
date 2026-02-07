@@ -18,6 +18,23 @@ export class LocationsService {
 
     return this.prisma.location.create({ data: dto });
   }
+async updateStatus(id: number, status: string) {
+  return this.prisma.location.update({
+    where: { id },
+    data: { status },
+    select: {
+      id: true,
+      locationCode: true,
+      projectId: true,
+      state: true,
+      district: true,
+      block: true,
+      village: true,
+      status: true,
+      updatedAt: true,
+    },
+  });
+}
 
   findAll(projectId?: number) {
     return this.prisma.location.findMany({

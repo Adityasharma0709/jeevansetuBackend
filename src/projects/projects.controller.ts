@@ -16,21 +16,28 @@ import { UpdateProjectDto } from './dto/update-project.dto';
 export class ProjectsController {
   constructor(private readonly projectService: ProjectsService) {}
 
+  // =========================
+  // CREATE PROJECT
+  // =========================
+
   @Post()
   create(@Body() dto: CreateProjectDto) {
     return this.projectService.create(dto);
   }
 
-  // 🔍 SEARCH BY NAME OR CODE
+  // =========================
+  // GET ALL PROJECTS
+  // 🔍 Optional search by name/code
+  // =========================
+
   @Get()
   findAll(@Query('search') search?: string) {
     return this.projectService.findAll(search);
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.projectService.findOne(+id);
-  }
+  // =========================
+  // UPDATE PROJECT
+  // =========================
 
   @Put(':id')
   update(
@@ -40,8 +47,35 @@ export class ProjectsController {
     return this.projectService.update(+id, dto);
   }
 
+  // =========================
+  // DISABLE PROJECT
+  // (Soft delete)
+  // =========================
+
   @Patch(':id/disable')
   disable(@Param('id') id: string) {
     return this.projectService.disable(+id);
+  }
+
+  // =========================
+  // UPDATE PROJECT STATUS
+  // =========================
+
+  @Patch(':id/status')
+  updateStatus(
+    @Param('id') id: string,
+    @Body('status') status: string,
+  ) {
+    return this.projectService.updateStatus(+id, status);
+  }
+
+  // =========================
+  // GET PROJECT BY ID
+  // ⚠ Keep dynamic route last
+  // =========================
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.projectService.findOne(+id);
   }
 }

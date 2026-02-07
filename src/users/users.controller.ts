@@ -23,50 +23,94 @@ import { AssignProjectDto } from './dto/assign-project.dto';
 @Controller('users')
 export class UsersController {
   constructor(private usersService: UsersService) {}
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('SUPER_ADMIN')
-  @Post('create-admin')
-  createAdmin(@Body() dto: CreateAdminDto) {
-    return this.usersService.createAdmin(dto);
-  }
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('SUPER_ADMIN')
-  @Put('admin/:id')
-  updateAdmin(@Param('id') id: string, @Body() dto: UpdateAdminDto) {
-    return this.usersService.updateAdmin(+id, dto);
-  }
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('SUPER_ADMIN')
-  @Patch('admin/:id/deactivate')
-  deactivateAdmin(@Param('id') id: string) {
-    return this.usersService.deactivateAdmin(+id);
-  }
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('SUPER_ADMIN')
-  @Get('admins')
-  getAllAdmins() {
-    return this.usersService.getAllAdmins();
-  }
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('SUPER_ADMIN')
-  @Get('admins/:id')
-  getAdminById(@Param('id') id: string) {
-    return this.usersService.getAdminById(+id);
-  }
+// =========================
+// CREATE ADMIN
+// =========================
 
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('SUPER_ADMIN')
-  @Get('admins/search')
-  searchAdminByName(@Query('name') name: string) {
-    return this.usersService.searchAdminByName(name);
-  }
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('SUPER_ADMIN')
+@Post('create-admin')
+createAdmin(@Body() dto: CreateAdminDto) {
+  return this.usersService.createAdmin(dto);
+}
 
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('SUPER_ADMIN')
-  @Post('assign')
-  assignUser(@Body() dto: AssignUserDto) {
-    return this.usersService.assignUser(dto);
-  }
+
+// =========================
+// UPDATE ADMIN
+// =========================
+
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('SUPER_ADMIN')
+@Put('admin/:id')
+updateAdmin(@Param('id') id: string, @Body() dto: UpdateAdminDto) {
+  return this.usersService.updateAdmin(+id, dto);
+}
+
+
+// =========================
+// UPDATE ADMIN STATUS
+// =========================
+
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('SUPER_ADMIN')
+@Patch('admin/:id/status')
+updateAdminStatus(
+  @Param('id') id: string,
+  @Body('status') status: string,
+) {
+  return this.usersService.updateAdminStatus(+id, status);
+}
+
+
+// =========================
+// SEARCH ADMIN
+// ⚠ Must come before :id route
+// =========================
+
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('SUPER_ADMIN')
+@Get('admins/search')
+searchAdminByName(@Query('name') name: string) {
+  return this.usersService.searchAdminByName(name);
+}
+
+
+// =========================
+// GET ALL ADMINS
+// =========================
+
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('SUPER_ADMIN')
+@Get('admins')
+getAllAdmins() {
+  return this.usersService.getAllAdmins();
+}
+
+
+// =========================
+// GET ADMIN BY ID
+// ⚠ Dynamic route — keep last
+// =========================
+
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('SUPER_ADMIN')
+@Get('admins/:id')
+getAdminById(@Param('id') id: string) {
+  return this.usersService.getAdminById(+id);
+}
+
+
+// =========================
+// ASSIGN USER
+// =========================
+
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('SUPER_ADMIN')
+@Post('assign')
+assignUser(@Body() dto: AssignUserDto) {
+  return this.usersService.assignUser(dto);
+}
+
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')

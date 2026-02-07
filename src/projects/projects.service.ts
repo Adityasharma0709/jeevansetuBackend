@@ -37,6 +37,20 @@ export class ProjectsService {
     });
   }
 
+  async updateStatus(id: number, status: string) {
+  return this.prisma.project.update({
+    where: { id },
+    data: { status },
+    select: {
+      id: true,
+      projectCode: true,
+      name: true,
+      status: true,
+      updatedAt: true,
+    },
+  });
+}
+
   findOne(id: number) {
     return this.prisma.project.findUnique({ where: { id } });
   }

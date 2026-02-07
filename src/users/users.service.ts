@@ -58,6 +58,20 @@ const { password, ...safeUser } = user;
       safeUser,
     };
   }
+  async updateAdminStatus(id: number, status: string) {
+  return this.prisma.user.update({
+    where: { id },
+    data: { status },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      status: true,
+      updatedAt: true,
+    },
+  });
+}
+
   async updateAdmin(id: number, dto: UpdateAdminDto) {
     const admin = await this.prisma.user.findUnique({
       where: { id },
