@@ -1,6 +1,15 @@
-import { IsOptional, IsString, IsIn } from 'class-validator';
+import { IsOptional, IsString, IsIn, IsInt } from 'class-validator';
 
 export class UpdateLocationDto {
+
+  @IsOptional()
+  @IsInt()
+  projectId?: number;
+
+  @IsOptional()
+  @IsString()
+  locationCode?: string;
+
   @IsOptional()
   @IsString()
   state?: string;
