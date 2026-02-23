@@ -1,9 +1,10 @@
-import { IsOptional, IsString, IsIn } from 'class-validator';
+import { IsIn, IsOptional, IsString, Length } from 'class-validator';
 
 export class UpdateProjectDto {
   @IsOptional()
   @IsString()
-  projectCode?: string;   // ✅ ADD THIS
+  @Length(4, 4)
+  projectCode?: string;
 
   @IsOptional()
   @IsString()

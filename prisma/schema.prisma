@@ -19,11 +19,14 @@ model User {
   email     String   @unique
   password  String
   status    String   @default("ACTIVE")
+  createdByAdminId Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   roles              UserRole[]
   projectAssignments UserProjectLocation[]
+  createdByAdmin     User?      @relation("AdminCreatedManagers", fields: [createdByAdminId], references: [id])
+  createdManagers    User[]     @relation("AdminCreatedManagers")
 
   createdGroups      BeneficiaryGroup[]
   createdActivities  Activity[]
@@ -32,6 +35,7 @@ model User {
 
   approvalsRequested ApprovalRequest[] @relation("requestedBy")
   approvalsApproved  ApprovalRequest[] @relation("approvedBy")
+  approvalsTargeted  ApprovalRequest[] @relation("targetAdmin")
 
   activityReports ActivityReport[]
   auditLogs       AuditLog[]
@@ -72,6 +76,7 @@ model Project {
   assignments UserProjectLocation[]
 
   beneficiaries Beneficiary[] // ✅ ADD THIS
+  activities    Activity[]    @relation("ProjectActivities") // 👈 ADD THIS
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -129,9 +134,11 @@ model ApprovalRequest {
 payload       Json
   requestedById Int
   approvedById  Int?
+  targetAdminId Int?
 
   requestedBy User  @relation("requestedBy", fields: [requestedById], references: [id])
   approvedBy  User? @relation("approvedBy", fields: [approvedById], references: [id])
+  targetAdmin User? @relation("targetAdmin", fields: [targetAdminId], references: [id])
 }
 
 /**
@@ -178,6 +185,20 @@ model Beneficiary {
   children   BeneficiaryChild[]
   activities BeneficiaryActivity[]
   reports    ActivityReport[]
+  groups     GroupMember[]
+}
+
+model GroupMember {
+  id            Int @id @default(autoincrement())
+  beneficiaryId Int
+  groupId       Int
+
+  beneficiary Beneficiary      @relation(fields: [beneficiaryId], references: [id])
+  group       BeneficiaryGroup @relation(fields: [groupId], references: [id])
+
+  assignedAt DateTime @default(now())
+
+  @@unique([beneficiaryId, groupId])
 }
 
 model BeneficiaryChild {
@@ -208,6 +229,7 @@ status String @default("ACTIVE")
   creator     User @relation(fields: [createdById], references: [id])
 
   activities GroupActivity[]
+  members    GroupMember[]
 
   createdAt DateTime @default(now())
 }
@@ -216,9 +238,12 @@ model Activity {
   id          Int     @id @default(autoincrement())
   name        String
   description String?
-status String @default("ACTIVE")
+  status      String  @default("ACTIVE")
   createdById Int
-  creator     User @relation(fields: [createdById], references: [id])
+  projectId   Int?
+
+  creator     User     @relation(fields: [createdById], references: [id])
+  project     Project? @relation("ProjectActivities", fields: [projectId], references: [id])
 
   groups        GroupActivity[]
   sessions      Session[]

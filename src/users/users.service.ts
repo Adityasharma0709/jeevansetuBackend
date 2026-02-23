@@ -16,7 +16,7 @@ import { AssignProjectDto } from './dto/assign-project.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async createAdmin(dto: CreateAdminDto) {
     const exists = await this.prisma.user.findUnique({
@@ -52,25 +52,25 @@ export class UsersService {
         roleId: role.id,
       },
     });
-const { password, ...safeUser } = user;
+    const { password, ...safeUser } = user;
     return {
       message: 'Admin created successfully',
       safeUser,
     };
   }
   async updateAdminStatus(id: number, status: string) {
-  return this.prisma.user.update({
-    where: { id },
-    data: { status },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      status: true,
-      updatedAt: true,
-    },
-  });
-}
+    return this.prisma.user.update({
+      where: { id },
+      data: { status },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        status: true,
+        updatedAt: true,
+      },
+    });
+  }
 
   async updateAdmin(id: number, dto: UpdateAdminDto) {
     const admin = await this.prisma.user.findUnique({
@@ -208,10 +208,15 @@ const { password, ...safeUser } = user;
   }
 
   async createManager(dto: CreateManagerDto, adminUser: any) {
+    const adminId = adminUser?.userId ?? adminUser?.id;
+    if (!adminId) {
+      throw new ForbiddenException('Admin identity not found in token');
+    }
+
     // 1. Check admin assignment
     const allowed = await this.prisma.userProjectLocation.findFirst({
       where: {
-        userId: adminUser.id,
+        userId: adminId,
         projectId: dto.projectId,
         locationId: dto.locationId,
       },
@@ -238,6 +243,7 @@ const { password, ...safeUser } = user;
         email: dto.email,
         password: hash,
         status: 'ACTIVE',
+        createdByAdminId: adminId,
       },
     });
 
@@ -338,54 +344,148 @@ const { password, ...safeUser } = user;
     };
   }
 
-  async assignProjectLocation(dto: AssignProjectDto) {
+  async assignProjectLocation(dto: AssignProjectDto, loggedUser: any) {
+    // 1. RBAC Check
+    if (loggedUser.role !== 'SUPER_ADMIN') {
+      const isAssigned = await this.prisma.userProjectLocation.findFirst({
+        where: {
+          userId: loggedUser.id,
+          projectId: dto.projectId,
+          locationId: dto.locationId,
+        },
+      });
 
-  // check duplicate
-  const exists = await this.prisma.userProjectLocation.findFirst({
-    where: {
-      userId: dto.userId,
-      projectId: dto.projectId,
-      locationId: dto.locationId,
-    },
-  });
+      if (!isAssigned) {
+        throw new ForbiddenException(
+          'You are not assigned to this project & location',
+        );
+      }
 
-  if (exists) {
-    throw new ConflictException(
-      'User already assigned to this project & location',
-    );
+      if (loggedUser.role === 'MANAGER') {
+        // MANAGER can only assign to OUTREACH role
+        const targetUser = await this.prisma.user.findUnique({
+          where: { id: dto.userId },
+          include: { roles: { include: { role: true } } },
+        });
+
+        if (!targetUser) throw new NotFoundException('Target user not found');
+
+        const isOutreach = targetUser.roles.some(
+          (ur) => ur.role.name === 'OUTREACH',
+        );
+        if (!isOutreach) {
+          throw new ForbiddenException(
+            'Managers can only assign projects to Outreach workers',
+          );
+        }
+      }
+    }
+
+    // 2. Check duplicate
+    const exists = await this.prisma.userProjectLocation.findFirst({
+      where: {
+        userId: dto.userId,
+        projectId: dto.projectId,
+        locationId: dto.locationId,
+      },
+    });
+
+    if (exists) {
+      throw new ConflictException(
+        'User already assigned to this project & location',
+      );
+    }
+
+    return this.prisma.userProjectLocation.create({
+      data: {
+        userId: dto.userId,
+        projectId: dto.projectId,
+        locationId: dto.locationId,
+      },
+    });
+  }
+  //super-admin dashboard
+  async superAdminDashboard() {
+
+    const totalProjects = await this.prisma.project.count();
+    const totalLocations = await this.prisma.location.count();
+
+    const beneficiariesPerProject =
+      await this.prisma.project.findMany({
+        select: {
+          id: true,
+          name: true,
+          projectCode: true,
+          _count: {
+            select: { beneficiaries: true }
+          }
+        }
+      });
+
+    return {
+      totalProjects,
+      totalLocations,
+      beneficiariesPerProject
+    };
   }
 
-  return this.prisma.userProjectLocation.create({
-    data: {
-      userId: dto.userId,
-      projectId: dto.projectId,
-      locationId: dto.locationId,
-    },
-  });
-}
-//super-admin dashboard
-async superAdminDashboard() {
-
-  const totalProjects = await this.prisma.project.count();
-  const totalLocations = await this.prisma.location.count();
-
-  const beneficiariesPerProject =
-    await this.prisma.project.findMany({
+  async findUsersByRole(roleName: string, search?: string) {
+    return this.prisma.user.findMany({
+      where: {
+        roles: {
+          some: {
+            role: {
+              name: roleName,
+            },
+          },
+        },
+        OR: search ? [
+          { name: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+        ] : undefined,
+      },
       select: {
         id: true,
         name: true,
-        projectCode: true,
-        _count: {
-          select: { beneficiaries: true }
-        }
+        email: true,
+        status: true,
+        createdAt: true,
+        roles: {
+          select: {
+            role: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
+
+  async updateProfile(userId: number, dto: any) {
+    if (dto.password) {
+      dto.password = await bcrypt.hash(dto.password, 10);
+    }
+    // Remove sensitive fields that shouldn't be updated via this endpoint
+    delete dto.email;
+    delete dto.status;
+    delete dto.roles;
+    delete dto.mobile; // mobile field doesn't exist in User model
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: dto,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        status: true,
+        createdAt: true,
       }
     });
-
-  return {
-    totalProjects,
-    totalLocations,
-    beneficiariesPerProject
-  };
-}
-
+  }
 }

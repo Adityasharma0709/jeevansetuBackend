@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsInt, IsOptional, IsString } from 'class-validator';
 
 export class CreateActivityDto {
   @IsString()
@@ -7,4 +7,8 @@ export class CreateActivityDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsInt()
+  projectId?: number;
 }

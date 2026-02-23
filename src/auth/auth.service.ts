@@ -7,7 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 export class AuthService {
   private prisma = new PrismaClient();
 
-  constructor(private jwtService: JwtService) {}
+  constructor(private jwtService: JwtService) { }
 
   async login(email: string, password: string) {
     const user = await this.prisma.user.findUnique({
@@ -46,6 +46,28 @@ export class AuthService {
         email: user.email,
         roles,
       },
+    };
+  }
+
+  async getProfile(userId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        roles: {
+          include: { role: true },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      roles: user.roles.map(r => r.role.name),
     };
   }
 }

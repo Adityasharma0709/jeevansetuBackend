@@ -8,76 +8,77 @@ import { CreateWorkerDto } from './dto/create-worker.dto';
 import { UpdateWorkerDto } from './dto/update-worker.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { RejectRequestDto } from './dto/reject-request.dto';
+import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
 
 @Controller('manager')
 export class ManagerController {
-  constructor(private readonly managerService: ManagerService,private prisma:PrismaService) {}
+  constructor(private readonly managerService: ManagerService, private prisma: PrismaService) { }
 
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('MANAGER')
-@Get('dashboard/manager')
-getManagerDashboard(@Req() req) {
-  return this.managerService.managerDashboard(req.user.userId);
-}
-
-
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('MANAGER')
-@Put('me')
-updateMyProfile(
-  @Body() dto: UpdateProfileDto,
-  @Req() req
-) {
-  return this.managerService.updateProfile(req.user.userId, dto);
-}
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Get('dashboard/manager')
+  getManagerDashboard(@Req() req) {
+    return this.managerService.managerDashboard(req.user.userId);
+  }
 
 
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('MANAGER')
-@Post('create-worker')
-createWorker(
-  @Body() dto: CreateWorkerDto,
-  @Req() req
-) {
-  return this.managerService.createWorker(dto, req.user);
-}
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Put('me')
+  updateMyProfile(
+    @Body() dto: UpdateProfileDto,
+    @Req() req
+  ) {
+    return this.managerService.updateProfile(req.user.userId, dto);
+  }
 
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('MANAGER')
-@Put('worker/:id')
-updateWorker(
-  @Param('id') id: string,
-  @Body() dto: UpdateWorkerDto,
-  @Req() req
-) {
-  return this.managerService.updateWorker(+id, dto, req.user);
-}
 
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('MANAGER')
-@Patch('worker/:id/deactivate')
-deactivateWorker(@Param('id') id: string, @Req() req) {
-  return this.managerService.deactivateWorker(+id, req.user);
-}
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Post('create-worker')
+  createWorker(
+    @Body() dto: CreateWorkerDto,
+    @Req() req
+  ) {
+    return this.managerService.createWorker(dto, req.user);
+  }
 
-// @Patch('approve/:id')
-// approve(@Param('id') id: string, @Req() req) {
-//   return this.prisma.approvalRequest.update({
-//     where: { id: +id },
-//     data: {
-//       status: 'APPROVED',
-//       approvedById: req.user.userId,
-//       approvedAt: new Date()
-//     }
-//   });
-// }
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Put('worker/:id')
+  updateWorker(
+    @Param('id') id: string,
+    @Body() dto: UpdateWorkerDto,
+    @Req() req
+  ) {
+    return this.managerService.updateWorker(+id, dto, req.user);
+  }
 
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('MANAGER')
-@Patch('worker/:id/activate')
-activateWorker(@Param('id') id: string, @Req() req) {
-  return this.managerService.activateWorker(+id, req.user);
-}
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Patch('worker/:id/deactivate')
+  deactivateWorker(@Param('id') id: string, @Req() req) {
+    return this.managerService.deactivateWorker(+id, req.user);
+  }
+
+  // @Patch('approve/:id')
+  // approve(@Param('id') id: string, @Req() req) {
+  //   return this.prisma.approvalRequest.update({
+  //     where: { id: +id },
+  //     data: {
+  //       status: 'APPROVED',
+  //       approvedById: req.user.userId,
+  //       approvedAt: new Date()
+  //     }
+  //   });
+  // }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Patch('worker/:id/activate')
+  activateWorker(@Param('id') id: string, @Req() req) {
+    return this.managerService.activateWorker(+id, req.user);
+  }
 
   // Manager → view requests
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -109,7 +110,7 @@ activateWorker(@Param('id') id: string, @Req() req) {
 
 
   //request beneficiary update
-  
+
   /**
    * 1️⃣ View pending beneficiary update requests
    */
@@ -152,5 +153,49 @@ activateWorker(@Param('id') id: string, @Req() req) {
       dto,
       req.user
     );
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Get('outreach-workers')
+  getOutreachWorkers(@Req() req) {
+    return this.managerService.getOutreachWorkers(req.user.userId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Post('account-requests')
+  submitAccountRequest(@Body() body: any, @Req() req) {
+    return this.managerService.submitAccountRequest(body.type, body.data, req.user.userId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Post('beneficiary/:id/request-update')
+  submitBeneficiaryUpdateRequest(@Param('id') id: string, @Body() changes: UpdateBeneficiaryDto, @Req() req) {
+    return this.managerService.submitBeneficiaryUpdateRequest(+id, changes, req.user.userId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Get('profile-requests')
+  getProfileRequests() {
+    return this.managerService.getProfileRequests();
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Get('my-requests')
+  getMyRequests(@Req() req) {
+    return this.managerService.getMyRequests(req.user.userId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Patch('profile-requests/:id')
+  updateRequestStatus(@Param('id') id: string, @Body('status') status: 'APPROVED' | 'REJECTED', @Req() req) {
+    return this.managerService.updateRequestStatus(+id, status, req.user.userId);
   }
 }

@@ -8,6 +8,7 @@ import {
   Delete,
   UseGuards,
   Req,
+  Query,
 } from '@nestjs/common';
 import { OutreachService } from './outreach.service';
 import { AuthGuard } from '@nestjs/passport';
@@ -16,10 +17,11 @@ import { Roles } from 'src/auth/roles.decorator';
 import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { CreateReportDto } from './dto/create-report.dto';
+import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
 
 @Controller('outreach')
 export class OutreachController {
-  constructor(private readonly outreachService: OutreachService) {}
+  constructor(private readonly outreachService: OutreachService) { }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
@@ -35,26 +37,86 @@ export class OutreachController {
   }
   //beneficiary uppdate request
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('OUTREACH')
-@Post('beneficiary/:id/request-update')
-requestUpdate(
-  @Param('id') id: string,
-  @Body() dto,
-  @Req() req
-) {
-  return this.outreachService.requestBeneficiaryUpdate(+id, dto, req.user);
-}
+  @Roles('OUTREACH')
+  @Post('beneficiary/:id/request-update')
+  requestUpdate(
+    @Param('id') id: string,
+    @Body() dto: UpdateBeneficiaryDto,
+    @Req() req
+  ) {
+    return this.outreachService.requestBeneficiaryUpdate(+id, dto, req.user);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Get('my-requests')
+  getMyRequests(@Req() req) {
+    return this.outreachService.getMyRequests(req.user.userId);
+  }
 
 
-//report
-@UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('OUTREACH')
-@Post('activity-report')
-submitReport(
-  @Body() dto: CreateReportDto,
-  @Req() req
-) {
-  return this.outreachService.submitReport(dto, req.user);
-}
+  //report
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Post('activity-report')
+  submitReport(
+    @Body() dto: CreateReportDto,
+    @Req() req
+  ) {
+    return this.outreachService.submitReport(dto, req.user);
+  }
 
+  @Get('debug-info')
+  debugInfo() {
+    return this.outreachService.getDebugInfo();
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN')
+  @Get('beneficiary-list')
+  beneficiaryList(@Req() req, @Query('search') search?: string) {
+    return this.outreachService.getBeneficiaryList(req.user, search);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH', 'MANAGER')
+  @Get('beneficiary/:id')
+  getBeneficiary(@Param('id') id: string) {
+    return this.outreachService.getBeneficiary(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Post('beneficiary/:id/tag-group')
+  tagGroup(@Param('id') id: string, @Body() dto: { groupId: number }) {
+    return this.outreachService.tagBeneficiaryGroup(+id, Number(dto.groupId));
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Post('beneficiary/:id/tag-activity')
+  tagActivity(@Param('id') id: string, @Body() dto: { activityId: number, sessionId: number }) {
+    return this.outreachService.tagBeneficiaryActivity(+id, Number(dto.activityId), Number(dto.sessionId));
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Get('groups')
+  getGroups() {
+    return this.outreachService.getGroups();
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Get('activities')
+  getActivities() {
+    return this.outreachService.getActivities();
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Get('activity/:id/sessions')
+  getSessions(@Param('id') id: string) {
+    return this.outreachService.getSessions(+id);
+  }
 }

@@ -7,6 +7,7 @@ import {
   Put,
   Patch,
   Query,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -14,7 +15,7 @@ import { UpdateProjectDto } from './dto/update-project.dto';
 
 @Controller('projects')
 export class ProjectsController {
-  constructor(private readonly projectService: ProjectsService) {}
+  constructor(private readonly projectService: ProjectsService) { }
 
   // =========================
   // CREATE PROJECT
@@ -36,15 +37,24 @@ export class ProjectsController {
   }
 
   // =========================
+  // GET PROJECTS ASSIGNED TO USER
+  // =========================
+
+  @Get('user/:userId')
+  findAssignedToUser(@Param('userId', ParseIntPipe) userId: number) {
+    return this.projectService.findAssignedToUser(userId);
+  }
+
+  // =========================
   // UPDATE PROJECT
   // =========================
 
   @Put(':id')
   update(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateProjectDto,
   ) {
-    return this.projectService.update(+id, dto);
+    return this.projectService.update(id, dto);
   }
 
   // =========================
@@ -53,8 +63,8 @@ export class ProjectsController {
   // =========================
 
   @Patch(':id/disable')
-  disable(@Param('id') id: string) {
-    return this.projectService.disable(+id);
+  disable(@Param('id', ParseIntPipe) id: number) {
+    return this.projectService.disable(id);
   }
 
   // =========================
@@ -63,10 +73,10 @@ export class ProjectsController {
 
   @Patch(':id/status')
   updateStatus(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body('status') status: string,
   ) {
-    return this.projectService.updateStatus(+id, status);
+    return this.projectService.updateStatus(id, status);
   }
 
   // =========================
@@ -75,7 +85,7 @@ export class ProjectsController {
   // =========================
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.projectService.findOne(+id);
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.projectService.findOne(id);
   }
 }

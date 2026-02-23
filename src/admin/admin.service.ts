@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateGroupDto } from './dto/create-group.dto';
@@ -14,29 +15,50 @@ import { UpdateGroupDto } from './dto/update-group.dto';
 import { UpdateActivityDto } from './dto/update-activity.dto';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
-async adminDashboard() {
+  private async ensureAdminOwnsRequest(adminId: number, requestId: number) {
+    const request = await this.prisma.approvalRequest.findUnique({
+      where: { id: requestId },
+    });
 
-  const groups = await this.prisma.beneficiaryGroup.count();
-  const activities = await this.prisma.activity.count();
-  const sessions = await this.prisma.session.count();
+    if (!request) {
+      throw new NotFoundException('Request not found');
+    }
 
-  const reportStats = await this.prisma.activityReport.groupBy({
-    by: ['activityId'],
-    _count: true
-  });
+    if (request.targetAdminId !== adminId) {
+      throw new ForbiddenException('You are not allowed to access this request');
+    }
 
-  return {
-    totalGroups: groups,
-    totalActivities: activities,
-    totalSessions: sessions,
-    reportStats
-  };
-}
+    if (request.status !== 'PENDING') {
+      throw new BadRequestException('Request already processed');
+    }
+
+    return request;
+  }
+
+  async adminDashboard() {
+
+    const groups = await this.prisma.beneficiaryGroup.count();
+    const activities = await this.prisma.activity.count();
+    const sessions = await this.prisma.session.count();
+
+    const reportStats = await this.prisma.activityReport.groupBy({
+      by: ['activityId'],
+      _count: true
+    });
+
+    return {
+      totalGroups: groups,
+      totalActivities: activities,
+      totalSessions: sessions,
+      reportStats
+    };
+  }
 
 
   //group
@@ -62,7 +84,7 @@ async adminDashboard() {
       },
     });
   }
-    async getAllGroups() {
+  async getAllGroups() {
     return this.prisma.beneficiaryGroup.findMany({
       include: {
         activities: {
@@ -147,6 +169,7 @@ async adminDashboard() {
       data: {
         name: dto.name,
         description: dto.description,
+        projectId: dto.projectId || null,
         createdById: user.userId, // from JWT
       },
     });
@@ -183,49 +206,57 @@ async adminDashboard() {
 
   async deactivateActivity(id: number) {
 
-  const activity = await this.prisma.activity.findUnique({
-    where: { id }
-  });
+    const activity = await this.prisma.activity.findUnique({
+      where: { id }
+    });
 
-  if (!activity) {
-    throw new NotFoundException('Activity not found');
+    if (!activity) {
+      throw new NotFoundException('Activity not found');
+    }
+
+    if (activity.status === 'INACTIVE') {
+      throw new BadRequestException('Activity already inactive');
+    }
+
+    return this.prisma.activity.update({
+      where: { id },
+      data: { status: 'INACTIVE' }
+    });
   }
 
-  if (activity.status === 'INACTIVE') {
-    throw new BadRequestException('Activity already inactive');
+  async activateActivity(id: number) {
+
+    const activity = await this.prisma.activity.findUnique({
+      where: { id }
+    });
+
+    if (!activity) {
+      throw new NotFoundException('Activity not found');
+    }
+
+    if (activity.status === 'ACTIVE') {
+      throw new BadRequestException('Activity already active');
+    }
+
+    return this.prisma.activity.update({
+      where: { id },
+      data: { status: 'ACTIVE' }
+    });
   }
-
-  return this.prisma.activity.update({
-    where: { id },
-    data: { status: 'INACTIVE' }
-  });
-}
-
-async activateActivity(id: number) {
-
-  const activity = await this.prisma.activity.findUnique({
-    where: { id }
-  });
-
-  if (!activity) {
-    throw new NotFoundException('Activity not found');
+  async getActiveActivities() {
+    return this.prisma.activity.findMany({
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            projectCode: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
   }
-
-  if (activity.status === 'ACTIVE') {
-    throw new BadRequestException('Activity already active');
-  }
-
-  return this.prisma.activity.update({
-    where: { id },
-    data: { status: 'ACTIVE' }
-  });
-}
-async getActiveActivities() {
-  return this.prisma.activity.findMany({
-    where: { status: 'ACTIVE' },
-    orderBy: { createdAt: 'desc' }
-  });
-}
 
 
   async tagGroupWithActivity(dto: TagGroupActivityDto, user: any) {
@@ -266,84 +297,284 @@ async getActiveActivities() {
   }
 
   //session
- async createSession(dto: CreateSessionDto, user: any) {
+  async createSession(dto: CreateSessionDto, user: any) {
 
-  // Check activity exists
-  const activity = await this.prisma.activity.findUnique({
-    where: { id: dto.activityId }
-  });
+    // Check activity exists
+    const activity = await this.prisma.activity.findUnique({
+      where: { id: dto.activityId }
+    });
 
-  if (!activity) {
-    throw new NotFoundException('Activity not found');
-  }
-
-  // Prevent duplicate session
-  const exists = await this.prisma.session.findFirst({
-    where: {
-      name: dto.name,
-      activityId: dto.activityId
+    if (!activity) {
+      throw new NotFoundException('Activity not found');
     }
-  });
 
-  if (exists) {
-    throw new ConflictException('Session already exists');
-  }
+    // Prevent duplicate session
+    const exists = await this.prisma.session.findFirst({
+      where: {
+        name: dto.name,
+        activityId: dto.activityId
+      }
+    });
 
-  return this.prisma.session.create({
-    data: {
-      name: dto.name,
-      sessionDate: new Date(dto.sessionDate),
-      activityId: dto.activityId,
-      createdById: user.userId   // 👈 from JWT
+    if (exists) {
+      throw new ConflictException('Session already exists');
     }
-  });
-}
 
-async updateSession(id: number, dto: UpdateSessionDto) {
-
-  const session = await this.prisma.session.findUnique({
-    where: { id }
-  });
-
-  if (!session) {
-    throw new NotFoundException('Session not found');
+    return this.prisma.session.create({
+      data: {
+        name: dto.name,
+        sessionDate: new Date(dto.sessionDate),
+        activityId: dto.activityId,
+        createdById: user.userId   // 👈 from JWT
+      }
+    });
   }
 
-  return this.prisma.session.update({
-    where: { id },
-    data: {
-      ...dto,
-      sessionDate: dto.sessionDate
-        ? new Date(dto.sessionDate)
-        : undefined
+  async updateSession(id: number, dto: UpdateSessionDto) {
+
+    const session = await this.prisma.session.findUnique({
+      where: { id }
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
     }
-  });
-}
 
-async deactivateSession(id: number) {
-
-  const session = await this.prisma.session.findUnique({
-    where: { id }
-  });
-
-  if (!session) {
-    throw new NotFoundException('Session not found');
+    return this.prisma.session.update({
+      where: { id },
+      data: {
+        ...dto,
+        sessionDate: dto.sessionDate
+          ? new Date(dto.sessionDate)
+          : undefined
+      }
+    });
   }
 
-  return this.prisma.session.update({
-    where: { id },
-    data: { status: 'INACTIVE' }
-  });
-}
+  async deactivateSession(id: number) {
 
-async getSessionsByActivity(activityId: number) {
-  return this.prisma.session.findMany({
-    where: {
-      activityId,
-      status: 'ACTIVE'
-    },
-    orderBy: { createdAt: 'desc' }
-  });
-}
+    const session = await this.prisma.session.findUnique({
+      where: { id }
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    return this.prisma.session.update({
+      where: { id },
+      data: { status: 'INACTIVE' }
+    });
+  }
+
+  async activateSession(id: number) {
+
+    const session = await this.prisma.session.findUnique({
+      where: { id }
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (session.status === 'ACTIVE') {
+      throw new BadRequestException('Session already active');
+    }
+
+    return this.prisma.session.update({
+      where: { id },
+      data: { status: 'ACTIVE' }
+    });
+  }
+
+  async getSessionsByActivity(activityId: number) {
+    return this.prisma.session.findMany({
+      where: {
+        activityId,
+        status: 'ACTIVE'
+      },
+      include: {
+        activity: {
+          select: { name: true }
+        },
+        creator: {
+          select: { name: true, email: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async getAllSessions() {
+    return this.prisma.session.findMany({
+      include: {
+        activity: {
+          select: { name: true }
+        },
+        creator: {
+          select: { name: true, email: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async getManagerBeneficiaryRequests(adminId: number) {
+    return this.prisma.approvalRequest.findMany({
+      where: {
+        status: 'PENDING',
+        targetAdminId: adminId,
+        requestType: {
+          in: [
+            'UPDATE_BENEFICIARY',
+            'MODIFY_BENEFICIARY',
+            'CREATE_WORKER',
+            'MODIFY_WORKER',
+            'DEACTIVATE_WORKER',
+            'ACTIVATE_WORKER',
+          ],
+        },
+      },
+      include: {
+        requestedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async approveManagerBeneficiaryRequest(requestId: number, adminId: number) {
+    const request = await this.ensureAdminOwnsRequest(adminId, requestId);
+    const payload = (request.payload ?? {}) as any;
+    const requestType = String(request.requestType || '').toUpperCase();
+
+    if (['UPDATE_BENEFICIARY', 'MODIFY_BENEFICIARY'].includes(requestType)) {
+      const beneficiaryId = payload.beneficiaryId;
+      const changes = payload.changes ?? payload;
+
+      if (!beneficiaryId || typeof changes !== 'object') {
+        throw new BadRequestException('Invalid request payload');
+      }
+
+      await this.prisma.beneficiary.update({
+        where: { id: Number(beneficiaryId) },
+        data: changes,
+      });
+    }
+
+    if (requestType === 'CREATE_WORKER') {
+      const { name, email, password, projectId, locationId } = payload || {};
+      if (!name || !email || !password || !projectId || !locationId) {
+        throw new BadRequestException('Invalid CREATE_WORKER payload');
+      }
+
+      const exists = await this.prisma.user.findUnique({ where: { email } });
+      if (exists) throw new ConflictException('Email already exists');
+
+      const hash = await bcrypt.hash(String(password), 10);
+      const worker = await this.prisma.user.create({
+        data: {
+          name: String(name),
+          email: String(email),
+          password: hash,
+          status: 'ACTIVE',
+          createdByAdminId: request.requestedById,
+        },
+      });
+
+      const role = await this.prisma.role.findUnique({ where: { name: 'OUTREACH' } });
+      if (!role) throw new NotFoundException('OUTREACH role not found');
+
+      await this.prisma.userRole.create({
+        data: {
+          userId: worker.id,
+          roleId: role.id,
+        },
+      });
+
+      await this.prisma.userProjectLocation.create({
+        data: {
+          userId: worker.id,
+          projectId: Number(projectId),
+          locationId: Number(locationId),
+        },
+      });
+    }
+
+    if (requestType === 'MODIFY_WORKER') {
+      const { workerId, name, email } = payload || {};
+      if (!workerId) throw new BadRequestException('Invalid MODIFY_WORKER payload');
+
+      const updates: any = {};
+      if (name) updates.name = String(name);
+      if (email) updates.email = String(email);
+
+      if (updates.email) {
+        const existing = await this.prisma.user.findFirst({
+          where: {
+            email: updates.email,
+            NOT: { id: Number(workerId) },
+          },
+        });
+        if (existing) throw new ConflictException('Email already exists');
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await this.prisma.user.update({
+          where: { id: Number(workerId) },
+          data: updates,
+        });
+      }
+    }
+
+    if (requestType === 'DEACTIVATE_WORKER') {
+      const { workerId } = payload || {};
+      if (!workerId) throw new BadRequestException('Invalid DEACTIVATE_WORKER payload');
+      await this.prisma.user.update({
+        where: { id: Number(workerId) },
+        data: { status: 'INACTIVE' },
+      });
+    }
+
+    if (requestType === 'ACTIVATE_WORKER') {
+      const { workerId } = payload || {};
+      if (!workerId) throw new BadRequestException('Invalid ACTIVATE_WORKER payload');
+      await this.prisma.user.update({
+        where: { id: Number(workerId) },
+        data: { status: 'ACTIVE' },
+      });
+    }
+
+    return this.prisma.approvalRequest.update({
+      where: { id: requestId },
+      data: {
+        status: 'APPROVED',
+        approvedById: adminId,
+        approvedAt: new Date(),
+      },
+    });
+  }
+
+  async rejectManagerBeneficiaryRequest(
+    requestId: number,
+    adminId: number,
+    reason?: string,
+  ) {
+    await this.ensureAdminOwnsRequest(adminId, requestId);
+    return this.prisma.approvalRequest.update({
+      where: { id: requestId },
+      data: {
+        status: 'REJECTED',
+        remarks: reason || null,
+        approvedById: adminId,
+        approvedAt: new Date(),
+      },
+    });
+  }
 
 }
