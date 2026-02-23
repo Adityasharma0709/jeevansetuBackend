@@ -8,12 +8,14 @@ export class LocationsService {
   constructor(private prisma: PrismaService) {}
 
   async create(dto: CreateLocationDto) {
-    const project = await this.prisma.project.findUnique({
-      where: { id: dto.projectId },
-    });
+    if (dto.projectId != null) {
+      const project = await this.prisma.project.findUnique({
+        where: { id: dto.projectId },
+      });
 
-    if (!project) {
-      throw new NotFoundException('Project not found');
+      if (!project) {
+        throw new NotFoundException('Project not found');
+      }
     }
 
     return this.prisma.location.create({ data: dto });
