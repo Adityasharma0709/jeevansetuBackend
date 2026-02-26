@@ -21,21 +21,35 @@ export class ProjectsService {
   }
 
   async findAssignedToUser(userId: number) {
-    return this.prisma.project.findMany({
-      where: {
-        assignments: {
-          some: {
-            userId,
-          },
-        },
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: { userId },
+      include: {
+        project: true,
+        location: true,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { project: { createdAt: 'desc' } },
     });
+
+    const projectMap = new Map();
+    for (const a of assignments) {
+      if (!projectMap.has(a.projectId)) {
+        projectMap.set(a.projectId, {
+          ...a.project,
+          locations: [],
+        });
+      }
+      if (a.location) {
+        projectMap.get(a.projectId).locations.push(a.location);
+      }
+    }
+
+    return Array.from(projectMap.values());
   }
 
   findAll(search?: string) {
     if (!search) {
       return this.prisma.project.findMany({
+        include: { locations: true },
         orderBy: { createdAt: 'desc' },
       });
     }
@@ -57,6 +71,7 @@ export class ProjectsService {
           },
         ],
       },
+      include: { locations: true },
       orderBy: { createdAt: 'desc' },
     });
   }
