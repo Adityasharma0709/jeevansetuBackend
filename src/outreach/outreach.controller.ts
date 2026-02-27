@@ -119,4 +119,11 @@ export class OutreachController {
   getSessions(@Param('id') id: string) {
     return this.outreachService.getSessions(+id);
   }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Get('assigned-locations/:projectId')
+  getAssignedLocations(@Param('projectId') projectId: string, @Req() req) {
+    return this.outreachService.getAssignedLocations(+projectId, req.user.userId);
+  }
 }

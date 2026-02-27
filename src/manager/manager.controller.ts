@@ -187,6 +187,13 @@ export class ManagerController {
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('MANAGER')
+  @Get('beneficiaries')
+  getBeneficiaries(@Req() req) {
+    return this.managerService.getBeneficiaries(req.user.userId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
   @Get('my-requests')
   getMyRequests(@Req() req) {
     return this.managerService.getMyRequests(req.user.userId);

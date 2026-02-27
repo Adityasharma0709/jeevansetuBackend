@@ -291,4 +291,19 @@ export class OutreachService {
       }
     });
   }
+
+  async getAssignedLocations(projectId: number, userId: number) {
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: {
+        userId,
+        projectId
+      },
+      include: {
+        location: true
+      }
+    });
+
+    // Extract and return just the locations
+    return assignments.map(a => a.location);
+  }
 }

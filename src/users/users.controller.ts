@@ -130,6 +130,7 @@ export class UsersController {
     return this.usersService.updateManager(+id, dto, req.user);
   }
   @UseGuards(AuthGuard('jwt'), RolesGuard)
+
   @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
   @Post('assign-project-location')
   assignProjectLocation(@Body() dto: AssignProjectDto, @Req() req) {
@@ -140,11 +141,12 @@ export class UsersController {
   @Roles('SUPER_ADMIN', 'ADMIN')
   @Get()
   findAll(
+    @Req() req,
     @Query('role') role: string,
     @Query('search') search?: string,
   ) {
     if (role) {
-      return this.usersService.findUsersByRole(role, search);
+      return this.usersService.findUsersByRole(role, search, req.user);
     }
     // If no role, maybe we shouldn't allow listing all users for security, 
     // or we can implement a generic search if needed.

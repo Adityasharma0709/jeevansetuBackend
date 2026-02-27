@@ -213,19 +213,21 @@ export class UsersService {
       throw new ForbiddenException('Admin identity not found in token');
     }
 
-    // 1. Check admin assignment
-    const allowed = await this.prisma.userProjectLocation.findFirst({
-      where: {
-        userId: adminId,
-        projectId: dto.projectId,
-        locationId: dto.locationId,
-      },
-    });
+    // 1. Check admin assignment if project/location provided
+    if (dto.projectId && dto.locationId) {
+      const allowed = await this.prisma.userProjectLocation.findFirst({
+        where: {
+          userId: adminId,
+          projectId: dto.projectId,
+          locationId: dto.locationId,
+        },
+      });
 
-    if (!allowed) {
-      throw new ForbiddenException(
-        'You are not assigned to this project/location',
-      );
+      if (!allowed) {
+        throw new ForbiddenException(
+          'You are not assigned to this project/location',
+        );
+      }
     }
 
     // 2. Check email
@@ -247,7 +249,6 @@ export class UsersService {
       },
     });
 
-    // 4. Assign role
     const role = await this.prisma.role.findUnique({
       where: { name: 'MANAGER' },
     });
@@ -263,18 +264,10 @@ export class UsersService {
       },
     });
 
-    // 5. Assign project & location
-    await this.prisma.userProjectLocation.create({
-      data: {
-        userId: manager.id,
-        projectId: dto.projectId,
-        locationId: dto.locationId,
-      },
-    });
-    const { password, ...safeManager } = manager;
+    const { password, ...safeUser } = manager;
     return {
       message: 'Manager created successfully',
-      safeManager,
+      user: safeUser,
     };
   }
 
@@ -301,15 +294,15 @@ export class UsersService {
     }
 
     // 🔥 CASE 1: MANAGER updating self
-    if (loggedUser.role === 'MANAGER' && loggedUser.id !== managerId) {
+    if (loggedUser.roles?.includes('MANAGER') && (loggedUser.userId || loggedUser.id) !== managerId) {
       throw new ForbiddenException('You can update only your own profile');
     }
 
     // 🔥 CASE 2: ADMIN updating manager
-    if (loggedUser.role === 'ADMIN') {
+    if (loggedUser.roles?.includes('ADMIN')) {
       const allowed = await this.prisma.userProjectLocation.findFirst({
         where: {
-          userId: loggedUser.id,
+          userId: loggedUser.userId || loggedUser.id,
           projectId: {
             in: (
               await this.prisma.userProjectLocation.findMany({
@@ -346,10 +339,10 @@ export class UsersService {
 
   async assignProjectLocation(dto: AssignProjectDto, loggedUser: any) {
     // 1. RBAC Check
-    if (loggedUser.role !== 'SUPER_ADMIN') {
+    if (!loggedUser.roles?.includes('SUPER_ADMIN')) {
       const isAssigned = await this.prisma.userProjectLocation.findFirst({
         where: {
-          userId: loggedUser.id,
+          userId: loggedUser.userId || loggedUser.id,
           projectId: dto.projectId,
           locationId: dto.locationId,
         },
@@ -361,7 +354,7 @@ export class UsersService {
         );
       }
 
-      if (loggedUser.role === 'MANAGER') {
+      if (loggedUser.roles?.includes('MANAGER')) {
         // MANAGER can only assign to OUTREACH role
         const targetUser = await this.prisma.user.findUnique({
           where: { id: dto.userId },
@@ -429,21 +422,31 @@ export class UsersService {
     };
   }
 
-  async findUsersByRole(roleName: string, search?: string) {
-    return this.prisma.user.findMany({
-      where: {
-        roles: {
-          some: {
-            role: {
-              name: roleName,
-            },
+  async findUsersByRole(roleName: string, search?: string, loggedUser?: any) {
+    const whereClause: any = {
+      roles: {
+        some: {
+          role: {
+            name: roleName,
           },
         },
-        OR: search ? [
-          { name: { contains: search, mode: 'insensitive' } },
-          { email: { contains: search, mode: 'insensitive' } },
-        ] : undefined,
       },
+    };
+
+    if (search) {
+      whereClause.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    // Scoping for ADMIN viewing MANAGER
+    if (roleName === 'MANAGER' && loggedUser?.roles?.includes('ADMIN')) {
+      whereClause.createdByAdminId = loggedUser.userId || loggedUser.id;
+    }
+
+    return this.prisma.user.findMany({
+      where: whereClause,
       select: {
         id: true,
         name: true,

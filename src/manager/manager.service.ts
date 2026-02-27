@@ -417,6 +417,27 @@ export class ManagerService {
     });
   }
 
+  async getBeneficiaries(managerId: number) {
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: { userId: managerId },
+      select: { projectId: true }
+    });
+
+    const projectIds = assignments.map(a => a.projectId);
+
+    return this.prisma.beneficiary.findMany({
+      where: {
+        projectId: { in: projectIds }
+      },
+      include: {
+        project: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+  }
+
   async updateRequestStatus(id: number, status: 'APPROVED' | 'REJECTED', managerId: number) {
     const req = await this.prisma.approvalRequest.findUnique({
       where: { id }

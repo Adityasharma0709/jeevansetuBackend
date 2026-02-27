@@ -1,4 +1,4 @@
-import { IsEmail, IsInt, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsInt, IsString, MinLength, IsOptional } from 'class-validator';
 
 export class CreateManagerDto {
   @IsString()
@@ -10,9 +10,11 @@ export class CreateManagerDto {
   @MinLength(6)
   password: string;
 
+  @IsOptional()
   @IsInt()
-  projectId: number;
+  projectId?: number;
 
+  @IsOptional()
   @IsInt()
-  locationId: number;
+  locationId?: number;
 }
