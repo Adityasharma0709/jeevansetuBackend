@@ -17,7 +17,7 @@ import { Roles } from 'src/auth/roles.decorator';
 import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { CreateReportDto } from './dto/create-report.dto';
-import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
+import { RequestBeneficiaryUpdateDto } from './dto/request-beneficiary-update.dto';
 
 @Controller('outreach')
 export class OutreachController {
@@ -41,7 +41,7 @@ export class OutreachController {
   @Post('beneficiary/:id/request-update')
   requestUpdate(
     @Param('id') id: string,
-    @Body() dto: UpdateBeneficiaryDto,
+    @Body() dto: RequestBeneficiaryUpdateDto,
     @Req() req
   ) {
     return this.outreachService.requestBeneficiaryUpdate(+id, dto, req.user);

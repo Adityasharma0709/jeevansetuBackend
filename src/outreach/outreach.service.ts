@@ -3,6 +3,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto';
 import { CreateReportDto } from './dto/create-report.dto';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
+import { RequestBeneficiaryUpdateDto } from './dto/request-beneficiary-update.dto';
 
 @Injectable()
 export class OutreachService {
@@ -85,7 +86,7 @@ export class OutreachService {
     });
   }
 
-  async requestBeneficiaryUpdate(id: number, dto: UpdateBeneficiaryDto, user) {
+  async requestBeneficiaryUpdate(id: number, dto: RequestBeneficiaryUpdateDto, user) {
 
     // check beneficiary exists
     const ben = await this.prisma.beneficiary.findUnique({
@@ -106,7 +107,8 @@ export class OutreachService {
         requestType: 'UPDATE_BENEFICIARY',
         payload: {
           beneficiaryId: id,
-          changes: dto as any
+          changes: dto?.changes as any,
+          reason: dto?.reason
         },
         requestedById: user.userId,
         targetAdminId: requester?.createdByAdminId,

@@ -75,7 +75,7 @@ export class AdminService {
       throw new ConflictException('Group already exists');
     }
 
-    return this.prisma.beneficiaryGroup.create({
+    const createdGroup = await this.prisma.beneficiaryGroup.create({
       data: {
         name: dto.name,
         minAge: dto.minAge,
@@ -83,6 +83,17 @@ export class AdminService {
         createdById: user.userId, // 🔥 FIXED
       },
     });
+
+    if (dto.activityId) {
+      await this.prisma.groupActivity.create({
+        data: {
+          groupId: createdGroup.id,
+          activityId: dto.activityId,
+        },
+      });
+    }
+
+    return createdGroup;
   }
   async getAllGroups() {
     return this.prisma.beneficiaryGroup.findMany({
@@ -107,10 +118,29 @@ export class AdminService {
   }
 
   async updateGroup(id: number, dto: UpdateGroupDto) {
-    return this.prisma.beneficiaryGroup.update({
+    const { activityId, ...updateData } = dto;
+
+    const group = await this.prisma.beneficiaryGroup.update({
       where: { id },
-      data: dto,
+      data: updateData,
     });
+
+    if (activityId) {
+      const exists = await this.prisma.groupActivity.findFirst({
+        where: { groupId: id, activityId },
+      });
+
+      if (!exists) {
+        await this.prisma.groupActivity.create({
+          data: {
+            groupId: id,
+            activityId,
+          },
+        });
+      }
+    }
+
+    return group;
   }
 
   async deactivateGroup(id: number) {

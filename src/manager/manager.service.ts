@@ -10,6 +10,58 @@ import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
 export class ManagerService {
   constructor(private prisma: PrismaService) { }
 
+  private buildBeneficiaryUpdateData(raw: Record<string, any>) {
+    const data: Record<string, any> = {};
+    const changes = raw || {};
+
+    const assignNumber = (key: string) => {
+      const value = changes[key];
+      if (value === undefined || value === null || value === '') return;
+      const num = Number(value);
+      if (Number.isNaN(num)) {
+        throw new BadRequestException(`Invalid number for ${key}`);
+      }
+      data[key] = num;
+    };
+
+    const assignString = (key: string) => {
+      const value = changes[key];
+      if (value === undefined || value === null || value === '') return;
+      data[key] = String(value);
+    };
+
+    const assignDate = (key: string) => {
+      const value = changes[key];
+      if (value === undefined || value === null || value === '') return;
+      const date = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        throw new BadRequestException(`Invalid date for ${key}`);
+      }
+      data[key] = date;
+    };
+
+    assignNumber('projectId');
+    assignNumber('locationId');
+    assignString('mobileNumber');
+    assignString('name');
+    assignString('gender');
+    assignString('guardianName');
+    assignDate('dateOfBirth');
+    assignString('maritalStatus');
+    assignString('dateOfMarriage');
+    assignNumber('womanAgeAtMarriage');
+    assignNumber('husbandAgeAtMarriage');
+    assignString('qualification');
+    assignString('religion');
+    assignString('caste');
+    assignNumber('monthlyIncome');
+    assignString('economicStatus');
+    assignString('primaryIncomeSource');
+    assignString('employmentStatus');
+
+    return data;
+  }
+
   private async getCreatorAdminIdForManager(managerId: number) {
     const manager = await this.prisma.user.findUnique({
       where: { id: managerId },
@@ -337,11 +389,14 @@ export class ManagerService {
 
     if (req.requestType === 'UPDATE_BENEFICIARY') {
       const { beneficiaryId, changes } = req.payload as { beneficiaryId: number; changes: any };
+      const data = this.buildBeneficiaryUpdateData(changes || {});
 
-      await this.prisma.beneficiary.update({
-        where: { id: beneficiaryId },
-        data: changes
-      });
+      if (Object.keys(data).length > 0) {
+        await this.prisma.beneficiary.update({
+          where: { id: beneficiaryId },
+          data
+        });
+      }
     }
 
     return this.prisma.approvalRequest.update({

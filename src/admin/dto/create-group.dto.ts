@@ -1,5 +1,5 @@
 // src/admin/dto/create-group.dto.ts
-import { IsInt, IsString, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateGroupDto {
   @IsString()
@@ -12,4 +12,8 @@ export class CreateGroupDto {
   @IsInt()
   @Min(0)
   maxAge: number;
+
+  @IsOptional()
+  @IsInt()
+  activityId?: number;
 }
