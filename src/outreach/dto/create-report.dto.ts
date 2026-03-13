@@ -8,6 +8,7 @@ export class CreateReportDto {
   activityId: number;
 
   @IsInt()
+  @IsNotEmpty()
   sessionId: number;
 
   @IsNotEmpty()

@@ -63,7 +63,7 @@ export class AdminController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'OUTREACH')
   @Get('activities/active')
   getActiveActivities() {
     return this.adminService.getActiveActivities();
@@ -149,7 +149,7 @@ export class AdminController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'OUTREACH')
   @Get('activity/:id/sessions')
   getSessionsByActivity(@Param('id') id: string) {
     return this.adminService.getSessionsByActivity(+id);

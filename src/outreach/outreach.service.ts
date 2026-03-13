@@ -1,4 +1,10 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto';
 import { CreateReportDto } from './dto/create-report.dto';
@@ -158,9 +164,16 @@ export class OutreachService {
     });
     if (!activity) throw new NotFoundException('Activity not found');
 
-    // 3. Validate session
+    const sessionId =
+      typeof dto.sessionId === 'number' && dto.sessionId > 0 ? dto.sessionId : null;
+
+    // 3. Validate session (required)
+    if (sessionId === null) {
+      throw new BadRequestException('sessionId is required');
+    }
+
     const session = await this.prisma.session.findUnique({
-      where: { id: dto.sessionId }
+      where: { id: sessionId }
     });
     if (!session) throw new NotFoundException('Session not found');
 
@@ -169,7 +182,7 @@ export class OutreachService {
       where: {
         beneficiaryId: dto.beneficiaryId,
         activityId: dto.activityId,
-        sessionId: dto.sessionId
+        sessionId
       }
     });
 
@@ -182,7 +195,7 @@ export class OutreachService {
       data: {
         beneficiaryId: dto.beneficiaryId,
         activityId: dto.activityId,
-        sessionId: dto.sessionId,
+        sessionId,
         reportedById: user.userId,
         reportData: dto.reportData
       }
