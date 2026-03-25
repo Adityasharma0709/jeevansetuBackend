@@ -8,16 +8,91 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 
+const PROJECT_CODE_PREFIX = 'PR';
+const PROJECT_CODE_MIN_DIGITS = 2;
+const PROJECT_CODE_MAX_LENGTH = 4;
+const PROJECT_CODE_MAX_RETRIES = 5;
+
 @Injectable()
 export class ProjectsService {
   constructor(private prisma: PrismaService) { }
 
-  async create(dto: CreateProjectDto) {
-    try {
-      return await this.prisma.project.create({ data: dto });
-    } catch (error) {
-      this.handleProjectPrismaError(error);
+  private async generateNextProjectCode(
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
+    const prefix = PROJECT_CODE_PREFIX;
+    const prefixPattern = `^${prefix}`;
+    const numericPattern = `^${prefix}[0-9]+$`;
+
+    const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
+      SELECT MAX(CAST(regexp_replace("projectCode", ${prefixPattern}, '') AS INTEGER)) AS max
+      FROM "Project"
+      WHERE "projectCode" ~ ${numericPattern}
+    `;
+
+    const nextNumber = (rows[0]?.max ?? 0) + 1;
+    const numeric = String(nextNumber).padStart(PROJECT_CODE_MIN_DIGITS, '0');
+    const code = `${prefix}${numeric}`;
+
+    if (code.length > PROJECT_CODE_MAX_LENGTH) {
+      throw new ConflictException(
+        `Auto project code limit exceeded (generated: ${code}). Increase Project.projectCode length to allow more projects.`,
+      );
     }
+
+    return code;
+  }
+
+  async create(dto: CreateProjectDto) {
+    const providedCode = dto.projectCode?.trim();
+
+    if (providedCode) {
+      try {
+        return await this.prisma.project.create({
+          data: {
+            ...dto,
+            projectCode: providedCode.toUpperCase(),
+          },
+        });
+      } catch (error) {
+        this.handleProjectPrismaError(error);
+      }
+    }
+
+    const { projectCode: _projectCode, ...rest } = dto;
+
+    for (let attempt = 0; attempt < PROJECT_CODE_MAX_RETRIES; attempt++) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const projectCode = await this.generateNextProjectCode(tx);
+          return tx.project.create({
+            data: {
+              ...rest,
+              projectCode,
+            },
+          });
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+          if (error.code === 'P2002') {
+            const target = error.meta?.target;
+            const isProjectCodeConflict = Array.isArray(target)
+              ? target.includes('projectCode')
+              : typeof target === 'string'
+                ? target.includes('projectCode')
+                : false;
+
+            if (isProjectCodeConflict) {
+              continue;
+            }
+          }
+        }
+
+        this.handleProjectPrismaError(error);
+      }
+    }
+
+    throw new ConflictException('Could not generate a unique project code');
   }
 
   async findAssignedToUser(userId: number) {

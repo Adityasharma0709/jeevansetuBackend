@@ -6,6 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { UpdateAdminDto } from './dto/update-admin.dto';
@@ -14,9 +15,31 @@ import { CreateManagerDto } from './dto/create-manager.dto';
 import { UpdateManagerDto } from './dto/update-manager.dto';
 import { AssignProjectDto } from './dto/assign-project.dto';
 
+const ADMIN_CODE_PREFIX = 'AC';
+const ADMIN_CODE_MIN_DIGITS = 3;
+const ADMIN_CODE_MAX_RETRIES = 5;
+
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) { }
+
+  private async generateNextAdminUserCode(
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
+    const prefix = ADMIN_CODE_PREFIX;
+    const prefixPattern = `^${prefix}`;
+    const numericPattern = `^${prefix}[0-9]+$`;
+
+    const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
+      SELECT MAX(CAST(regexp_replace("usercode", ${prefixPattern}, '') AS INTEGER)) AS max
+      FROM "User"
+      WHERE "usercode" ~ ${numericPattern}
+    `;
+
+    const nextNumber = (rows[0]?.max ?? 0) + 1;
+    const numeric = String(nextNumber).padStart(ADMIN_CODE_MIN_DIGITS, '0');
+    return `${prefix}${numeric}`;
+  }
 
   async createAdmin(dto: CreateAdminDto) {
     const exists = await this.prisma.user.findUnique({
@@ -29,34 +52,64 @@ export class UsersService {
 
     const hash = await bcrypt.hash(dto.password, 10);
 
-    const user = await this.prisma.user.create({
-      data: {
-        name: dto.name,
-        email: dto.email,
-        password: hash,
-        status: 'ACTIVE',
-      },
-    });
+    for (let attempt = 0; attempt < ADMIN_CODE_MAX_RETRIES; attempt++) {
+      try {
+        const user = await this.prisma.$transaction(async (tx) => {
+          const usercode = await this.generateNextAdminUserCode(tx);
 
-    const role = await this.prisma.role.findUnique({
-      where: { name: 'ADMIN' },
-    });
+          const user = await tx.user.create({
+            data: {
+              name: dto.name,
+              email: dto.email,
+              password: hash,
+              status: 'ACTIVE',
+              usercode,
+            },
+          });
 
-    if (!role) {
-      throw new BadRequestException('ADMIN role does not exist');
+          const role = await tx.role.findUnique({
+            where: { name: 'ADMIN' },
+          });
+
+          if (!role) {
+            throw new BadRequestException('ADMIN role does not exist');
+          }
+
+          await tx.userRole.create({
+            data: {
+              userId: user.id,
+              roleId: role.id,
+            },
+          });
+
+          return user;
+        });
+
+        const { password, ...safeUser } = user;
+        return {
+          message: 'Admin created successfully',
+          safeUser,
+        };
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+          if (error.code === 'P2002') {
+            const target = error.meta?.target;
+            const isUsercodeConflict = Array.isArray(target)
+              ? target.includes('usercode')
+              : typeof target === 'string'
+                ? target.includes('usercode')
+                : false;
+
+            if (isUsercodeConflict) {
+              continue;
+            }
+          }
+        }
+        throw error;
+      }
     }
 
-    await this.prisma.userRole.create({
-      data: {
-        userId: user.id,
-        roleId: role.id,
-      },
-    });
-    const { password, ...safeUser } = user;
-    return {
-      message: 'Admin created successfully',
-      safeUser,
-    };
+    throw new ConflictException('Could not generate a unique admin user code');
   }
   async updateAdminStatus(id: number, status: string) {
     return this.prisma.user.update({
@@ -66,6 +119,7 @@ export class UsersService {
         id: true,
         name: true,
         email: true,
+        usercode: true,
         status: true,
         updatedAt: true,
       },
@@ -109,6 +163,7 @@ export class UsersService {
         id: true,
         name: true,
         email: true,
+        usercode: true,
         status: true,
         createdAt: true,
       },
@@ -132,6 +187,7 @@ export class UsersService {
         id: true,
         name: true,
         email: true,
+        usercode: true,
         status: true,
         createdAt: true,
       },
@@ -161,6 +217,7 @@ export class UsersService {
         id: true,
         name: true,
         email: true,
+        usercode: true,
         status: true,
         createdAt: true,
       },

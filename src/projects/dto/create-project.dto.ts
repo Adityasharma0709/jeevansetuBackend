@@ -1,9 +1,10 @@
 import { IsString, IsOptional, Length } from 'class-validator';
 
 export class CreateProjectDto {
+  @IsOptional()
   @IsString()
   @Length(4, 4)
-  projectCode: string;
+  projectCode?: string;
 
   @IsString()
   name: string;

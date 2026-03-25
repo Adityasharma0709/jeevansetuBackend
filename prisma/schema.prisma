@@ -17,6 +17,7 @@ model User {
   id        Int      @id @default(autoincrement())
   name      String
   email     String   @unique
+  usercode  String?  @unique
   password  String
   status    String   @default("ACTIVE")
   createdByAdminId Int?
