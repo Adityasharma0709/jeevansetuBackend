@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Matches } from 'class-validator';
 
 export class CreateLocationDto {
@@ -5,10 +6,12 @@ export class CreateLocationDto {
   @IsInt()
   projectId?: number;
 
-  @Matches(/^[A-Z]{2}[0-9]{2}[0-9]{4}$/, {
-    message: 'Location code must be AA010001 format',
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? undefined : value))
+  @Matches(/^LC[0-9]{2,}$/i, {
+    message: 'Location code must be like LC01 (minimum length 4)',
   })
-  locationCode: string;
+  locationCode?: string;
 
   @IsString()
   state: string;
