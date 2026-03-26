@@ -1,11 +1,25 @@
 import { Transform } from 'class-transformer';
-import { IsOptional, IsString, IsIn, IsInt, Matches } from 'class-validator';
+import {
+  ArrayUnique,
+  IsArray,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+} from 'class-validator';
 
 export class UpdateLocationDto {
 
   @IsOptional()
   @IsInt()
   projectId?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsInt({ each: true })
+  projectIds?: number[];
 
   @IsOptional()
   @IsString()

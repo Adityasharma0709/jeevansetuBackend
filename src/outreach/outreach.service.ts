@@ -279,19 +279,43 @@ export class OutreachService {
   // Helpers
   async getGroups() {
     return this.prisma.beneficiaryGroup.findMany({
-      where: { status: 'ACTIVE' }
+      where: { status: 'ACTIVE' },
+      include: {
+        creator: {
+          select: { id: true, name: true, email: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
   async getActivities() {
     return this.prisma.activity.findMany({
-      where: { status: 'ACTIVE' }
+      where: { status: 'ACTIVE' },
+      include: {
+        creator: {
+          select: { id: true, name: true, email: true },
+        },
+        project: {
+          select: { id: true, name: true, projectCode: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
   async getSessions(activityId: number) {
     return this.prisma.session.findMany({
-      where: { activityId, status: 'ACTIVE' }
+      where: { activityId, status: 'ACTIVE' },
+      include: {
+        creator: {
+          select: { id: true, name: true, email: true },
+        },
+        activity: {
+          select: { id: true, name: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 

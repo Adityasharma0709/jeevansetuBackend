@@ -23,6 +23,22 @@ const ADMIN_CODE_MAX_RETRIES = 5;
 export class UsersService {
   constructor(private prisma: PrismaService) { }
 
+  private async ensureLocationLinkedToProject(
+    projectId: number,
+    locationId: number,
+  ) {
+    const linked = await this.prisma.project.count({
+      where: { id: projectId, locations: { some: { id: locationId } } },
+    });
+
+    if (linked > 0) return;
+
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { locations: { connect: { id: locationId } } },
+    });
+  }
+
   private async generateNextAdminUserCode(
     tx: Prisma.TransactionClient,
   ): Promise<string> {
@@ -246,6 +262,8 @@ export class UsersService {
     });
     if (!location) throw new NotFoundException('Location not found');
 
+    await this.ensureLocationLinkedToProject(dto.projectId, dto.locationId);
+
     // check duplicate assignment
     const exists = await this.prisma.userProjectLocation.findFirst({
       where: {
@@ -397,17 +415,29 @@ export class UsersService {
   async assignProjectLocation(dto: AssignProjectDto, loggedUser: any) {
     // 1. RBAC Check
     if (!loggedUser.roles?.includes('SUPER_ADMIN')) {
+      const loggedUserId = loggedUser.userId || loggedUser.id;
+      const isAdmin = loggedUser.roles?.includes('ADMIN');
+
       const isAssigned = await this.prisma.userProjectLocation.findFirst({
-        where: {
-          userId: loggedUser.userId || loggedUser.id,
-          projectId: dto.projectId,
-          locationId: dto.locationId,
-        },
+        where: isAdmin
+          ? {
+              // Admins get project-wide access once assigned to the project
+              userId: loggedUserId,
+              projectId: dto.projectId,
+            }
+          : {
+              // Managers are scoped to project + location
+              userId: loggedUserId,
+              projectId: dto.projectId,
+              locationId: dto.locationId,
+            },
       });
 
       if (!isAssigned) {
         throw new ForbiddenException(
-          'You are not assigned to this project & location',
+          isAdmin
+            ? 'You are not assigned to this project'
+            : 'You are not assigned to this project & location',
         );
       }
 
@@ -431,18 +461,55 @@ export class UsersService {
       }
     }
 
+    const targetUser = await this.prisma.user.findUnique({
+      where: { id: dto.userId },
+      include: { roles: { include: { role: true } } },
+    });
+
+    if (!targetUser) {
+      throw new NotFoundException('Target user not found');
+    }
+
+    const targetRoleNames = targetUser.roles?.map((r) => r.role.name) ?? [];
+    const isTargetAdmin = targetRoleNames.includes('ADMIN');
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: dto.projectId },
+      select: { id: true },
+    });
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const location = await this.prisma.location.findUnique({
+      where: { id: dto.locationId },
+      select: { id: true },
+    });
+    if (!location) {
+      throw new NotFoundException('Location not found');
+    }
+
+    await this.ensureLocationLinkedToProject(dto.projectId, dto.locationId);
+
     // 2. Check duplicate
     const exists = await this.prisma.userProjectLocation.findFirst({
-      where: {
-        userId: dto.userId,
-        projectId: dto.projectId,
-        locationId: dto.locationId,
-      },
+      where: isTargetAdmin
+        ? {
+            userId: dto.userId,
+            projectId: dto.projectId,
+          }
+        : {
+            userId: dto.userId,
+            projectId: dto.projectId,
+            locationId: dto.locationId,
+          },
     });
 
     if (exists) {
       throw new ConflictException(
-        'User already assigned to this project & location',
+        isTargetAdmin
+          ? 'User already assigned to this project'
+          : 'User already assigned to this project & location',
       );
     }
 

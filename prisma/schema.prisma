@@ -86,7 +86,6 @@ model Project {
 model Location {
   id           Int    @id @default(autoincrement())
   locationCode String
-  projectId    Int?
 
   state    String
   district String
@@ -95,15 +94,13 @@ model Location {
 
   status String @default("ACTIVE")
 
-  project Project? @relation(fields: [projectId], references: [id])
+  projects Project[]
 
   beneficiaries Beneficiary[]
   assignments   UserProjectLocation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@unique([projectId, locationCode])
 }
 
 model UserProjectLocation {

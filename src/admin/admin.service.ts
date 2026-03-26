@@ -276,6 +276,13 @@ export class AdminService {
   async getActiveActivities() {
     return this.prisma.activity.findMany({
       include: {
+        creator: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
         project: {
           select: {
             id: true,
@@ -527,11 +534,27 @@ export class AdminService {
         },
       });
 
+      const numericProjectId = Number(projectId);
+      const numericLocationId = Number(locationId);
+      const linked = await this.prisma.project.count({
+        where: {
+          id: numericProjectId,
+          locations: { some: { id: numericLocationId } },
+        },
+      });
+
+      if (linked === 0) {
+        await this.prisma.project.update({
+          where: { id: numericProjectId },
+          data: { locations: { connect: { id: numericLocationId } } },
+        });
+      }
+
       await this.prisma.userProjectLocation.create({
         data: {
           userId: worker.id,
-          projectId: Number(projectId),
-          locationId: Number(locationId),
+          projectId: numericProjectId,
+          locationId: numericLocationId,
         },
       });
     }

@@ -186,6 +186,20 @@ export class ManagerService {
     });
 
     // 6. Assign project/location
+    const linked = await this.prisma.project.count({
+      where: {
+        id: dto.projectId,
+        locations: { some: { id: dto.locationId } },
+      },
+    });
+
+    if (linked === 0) {
+      await this.prisma.project.update({
+        where: { id: dto.projectId },
+        data: { locations: { connect: { id: dto.locationId } } },
+      });
+    }
+
     await this.prisma.userProjectLocation.create({
       data: {
         userId: worker.id,

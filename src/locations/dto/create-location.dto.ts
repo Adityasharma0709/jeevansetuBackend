@@ -1,10 +1,23 @@
 import { Transform } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Matches } from 'class-validator';
+import {
+  IsArray,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  ArrayUnique,
+} from 'class-validator';
 
 export class CreateLocationDto {
   @IsOptional()
   @IsInt()
   projectId?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsInt({ each: true })
+  projectIds?: number[];
 
   @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? undefined : value))

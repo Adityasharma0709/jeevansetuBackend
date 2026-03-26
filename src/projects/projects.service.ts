@@ -96,6 +96,21 @@ export class ProjectsService {
   }
 
   async findAssignedToUser(userId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        roles: {
+          select: {
+            role: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    const roleNames = user?.roles?.map((r) => r.role.name) ?? [];
+    const isAdmin = roleNames.includes('ADMIN');
+
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId },
       include: {
@@ -104,6 +119,22 @@ export class ProjectsService {
       },
       orderBy: { project: { createdAt: 'desc' } },
     });
+
+    if (isAdmin) {
+      const projectIds = Array.from(new Set(assignments.map((a) => a.projectId)));
+      if (projectIds.length === 0) return [];
+
+      const projects = await this.prisma.project.findMany({
+        where: { id: { in: projectIds } },
+        include: { locations: true },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return projects.map((p) => ({
+        ...p,
+        locations: p.locations,
+      }));
+    }
 
     const projectMap = new Map();
     for (const a of assignments) {
