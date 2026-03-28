@@ -16,6 +16,9 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest();
 
+    // SUPER_ADMIN bypasses all role checks
+    if (user?.roles?.includes('SUPER_ADMIN')) return true;
+
     const hasRole = requiredRoles.some(role => user.roles.includes(role));
     if (!hasRole) {
       console.log('RolesGuard failed! User roles:', user.roles, 'Required:', requiredRoles, 'Path:', context.switchToHttp().getRequest().url);

@@ -23,6 +23,12 @@ const ADMIN_CODE_MAX_RETRIES = 5;
 export class UsersService {
   constructor(private prisma: PrismaService) { }
 
+  private assertIsActive(status: string | null | undefined, label: string) {
+    if ((status ?? '').toUpperCase() !== 'ACTIVE') {
+      throw new BadRequestException(`${label} is deactivated`);
+    }
+  }
+
   private async ensureLocationLinkedToProject(
     projectId: number,
     locationId: number,
@@ -475,19 +481,21 @@ export class UsersService {
 
     const project = await this.prisma.project.findUnique({
       where: { id: dto.projectId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!project) {
       throw new NotFoundException('Project not found');
     }
+    this.assertIsActive(project.status, 'Project');
 
     const location = await this.prisma.location.findUnique({
       where: { id: dto.locationId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!location) {
       throw new NotFoundException('Location not found');
     }
+    this.assertIsActive(location.status, 'Location');
 
     await this.ensureLocationLinkedToProject(dto.projectId, dto.locationId);
 

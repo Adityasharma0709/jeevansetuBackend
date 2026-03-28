@@ -21,6 +21,42 @@ import * as bcrypt from 'bcrypt';
 export class AdminService {
   constructor(private prisma: PrismaService) { }
 
+  private async ensureProjectIsActive(projectId: number) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, status: true },
+    });
+
+    if (!project) throw new NotFoundException('Project not found');
+    if (project.status?.toUpperCase() !== 'ACTIVE') {
+      throw new BadRequestException('Project is deactivated');
+    }
+
+    return project;
+  }
+
+  private async ensureActivityIsActive(activityId: number) {
+    const activity = await this.prisma.activity.findUnique({
+      where: { id: activityId },
+      select: {
+        id: true,
+        status: true,
+        projectId: true,
+        project: { select: { status: true } },
+      },
+    });
+
+    if (!activity) throw new NotFoundException('Activity not found');
+    if (activity.status?.toUpperCase() !== 'ACTIVE') {
+      throw new BadRequestException('Activity is deactivated');
+    }
+    if (activity.projectId && activity.project?.status?.toUpperCase() !== 'ACTIVE') {
+      throw new BadRequestException('Project is deactivated');
+    }
+
+    return activity;
+  }
+
   private async ensureAdminOwnsRequest(adminId: number, requestId: number) {
     const request = await this.prisma.approvalRequest.findUnique({
       where: { id: requestId },
@@ -186,6 +222,10 @@ export class AdminService {
       throw new UnauthorizedException('User not found');
     }
 
+    if (typeof dto.projectId === 'number') {
+      await this.ensureProjectIsActive(dto.projectId);
+    }
+
     // check duplicate
     const exists = await this.prisma.activity.findFirst({
       where: { name: dto.name },
@@ -212,6 +252,14 @@ export class AdminService {
 
     if (!activity) {
       throw new NotFoundException('Activity not found');
+    }
+
+    if (activity.projectId) {
+      await this.ensureProjectIsActive(activity.projectId);
+    }
+
+    if (typeof dto.projectId === 'number') {
+      await this.ensureProjectIsActive(dto.projectId);
     }
 
     // prevent duplicate activity name
@@ -268,6 +316,10 @@ export class AdminService {
       throw new BadRequestException('Activity already active');
     }
 
+    if (activity.projectId) {
+      await this.ensureProjectIsActive(activity.projectId);
+    }
+
     return this.prisma.activity.update({
       where: { id },
       data: { status: 'ACTIVE' }
@@ -275,6 +327,13 @@ export class AdminService {
   }
   async getActiveActivities() {
     return this.prisma.activity.findMany({
+      where: {
+        status: 'ACTIVE',
+        OR: [
+          { projectId: null },
+          { project: { status: { equals: 'ACTIVE', mode: 'insensitive' } } },
+        ],
+      },
       include: {
         creator: {
           select: {
@@ -295,6 +354,34 @@ export class AdminService {
     });
   }
 
+  async getAllActivities() {
+    return this.prisma.activity.findMany({
+      where: {
+        OR: [
+          { projectId: null },
+          { project: { status: { equals: 'ACTIVE', mode: 'insensitive' } } },
+        ],
+      },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        project: {
+          select: {
+            id: true,
+            name: true,
+            projectCode: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
 
   async tagGroupWithActivity(dto: TagGroupActivityDto, user: any) {
     if (!user?.userId) {
@@ -307,11 +394,7 @@ export class AdminService {
     });
     if (!group) throw new NotFoundException('Group not found');
 
-    // check activity exists
-    const activity = await this.prisma.activity.findUnique({
-      where: { id: dto.activityId },
-    });
-    if (!activity) throw new NotFoundException('Activity not found');
+    await this.ensureActivityIsActive(dto.activityId);
 
     // check duplicate mapping
     const exists = await this.prisma.groupActivity.findFirst({
@@ -336,14 +419,11 @@ export class AdminService {
   //session
   async createSession(dto: CreateSessionDto, user: any) {
 
-    // Check activity exists
-    const activity = await this.prisma.activity.findUnique({
-      where: { id: dto.activityId }
-    });
-
-    if (!activity) {
-      throw new NotFoundException('Activity not found');
+    if (!user?.userId) {
+      throw new UnauthorizedException('User not found');
     }
+
+    await this.ensureActivityIsActive(dto.activityId);
 
     // Prevent duplicate session
     const exists = await this.prisma.session.findFirst({
@@ -376,6 +456,10 @@ export class AdminService {
     if (!session) {
       throw new NotFoundException('Session not found');
     }
+
+    const nextActivityId =
+      typeof dto.activityId === 'number' ? dto.activityId : session.activityId;
+    await this.ensureActivityIsActive(nextActivityId);
 
     return this.prisma.session.update({
       where: { id },
@@ -418,6 +502,8 @@ export class AdminService {
       throw new BadRequestException('Session already active');
     }
 
+    await this.ensureActivityIsActive(session.activityId);
+
     return this.prisma.session.update({
       where: { id },
       data: { status: 'ACTIVE' }
@@ -425,6 +511,7 @@ export class AdminService {
   }
 
   async getSessionsByActivity(activityId: number) {
+    await this.ensureActivityIsActive(activityId);
     return this.prisma.session.findMany({
       where: {
         activityId,

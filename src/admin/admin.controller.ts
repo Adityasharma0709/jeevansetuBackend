@@ -69,6 +69,13 @@ export class AdminController {
     return this.adminService.getActiveActivities();
   }
 
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Get('activities')
+  getAllActivities() {
+    return this.adminService.getAllActivities();
+  }
+
   //tag
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
