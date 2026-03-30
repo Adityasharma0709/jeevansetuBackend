@@ -8,6 +8,14 @@ export class UpdateManagerDto {
   email?: string;
 
   @IsOptional()
+  @IsString()
+  mobileNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  mobile?: string;
+
+  @IsOptional()
   @MinLength(6)
   password?: string;
 

@@ -1,5 +1,5 @@
 
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateAdminDto {
   @IsString()
@@ -7,6 +7,14 @@ export class CreateAdminDto {
 
   @IsEmail()
   email: string;
+
+  @IsOptional()
+  @IsString()
+  mobileNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  mobile?: string;
 
   @MinLength(6)
   password: string;

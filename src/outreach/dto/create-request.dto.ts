@@ -1,9 +1,10 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateRequestDto {
   @IsString()
   @IsNotEmpty()
-  type: string;   // UPDATE_PROFILE, UPDATE_BENEFICIARY
+  type: string;
 
-  data: any;      // dynamic payload
+  @IsOptional()
+  data: any;
 }

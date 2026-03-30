@@ -75,6 +75,7 @@ export class ManagerService {
     if (!manager.createdByAdminId) {
       throw new BadRequestException(
         'No creator admin mapped for this manager. Please recreate manager with admin ownership mapping.',
+
       );
     }
 
@@ -83,20 +84,26 @@ export class ManagerService {
 
   async managerDashboard(managerId: number) {
     // workers under this manager
-    const workers = await this.prisma.userRole.count({
+    const workers = await this.prisma.user.count({
       where: {
-        role: { name: 'OUTREACH' }
+        createdByAdminId: managerId,
+        roles: {
+          some: {
+            role: { name: 'OUTREACH' }
+          }
+        }
       }
     });
 
-    // pending approvals
+    // pending approvals targeted to this manager
     const pendingRequests = await this.prisma.approvalRequest.count({
       where: {
-        status: 'PENDING'
+        status: 'PENDING',
+        targetAdminId: managerId
       }
     });
 
-    // today reports
+    // today reports submitted by outreach workers under this manager
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -104,6 +111,9 @@ export class ManagerService {
       where: {
         createdAt: {
           gte: today
+        },
+        reportedBy: {
+          createdByAdminId: managerId
         }
       }
     });
@@ -125,9 +135,16 @@ export class ManagerService {
     if (dto.password) {
       dto.password = await bcrypt.hash(dto.password, 10);
     }
+
+    const data: Record<string, any> = { ...dto };
+    if (data.mobile !== undefined && data.mobileNumber === undefined) {
+      data.mobileNumber = data.mobile;
+    }
+    delete data.mobile;
+
     return this.prisma.user.update({
       where: { id: userId },
-      data: dto,
+      data,
     });
   }
 
@@ -162,6 +179,7 @@ export class ManagerService {
       data: {
         name: dto.name,
         email: dto.email,
+        mobileNumber: dto.mobileNumber ?? dto.mobile,
         password: hash,
         status: 'ACTIVE',
         // Reuse creator field to keep ownership of outreach workers by manager
@@ -302,9 +320,9 @@ export class ManagerService {
     };
   }
 
-  async getAll() {
+  async getAll(managerId: number) {
     return this.prisma.approvalRequest.findMany({
-      where: { status: 'PENDING' },
+      where: { status: 'PENDING', targetAdminId: managerId },
       include: { requestedBy: true }
     });
   }
@@ -461,15 +479,124 @@ export class ManagerService {
         id: true,
         name: true,
         email: true,
-        status: true
-      }
+        mobileNumber: true,
+        status: true,
+        projectAssignments: {
+          select: {
+            projectId: true,
+            locationId: true,
+            project: { select: { id: true, name: true } },
+            location: { select: { id: true, village: true, block: true, status: true } },
+          }
+        }
+      },
+      orderBy: { id: 'desc' }
     });
   }
 
-  async getProfileRequests() {
+  async getAssignedLocations(managerId: number, projectId: number) {
+    const numericProjectId = Number(projectId);
+    if (!Number.isFinite(numericProjectId)) {
+      throw new BadRequestException('Invalid projectId');
+    }
+
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: { userId: managerId, projectId: numericProjectId },
+      select: {
+        location: { select: { id: true, state: true, district: true, block: true, village: true, status: true } },
+      },
+    });
+
+    const seen = new Set<number>();
+    return (assignments || [])
+      .map((a: any) => a.location)
+      .filter(Boolean)
+      .filter((l: any) => (l.status ?? '').toString().toUpperCase() === 'ACTIVE')
+      .filter((l: any) => {
+        const id = Number(l.id);
+        if (!Number.isFinite(id) || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+  }
+
+  async tagWorkerProjectLocation(managerId: number, workerId: number, projectId: any, locationId: any) {
+    const numericWorkerId = Number(workerId);
+    const numericProjectId = Number(projectId);
+    const numericLocationId = Number(locationId);
+
+    if (!Number.isFinite(numericWorkerId) || !Number.isFinite(numericProjectId) || !Number.isFinite(numericLocationId)) {
+      throw new BadRequestException('Invalid project/location selection');
+    }
+
+    const managerAssigned = await this.prisma.userProjectLocation.findFirst({
+      where: {
+        userId: managerId,
+        projectId: numericProjectId,
+        locationId: numericLocationId,
+      },
+      select: { id: true },
+    });
+
+    if (!managerAssigned) {
+      throw new ForbiddenException('You are not assigned to this project/location');
+    }
+
+    const worker = await this.prisma.user.findFirst({
+      where: {
+        id: numericWorkerId,
+        createdByAdminId: managerId,
+        roles: {
+          some: {
+            role: { name: 'OUTREACH' }
+          }
+        }
+      },
+      select: { id: true },
+    });
+
+    if (!worker) {
+      throw new NotFoundException('Worker not found');
+    }
+
+    const already = await this.prisma.userProjectLocation.findFirst({
+      where: { userId: numericWorkerId, projectId: numericProjectId, locationId: numericLocationId },
+      select: { id: true },
+    });
+
+    if (already) {
+      return { message: 'Already tagged' };
+    }
+
+    const linked = await this.prisma.project.count({
+      where: {
+        id: numericProjectId,
+        locations: { some: { id: numericLocationId } },
+      },
+    });
+
+    if (linked === 0) {
+      await this.prisma.project.update({
+        where: { id: numericProjectId },
+        data: { locations: { connect: { id: numericLocationId } } },
+      });
+    }
+
+    await this.prisma.userProjectLocation.create({
+      data: {
+        userId: numericWorkerId,
+        projectId: numericProjectId,
+        locationId: numericLocationId,
+      }
+    });
+
+    return { message: 'Tagged successfully' };
+  }
+  async getProfileRequests(managerId: number) {
     return this.prisma.approvalRequest.findMany({
       where: {
         status: 'PENDING',
+        targetAdminId: managerId,
         requestType: {
           in: ['UPDATE_PROFILE', 'MODIFY_PROFILE'],
         },
@@ -483,6 +610,8 @@ export class ManagerService {
           }
         }
       }
+
+
     });
   }
 
@@ -496,10 +625,12 @@ export class ManagerService {
 
     return this.prisma.beneficiary.findMany({
       where: {
-        projectId: { in: projectIds }
+        projectId: { in: projectIds },
+        createdBy: { createdByAdminId: managerId }
       },
       include: {
-        project: true
+        project: true,
+        createdBy: { select: { name: true, email: true, mobileNumber: true } }
       },
       orderBy: {
         createdAt: 'desc'
@@ -522,22 +653,14 @@ export class ManagerService {
       const profileUpdates: any = {};
       if (payload.name) profileUpdates.name = payload.name;
       if (payload.email) profileUpdates.email = payload.email;
+      if (payload.mobile) profileUpdates.mobileNumber = String(payload.mobile);
 
-      if (Object.keys(profileUpdates).length === 0) {
-        return this.prisma.approvalRequest.update({
-          where: { id },
-          data: {
-            status,
-            approvedById: managerId,
-            approvedAt: new Date(),
-          },
+      if (Object.keys(profileUpdates).length > 0) {
+        await this.prisma.user.update({
+          where: { id: req.requestedById },
+          data: profileUpdates,
         });
       }
-
-      await this.prisma.user.update({
-        where: { id: req.requestedById },
-        data: profileUpdates,
-      });
     }
 
     return this.prisma.approvalRequest.update({
@@ -551,14 +674,6 @@ export class ManagerService {
   }
 
   async submitAccountRequest(type: string, data: any, managerId: number) {
-    // For now, since Managers are the primary managers of workers,
-    // we can directly perform the action OR store it as a request if needed.
-    // The requirement says "submit request", so let's store it as an ApprovalRequest
-    // that could be approved by an Admin or auto-approved.
-
-    // However, the Manager already has createWorker, updateWorker, deactivateWorker.
-    // If we want the "Request" flow as per frontend, we'll store it.
-
     const targetAdminId = await this.getCreatorAdminIdForManager(managerId);
 
     return this.prisma.approvalRequest.create({

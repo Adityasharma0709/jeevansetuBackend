@@ -400,14 +400,21 @@ export class UsersService {
       }
     }
 
+    const data: Record<string, any> = { ...dto };
+
     // Hash password if updating
-    if (dto.password) {
-      dto.password = await bcrypt.hash(dto.password, 10);
+    if (data.password) {
+      data.password = await bcrypt.hash(data.password, 10);
     }
+
+    if (data.mobile !== undefined && data.mobileNumber === undefined) {
+      data.mobileNumber = data.mobile;
+    }
+    delete data.mobile;
 
     const updated = await this.prisma.user.update({
       where: { id: managerId },
-      data: dto,
+      data: data,
     });
 
     const { password, ...safe } = updated;
@@ -583,6 +590,7 @@ export class UsersService {
         id: true,
         name: true,
         email: true,
+        mobileNumber: true,
         status: true,
         createdAt: true,
         roles: {
@@ -605,6 +613,11 @@ export class UsersService {
     if (dto.password) {
       dto.password = await bcrypt.hash(dto.password, 10);
     }
+
+    if (dto.mobile !== undefined && dto.mobileNumber === undefined) {
+      dto.mobileNumber = dto.mobile;
+    }
+
     // Remove sensitive fields that shouldn't be updated via this endpoint
     delete dto.email;
     delete dto.status;
@@ -618,8 +631,10 @@ export class UsersService {
         id: true,
         name: true,
         email: true,
+        mobileNumber: true,
         status: true,
         createdAt: true,
+        updatedAt: true,
       }
     });
   }

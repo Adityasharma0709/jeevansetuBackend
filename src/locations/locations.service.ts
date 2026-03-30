@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLocationDto } from './dto/create-location.dto';
@@ -17,13 +17,20 @@ export class LocationsService {
 
     const existing = await this.prisma.project.findMany({
       where: { id: { in: projectIds } },
-      select: { id: true },
+      select: { id: true, status: true },
     });
 
     const existingIds = new Set(existing.map((p) => p.id));
     const missing = projectIds.filter((id) => !existingIds.has(id));
     if (missing.length > 0) {
       throw new NotFoundException(`Project not found: ${missing.join(', ')}`);
+    }
+
+    const inactive = existing
+      .filter((p) => (p?.status ?? '').toString().toUpperCase() !== 'ACTIVE')
+      .map((p) => p.id);
+    if (inactive.length > 0) {
+      throw new BadRequestException(`Project is deactivated: ${inactive.join(', ')}`);
     }
   }
 
@@ -189,6 +196,18 @@ export class LocationsService {
     const projectIds = shouldSetProjects ? dto.projectIds ?? [] : this.normalizeProjectIds(dto);
 
     return this.assertProjectsExist(projectIds).then(async () => {
+      const isProjectAssignment = shouldSetProjects || dto.projectId != null;
+      if (isProjectAssignment) {
+        const location = await this.prisma.location.findUnique({
+          where: { id },
+          select: { id: true, status: true },
+        });
+        if (!location) throw new NotFoundException('Location not found');
+        if ((location.status ?? '').toString().toUpperCase() !== 'ACTIVE') {
+          throw new BadRequestException('Location is deactivated');
+        }
+      }
+
       const {
         projectId: _projectId,
         projectIds: _projectIds,

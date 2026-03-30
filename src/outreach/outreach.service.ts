@@ -14,6 +14,27 @@ import { RequestBeneficiaryUpdateDto } from './dto/request-beneficiary-update.dt
 @Injectable()
 export class OutreachService {
   constructor(private prisma: PrismaService) { }
+
+  private assertIsActive(status: string | null | undefined, label: string) {
+    if ((status ?? '').toString().toUpperCase() !== 'ACTIVE') {
+      throw new BadRequestException(`${label} is deactivated`);
+    }
+  }
+
+  private async ensureOutreachAssignedToBeneficiary(userId: number, beneficiary: { projectId: number; locationId: number }) {
+    const assigned = await this.prisma.userProjectLocation.findFirst({
+      where: {
+        userId,
+        projectId: beneficiary.projectId,
+        locationId: beneficiary.locationId,
+      },
+      select: { id: true },
+    });
+
+    if (!assigned) {
+      throw new ForbiddenException('You are not assigned to this beneficiary');
+    }
+  }
   async createBeneficiary(dto: CreateBeneficiaryDto, user: any) {
 
     // 1. Check outreach assignment
@@ -33,12 +54,21 @@ export class OutreachService {
 
     // 2. Get project code
     const project = await this.prisma.project.findUnique({
-      where: { id: dto.projectId }
+      where: { id: dto.projectId },
+      select: { id: true, projectCode: true, status: true },
     });
 
     if (!project) {
       throw new NotFoundException('Project not found');
     }
+    this.assertIsActive(project.status, 'Project');
+
+    const location = await this.prisma.location.findUnique({
+      where: { id: dto.locationId },
+      select: { id: true, status: true },
+    });
+    if (!location) throw new NotFoundException('Location not found');
+    this.assertIsActive(location.status, 'Location');
 
     // 3. Count existing beneficiaries in project
     const count = await this.prisma.beneficiary.count({
@@ -83,11 +113,19 @@ export class OutreachService {
   }
 
   async raiseRequest(dto, user) {
+    // Find the manager who created this outreach worker
+    const outreachUser = await this.prisma.user.findUnique({
+      where: { id: user.userId },
+      select: { createdByAdminId: true },
+    });
+
     return this.prisma.approvalRequest.create({
       data: {
         requestType: dto.type,
-        payload: dto.data,
-        requestedById: user.userId
+        payload: dto.data ?? {},
+        requestedById: user.userId,
+        targetAdminId: outreachUser?.createdByAdminId ?? null,
+        status: 'PENDING',
       }
     });
   }
@@ -202,6 +240,46 @@ export class OutreachService {
     });
   }
 
+  async outreachDashboard(userId: number) {
+    const beneficiariesRegistered = await this.prisma.beneficiary.count({
+      where: { createdById: userId }
+    });
+
+    const pendingRequests = await this.prisma.approvalRequest.count({
+      where: {
+        requestedById: userId,
+        status: 'PENDING'
+      }
+    });
+
+    const reportsSubmitted = await this.prisma.activityReport.count({
+      where: { reportedById: userId }
+    });
+
+    const assignedLocations = await this.prisma.userProjectLocation.count({
+      where: { userId }
+    });
+
+    return {
+      totalBeneficiaries: beneficiariesRegistered,
+      pendingRequests,
+      totalReports: reportsSubmitted,
+      assignedLocations
+    };
+  }
+
+  async getMyReports(userId: number) {
+    return this.prisma.activityReport.findMany({
+      where: { reportedById: userId },
+      include: {
+        beneficiary: { select: { name: true, uid: true, mobileNumber: true } },
+        activity: { select: { name: true } },
+        session: { select: { name: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
   async getDebugInfo() {
     const users = await this.prisma.user.findMany();
     const projects = await this.prisma.project.findMany();
@@ -256,23 +334,88 @@ export class OutreachService {
   }
 
   // Group Tagging
-  async tagBeneficiaryGroup(beneficiaryId: number, groupId: number) {
-    console.log('tagBeneficiaryGroup called with:', { beneficiaryId, groupId, typeBen: typeof beneficiaryId, typeGroup: typeof groupId });
+  async tagBeneficiaryGroup(beneficiaryId: number, groupId: number, user: any) {
+    const userId = Number(user?.userId);
+    if (!Number.isFinite(userId)) throw new BadRequestException('Invalid user');
+
+    const beneficiary = await this.prisma.beneficiary.findUnique({
+      where: { id: Number(beneficiaryId) },
+      select: { id: true, projectId: true, locationId: true },
+    });
+    if (!beneficiary) throw new NotFoundException('Beneficiary not found');
+
+    await this.ensureOutreachAssignedToBeneficiary(userId, beneficiary);
+
+    const group = await this.prisma.beneficiaryGroup.findUnique({
+      where: { id: Number(groupId) },
+      select: { id: true, status: true },
+    });
+    if (!group) throw new NotFoundException('Group not found');
+    this.assertIsActive(group.status, 'Group');
+
+    const exists = await this.prisma.groupMember.findFirst({
+      where: { beneficiaryId: beneficiary.id, groupId: group.id },
+      select: { id: true },
+    });
+    if (exists) throw new ConflictException('Already tagged');
+
     return this.prisma.groupMember.create({
       data: {
-        beneficiaryId: Number(beneficiaryId),
-        groupId: Number(groupId)
-      }
+        beneficiaryId: beneficiary.id,
+        groupId: group.id,
+      },
     });
   }
 
-  async tagBeneficiaryActivity(beneficiaryId: number, activityId: number, sessionId: number) {
+  async tagBeneficiaryActivity(beneficiaryId: number, activityId: number, sessionId: number, user: any) {
+    const userId = Number(user?.userId);
+    if (!Number.isFinite(userId)) throw new BadRequestException('Invalid user');
+
+    const beneficiary = await this.prisma.beneficiary.findUnique({
+      where: { id: Number(beneficiaryId) },
+      select: { id: true, projectId: true, locationId: true },
+    });
+    if (!beneficiary) throw new NotFoundException('Beneficiary not found');
+
+    await this.ensureOutreachAssignedToBeneficiary(userId, beneficiary);
+
+    const activity = await this.prisma.activity.findUnique({
+      where: { id: Number(activityId) },
+      select: {
+        id: true,
+        status: true,
+        projectId: true,
+        project: { select: { status: true } },
+      },
+    });
+    if (!activity) throw new NotFoundException('Activity not found');
+    this.assertIsActive(activity.status, 'Activity');
+    if (activity.projectId && activity.project?.status) {
+      this.assertIsActive(activity.project.status, 'Project');
+    }
+
+    const session = await this.prisma.session.findUnique({
+      where: { id: Number(sessionId) },
+      select: { id: true, status: true, activityId: true },
+    });
+    if (!session) throw new NotFoundException('Session not found');
+    this.assertIsActive(session.status, 'Session');
+    if (Number(session.activityId) !== Number(activity.id)) {
+      throw new BadRequestException('Session does not belong to the activity');
+    }
+
+    const exists = await this.prisma.beneficiaryActivity.findFirst({
+      where: { beneficiaryId: beneficiary.id, activityId: activity.id, sessionId: session.id },
+      select: { id: true },
+    });
+    if (exists) throw new ConflictException('Already tagged');
+
     return this.prisma.beneficiaryActivity.create({
       data: {
-        beneficiaryId,
-        activityId,
-        sessionId
-      }
+        beneficiaryId: beneficiary.id,
+        activityId: activity.id,
+        sessionId: session.id,
+      },
     });
   }
 

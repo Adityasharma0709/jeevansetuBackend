@@ -1,4 +1,4 @@
-import { IsEmail, IsInt, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateWorkerDto {
 
@@ -7,6 +7,14 @@ export class CreateWorkerDto {
 
   @IsEmail()
   email: string;
+
+  @IsOptional()
+  @IsString()
+  mobileNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  mobile?: string;
 
   @MinLength(6)
   password: string;

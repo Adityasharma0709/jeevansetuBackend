@@ -7,6 +7,14 @@ export class CreateManagerDto {
   @IsEmail()
   email: string;
 
+  @IsOptional()
+  @IsString()
+  mobileNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  mobile?: string;
+
   @MinLength(6)
   password: string;
 

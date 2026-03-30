@@ -66,6 +66,20 @@ export class OutreachController {
     return this.outreachService.submitReport(dto, req.user);
   }
 
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Get('dashboard/outreach')
+  getOutreachDashboard(@Req() req) {
+    return this.outreachService.outreachDashboard(req.user.userId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Get('my-reports')
+  getMyReports(@Req() req) {
+    return this.outreachService.getMyReports(req.user.userId);
+  }
+
   @Get('debug-info')
   debugInfo() {
     return this.outreachService.getDebugInfo();
@@ -88,15 +102,15 @@ export class OutreachController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Post('beneficiary/:id/tag-group')
-  tagGroup(@Param('id') id: string, @Body() dto: { groupId: number }) {
-    return this.outreachService.tagBeneficiaryGroup(+id, Number(dto.groupId));
+  tagGroup(@Param('id') id: string, @Body() dto: { groupId: number }, @Req() req) {
+    return this.outreachService.tagBeneficiaryGroup(+id, Number(dto.groupId), req.user);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Post('beneficiary/:id/tag-activity')
-  tagActivity(@Param('id') id: string, @Body() dto: { activityId: number, sessionId: number }) {
-    return this.outreachService.tagBeneficiaryActivity(+id, Number(dto.activityId), Number(dto.sessionId));
+  tagActivity(@Param('id') id: string, @Body() dto: { activityId: number, sessionId: number }, @Req() req) {
+    return this.outreachService.tagBeneficiaryActivity(+id, Number(dto.activityId), Number(dto.sessionId), req.user);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)

@@ -84,8 +84,8 @@ export class ManagerController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('MANAGER')
   @Get()
-  getAll() {
-    return this.managerService.getAll();
+  getAll(@Req() req) {
+    return this.managerService.getAll(req.user.userId);
   }
 
   // Approve
@@ -164,6 +164,24 @@ export class ManagerController {
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('MANAGER')
+  @Get('projects/:projectId/locations')
+  getAssignedLocationsForProject(@Param('projectId') projectId: string, @Req() req) {
+    return this.managerService.getAssignedLocations(req.user.userId, +projectId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
+  @Post('outreach-workers/:id/tag')
+  tagOutreachWorkerProjectLocation(@Param('id') id: string, @Body() body: any, @Req() req) {
+    return this.managerService.tagWorkerProjectLocation(
+      req.user.userId,
+      +id,
+      body?.projectId,
+      body?.locationId
+    );
+  }
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('MANAGER')
   @Post('account-requests')
   submitAccountRequest(@Body() body: any, @Req() req) {
     return this.managerService.submitAccountRequest(body.type, body.data, req.user.userId);
@@ -181,8 +199,8 @@ export class ManagerController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('MANAGER')
   @Get('profile-requests')
-  getProfileRequests() {
-    return this.managerService.getProfileRequests();
+  getProfileRequests(@Req() req) {
+    return this.managerService.getProfileRequests(req.user.userId);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -206,3 +224,4 @@ export class ManagerController {
     return this.managerService.updateRequestStatus(+id, status, req.user.userId);
   }
 }
+
