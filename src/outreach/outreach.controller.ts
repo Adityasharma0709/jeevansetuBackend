@@ -80,6 +80,7 @@ export class OutreachController {
     return this.outreachService.getMyReports(req.user.userId);
   }
 
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Get('debug-info')
   debugInfo() {
     return this.outreachService.getDebugInfo();
@@ -93,7 +94,7 @@ export class OutreachController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('OUTREACH', 'MANAGER')
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN')
   @Get('beneficiary/:id')
   getBeneficiary(@Param('id') id: string) {
     return this.outreachService.getBeneficiary(+id);

@@ -1,18 +1,39 @@
-// src/beneficiary/dto/create-beneficiary.dto.ts
 import {
   IsDateString,
+  IsEnum,
   IsNumber,
   IsOptional,
-  IsString
+  IsString,
 } from 'class-validator';
+import {
+  EconomicStatus,
+  EmploymentStatus,
+  Gender,
+  MaritalStatus,
+} from '../enums/beneficiary.enum';
 
 export class CreateBeneficiaryDto {
-
   @IsNumber()
   projectId: number;
 
   @IsNumber()
   locationId: number;
+
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  district?: string;
+
+  @IsOptional()
+  @IsString()
+  block?: string;
+
+  @IsOptional()
+  @IsString()
+  village?: string;
 
   @IsString()
   mobileNumber: string;
@@ -20,8 +41,8 @@ export class CreateBeneficiaryDto {
   @IsString()
   name: string;
 
-  @IsString()
-  gender: string;
+  @IsEnum(Gender, { message: 'gender must be Male, Female, or Other' })
+  gender: Gender;
 
   @IsString()
   guardianName: string;
@@ -30,8 +51,10 @@ export class CreateBeneficiaryDto {
   dateOfBirth: string;
 
   @IsOptional()
-  @IsString()
-  maritalStatus?: string;
+  @IsEnum(MaritalStatus, {
+    message: 'maritalStatus must be Single, Married, Widowed, or Divorced',
+  })
+  maritalStatus?: MaritalStatus;
 
   @IsOptional()
   @IsString()
@@ -57,12 +80,14 @@ export class CreateBeneficiaryDto {
   @IsNumber()
   monthlyIncome: number;
 
-  @IsString()
-  economicStatus: string;
+  @IsEnum(EconomicStatus, { message: 'economicStatus must be APL or BPL' })
+  economicStatus: EconomicStatus;
 
   @IsString()
   primaryIncomeSource: string;
 
-  @IsString()
-  employmentStatus: string;
+  @IsEnum(EmploymentStatus, {
+    message: 'employmentStatus must be Employed, Unemployed, Self-Employed, or Student',
+  })
+  employmentStatus: EmploymentStatus;
 }

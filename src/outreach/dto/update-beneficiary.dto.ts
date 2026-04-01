@@ -1,10 +1,17 @@
 import { Transform } from 'class-transformer';
 import {
   IsDateString,
+  IsEnum,
   IsNumber,
   IsOptional,
-  IsString
+  IsString,
 } from 'class-validator';
+import {
+  EconomicStatus,
+  EmploymentStatus,
+  Gender,
+  MaritalStatus,
+} from '../enums/beneficiary.enum';
 
 const emptyToUndefined = ({ value }) =>
   value === '' || value === null ? undefined : value;
@@ -23,6 +30,26 @@ export class UpdateBeneficiaryDto {
   @IsOptional()
   @Transform(emptyToUndefined)
   @IsString()
+  state?: string;
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  district?: string;
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  block?: string;
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
+  village?: string;
+
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsString()
   mobileNumber?: string;
 
   @IsOptional()
@@ -32,8 +59,8 @@ export class UpdateBeneficiaryDto {
 
   @IsOptional()
   @Transform(emptyToUndefined)
-  @IsString()
-  gender?: string;
+  @IsEnum(Gender)
+  gender?: Gender;
 
   @IsOptional()
   @Transform(emptyToUndefined)
@@ -47,8 +74,8 @@ export class UpdateBeneficiaryDto {
 
   @IsOptional()
   @Transform(emptyToUndefined)
-  @IsString()
-  maritalStatus?: string;
+  @IsEnum(MaritalStatus)
+  maritalStatus?: MaritalStatus;
 
   @IsOptional()
   @Transform(emptyToUndefined)
@@ -87,8 +114,8 @@ export class UpdateBeneficiaryDto {
 
   @IsOptional()
   @Transform(emptyToUndefined)
-  @IsString()
-  economicStatus?: string;
+  @IsEnum(EconomicStatus)
+  economicStatus?: EconomicStatus;
 
   @IsOptional()
   @Transform(emptyToUndefined)
@@ -97,6 +124,6 @@ export class UpdateBeneficiaryDto {
 
   @IsOptional()
   @Transform(emptyToUndefined)
-  @IsString()
-  employmentStatus?: string;
+  @IsEnum(EmploymentStatus)
+  employmentStatus?: EmploymentStatus;
 }

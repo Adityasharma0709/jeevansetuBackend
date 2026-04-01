@@ -58,6 +58,10 @@ export class ManagerService {
     assignString('economicStatus');
     assignString('primaryIncomeSource');
     assignString('employmentStatus');
+    assignString('state');
+    assignString('district');
+    assignString('block');
+    assignString('village');
 
     return data;
   }
@@ -142,6 +146,11 @@ export class ManagerService {
     }
     delete data.mobile;
 
+    if (dto.password) {
+      data.password = await bcrypt.hash(dto.password, 10);
+      delete data.password; // Wait, it's actually data.password getting updated above
+    }
+
     return this.prisma.user.update({
       where: { id: userId },
       data,
@@ -180,6 +189,7 @@ export class ManagerService {
         name: dto.name,
         email: dto.email,
         mobileNumber: dto.mobileNumber ?? dto.mobile,
+        usercode: dto.usercode,
         password: hash,
         status: 'ACTIVE',
         // Reuse creator field to keep ownership of outreach workers by manager
@@ -480,6 +490,7 @@ export class ManagerService {
         name: true,
         email: true,
         mobileNumber: true,
+        usercode: true,
         status: true,
         projectAssignments: {
           select: {
@@ -630,6 +641,7 @@ export class ManagerService {
       },
       include: {
         project: true,
+        location: true,
         createdBy: { select: { name: true, email: true, mobileNumber: true } }
       },
       orderBy: {

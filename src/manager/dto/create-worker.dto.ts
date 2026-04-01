@@ -16,6 +16,10 @@ export class CreateWorkerDto {
   @IsString()
   mobile?: string;
 
+  @IsOptional()
+  @IsString()
+  usercode?: string;
+
   @MinLength(6)
   password: string;
 

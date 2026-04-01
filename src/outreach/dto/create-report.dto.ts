@@ -12,5 +12,8 @@ export class CreateReportDto {
   sessionId: number;
 
   @IsNotEmpty()
+  sessionDate: string;
+
+  @IsNotEmpty()
   reportData: any;   // dynamic form data
 }

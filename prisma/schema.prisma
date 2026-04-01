@@ -154,6 +154,11 @@ model Beneficiary {
   locationId  Int
   createdById Int
 
+  state    String?
+  district String?
+  block    String?
+  village  String?
+
   mobileNumber String
   name         String
   gender       String

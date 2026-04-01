@@ -1,4 +1,4 @@
-﻿// src/admin/admin.service.ts
+// src/admin/admin.service.ts
 import {
   Injectable,
   ConflictException,
@@ -612,7 +612,7 @@ export class AdminService {
     }
 
     if (requestType === 'CREATE_WORKER') {
-      const { name, email, password, mobile, mobileNumber, projectId, locationId } = payload || {};
+      const { name, email, password, mobile, mobileNumber, usercode, projectId, locationId } = payload || {};
       if (!name || !email || !password) {
         throw new BadRequestException('Invalid CREATE_WORKER payload');
       }
@@ -628,6 +628,7 @@ export class AdminService {
           name: String(name),
           email: String(email),
           ...(normalizedMobile ? { mobileNumber: String(normalizedMobile) } : {}),
+          ...(usercode ? { usercode: String(usercode) } : {}),
           password: hash,
           status: 'ACTIVE',
           createdByAdminId: request.requestedById,
@@ -674,12 +675,13 @@ export class AdminService {
     }
 
     if (requestType === 'MODIFY_WORKER')    if (requestType === 'MODIFY_WORKER') {
-      const { workerId, name, email, mobile, mobileNumber } = payload || {};
+      const { workerId, name, email, mobile, mobileNumber, usercode } = payload || {};
       if (!workerId) throw new BadRequestException('Invalid MODIFY_WORKER payload');
 
       const updates: any = {};
       if (name) updates.name = String(name);
       if (email) updates.email = String(email);
+      if (usercode) updates.usercode = String(usercode);
       const normalizedMobile = mobileNumber ?? mobile;
       if (normalizedMobile) updates.mobileNumber = String(normalizedMobile);
 

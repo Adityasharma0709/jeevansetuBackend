@@ -87,6 +87,10 @@ export class OutreachService {
         uid,
         projectId: dto.projectId,
         locationId: dto.locationId,
+        state: dto.state,
+        district: dto.district,
+        block: dto.block,
+        village: dto.village,
         createdById: user.userId,
 
         mobileNumber: dto.mobileNumber,
@@ -131,28 +135,20 @@ export class OutreachService {
   }
 
   async requestBeneficiaryUpdate(id: number, dto: RequestBeneficiaryUpdateDto, user) {
-
-    // check beneficiary exists
-    const ben = await this.prisma.beneficiary.findUnique({
-      where: { id }
-    });
-
+    const ben = await this.prisma.beneficiary.findUnique({ where: { id } });
     if (!ben) throw new NotFoundException('Beneficiary not found');
 
-    // Generic find creator logic or specific to user
     const requester = await this.prisma.user.findUnique({
       where: { id: user.userId },
       select: { createdByAdminId: true }
     });
 
-    // store request
     return this.prisma.approvalRequest.create({
       data: {
         requestType: 'UPDATE_BENEFICIARY',
         payload: {
           beneficiaryId: id,
           changes: dto?.changes as any,
-          reason: dto?.reason
         },
         requestedById: user.userId,
         targetAdminId: requester?.createdByAdminId,
@@ -163,79 +159,43 @@ export class OutreachService {
 
   async getMyRequests(userId: number) {
     return this.prisma.approvalRequest.findMany({
-      where: {
-        requestedById: userId
-      },
+      where: { requestedById: userId },
       include: {
-        approvedBy: {
-          select: {
-            name: true,
-            email: true
-          }
-        },
-        targetAdmin: {
-          select: {
-            name: true,
-            email: true
-          }
-        }
+        approvedBy: { select: { name: true, email: true } },
+        targetAdmin: { select: { name: true, email: true } }
       },
-      orderBy: {
-        createdAt: 'desc'
-      }
+      orderBy: { createdAt: 'desc' }
     });
   }
 
-
-  //report
   async submitReport(dto: CreateReportDto, user: any) {
-
-    // 1. Validate beneficiary
-    const ben = await this.prisma.beneficiary.findUnique({
-      where: { id: dto.beneficiaryId }
-    });
+    const ben = await this.prisma.beneficiary.findUnique({ where: { id: dto.beneficiaryId } });
     if (!ben) throw new NotFoundException('Beneficiary not found');
 
-    // 2. Validate activity
-    const activity = await this.prisma.activity.findUnique({
-      where: { id: dto.activityId }
-    });
+    const activity = await this.prisma.activity.findUnique({ where: { id: dto.activityId } });
     if (!activity) throw new NotFoundException('Activity not found');
 
-    const sessionId =
-      typeof dto.sessionId === 'number' && dto.sessionId > 0 ? dto.sessionId : null;
+    const sessionId = typeof dto.sessionId === 'number' && dto.sessionId > 0 ? dto.sessionId : null;
+    if (sessionId === null) throw new BadRequestException('sessionId is required');
 
-    // 3. Validate session (required)
-    if (sessionId === null) {
-      throw new BadRequestException('sessionId is required');
-    }
-
-    const session = await this.prisma.session.findUnique({
-      where: { id: sessionId }
-    });
+    const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
     if (!session) throw new NotFoundException('Session not found');
 
-    // 4. Prevent duplicate report
     const exists = await this.prisma.activityReport.findFirst({
-      where: {
-        beneficiaryId: dto.beneficiaryId,
-        activityId: dto.activityId,
-        sessionId
-      }
+      where: { beneficiaryId: dto.beneficiaryId, activityId: dto.activityId, sessionId }
     });
+    if (exists) throw new ConflictException('Report already submitted');
 
-    if (exists) {
-      throw new ConflictException('Report already submitted');
-    }
-
-    // 5. Save report
     return this.prisma.activityReport.create({
       data: {
         beneficiaryId: dto.beneficiaryId,
         activityId: dto.activityId,
         sessionId,
         reportedById: user.userId,
-        reportData: dto.reportData
+        reportData: {
+          ...dto.reportData,
+          sessionDate: dto.sessionDate
+        }
       }
     });
   }
@@ -463,15 +423,20 @@ export class OutreachService {
   }
 
   async getBeneficiary(id: number) {
-    return this.prisma.beneficiary.findUnique({
+    const ben = await this.prisma.beneficiary.findUnique({
       where: { id },
       include: {
         project: true,
         location: true,
+        children: true,
         groups: { include: { group: true } },
         activities: { include: { activity: true, session: true } }
       }
     });
+
+    if (!ben) throw new NotFoundException('Beneficiary not found');
+
+    return ben;
   }
 
   async getAssignedLocations(projectId: number, userId: number) {

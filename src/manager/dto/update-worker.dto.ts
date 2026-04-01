@@ -18,6 +18,10 @@ export class UpdateWorkerDto {
   mobile?: string;
 
   @IsOptional()
+  @IsString()
+  usercode?: string;
+
+  @IsOptional()
   @MinLength(6)
   password?: string;
 
