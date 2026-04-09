@@ -632,7 +632,13 @@ export class ManagerService {
       select: { projectId: true }
     });
 
-    const projectIds = assignments.map(a => a.projectId);\r\n\r\n    if (projectIds.length === 0) {\r\n      return [];\r\n    }\r\n\r\n    return this.prisma.beneficiary.findMany({
+    const projectIds = assignments.map(a => a.projectId);
+
+    if (projectIds.length === 0) {
+      return [];
+    }
+
+    return this.prisma.beneficiary.findMany({
       where: {
         projectId: { in: projectIds },
         createdBy: { createdByAdminId: managerId }
@@ -724,4 +730,5 @@ export class ManagerService {
     });
   }
 }
+
 
