@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+﻿import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
@@ -43,6 +43,7 @@ export class AuthService {
         name: user.name,
         email: user.email,
         mobileNumber: user.mobileNumber,
+        usercode: user.usercode,
         roles,
       },
     };
@@ -67,7 +68,10 @@ export class AuthService {
       name: user.name,
       email: user.email,
       mobileNumber: user.mobileNumber,
+      usercode: user.usercode,
       roles: user.roles.map(r => r.role.name),
     };
   }
 }
+
+
