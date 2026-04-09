@@ -260,7 +260,7 @@ export class OutreachService {
       });
 
       if (assignments.length === 0) {
-        throw new NotFoundException('No assignments found for this user');
+        return [];
       }
 
       // Filter by projects assigned to the user
@@ -454,3 +454,4 @@ export class OutreachService {
     return assignments.map(a => a.location);
   }
 }
+
