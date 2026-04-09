@@ -9,6 +9,10 @@ export class CreateManagerDto {
 
   @IsOptional()
   @IsString()
+  usercode?: string;
+
+  @IsOptional()
+  @IsString()
   mobileNumber?: string;
 
   @IsOptional()

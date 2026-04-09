@@ -32,14 +32,15 @@ export class UsersService {
   private async ensureLocationLinkedToProject(
     projectId: number,
     locationId: number,
+    tx: Prisma.TransactionClient = this.prisma,
   ) {
-    const linked = await this.prisma.project.count({
+    const linked = await tx.project.count({
       where: { id: projectId, locations: { some: { id: locationId } } },
     });
 
     if (linked > 0) return;
 
-    await this.prisma.project.update({
+    await tx.project.update({
       where: { id: projectId },
       data: { locations: { connect: { id: locationId } } },
     });
@@ -294,62 +295,126 @@ export class UsersService {
       throw new ForbiddenException('Admin identity not found in token');
     }
 
-    // 1. Check admin assignment if project/location provided
-    if (dto.projectId && dto.locationId) {
+    const projectId = Number(dto.projectId);
+    const locationId = Number(dto.locationId);
+    const hasProject = Number.isFinite(projectId) && projectId > 0;
+    const hasLocation = Number.isFinite(locationId) && locationId > 0;
+
+    if (hasProject !== hasLocation) {
+      throw new BadRequestException('Select both project and location');
+    }
+
+    if (hasProject && hasLocation) {
       const allowed = await this.prisma.userProjectLocation.findFirst({
         where: {
           userId: adminId,
-          projectId: dto.projectId,
-          locationId: dto.locationId,
+          projectId,
+          locationId,
         },
       });
 
       if (!allowed) {
-        throw new ForbiddenException(
-          'You are not assigned to this project/location',
-        );
+        throw new ForbiddenException('You are not assigned to this project/location');
       }
+
+      const project = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { id: true, status: true },
+      });
+      if (!project) throw new NotFoundException('Project not found');
+      this.assertIsActive(project.status, 'Project');
+
+      const location = await this.prisma.location.findUnique({
+        where: { id: locationId },
+        select: { id: true, status: true },
+      });
+      if (!location) throw new NotFoundException('Location not found');
+      this.assertIsActive(location.status, 'Location');
     }
 
-    // 2. Check email
-    const exists = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
-    if (exists) throw new BadRequestException('Email exists');
+    const email = (dto.email ?? '').trim();
+    const usercode = dto.usercode ? String(dto.usercode).trim() : undefined;
 
-    // 3. Create user
+    const exists = await this.prisma.user.findUnique({
+      where: { email },
+    });
+    if (exists) throw new BadRequestException('Email already exists');
+
+    if (usercode) {
+      const codeExists = await this.prisma.user.findUnique({
+        where: { usercode },
+      });
+      if (codeExists) throw new BadRequestException('User code already exists');
+    }
+
     const hash = await bcrypt.hash(dto.password, 10);
 
-    const manager = await this.prisma.user.create({
-      data: {
-        name: dto.name,
-        email: dto.email,
-        password: hash,
-        status: 'ACTIVE',
-        createdByAdminId: adminId,
-      },
-    });
+    try {
+      const manager = await this.prisma.$transaction(async (tx) => {
+        const role = await tx.role.findUnique({
+          where: { name: 'MANAGER' },
+        });
 
-    const role = await this.prisma.role.findUnique({
-      where: { name: 'MANAGER' },
-    });
+        if (!role) {
+          throw new BadRequestException('MANAGER role does not exist');
+        }
 
-    if (!role) {
-      throw new BadRequestException('MANAGER role does not exist');
+        const user = await tx.user.create({
+          data: {
+            name: dto.name,
+            email,
+            ...(usercode ? { usercode } : {}),
+            mobileNumber: dto.mobileNumber ?? dto.mobile ?? null,
+            password: hash,
+            status: 'ACTIVE',
+            createdByAdminId: adminId,
+          },
+        });
+
+        await tx.userRole.create({
+          data: {
+            userId: user.id,
+            roleId: role.id,
+          },
+        });
+
+        if (hasProject && hasLocation) {
+          await this.ensureLocationLinkedToProject(projectId, locationId, tx);
+          await tx.userProjectLocation.create({
+            data: {
+              userId: user.id,
+              projectId,
+              locationId,
+            },
+          });
+        }
+
+        return user;
+      });
+
+      const { password, ...safeUser } = manager;
+      return {
+        message: 'Manager created successfully',
+        user: safeUser,
+      };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const target = error.meta?.target;
+        const targets = Array.isArray(target)
+          ? target
+          : typeof target === 'string'
+            ? [target]
+            : [];
+
+        if (targets.some((t) => t.includes('email'))) {
+          throw new ConflictException('Email already exists');
+        }
+        if (targets.some((t) => t.includes('usercode'))) {
+          throw new ConflictException('User code already exists');
+        }
+      }
+      throw error;
     }
-
-    await this.prisma.userRole.create({
-      data: {
-        userId: manager.id,
-        roleId: role.id,
-      },
-    });
-
-    const { password, ...safeUser } = manager;
-    return {
-      message: 'Manager created successfully',
-      user: safeUser,
-    };
   }
 
   async updateManager(
@@ -639,3 +704,5 @@ export class UsersService {
     });
   }
 }
+
+

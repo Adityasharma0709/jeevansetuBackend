@@ -634,6 +634,10 @@ export class ManagerService {
 
     const projectIds = assignments.map(a => a.projectId);
 
+    if (projectIds.length === 0) {
+      return [];
+    }
+
     return this.prisma.beneficiary.findMany({
       where: {
         projectId: { in: projectIds },
@@ -726,3 +730,5 @@ export class ManagerService {
     });
   }
 }
+
+
