@@ -512,22 +512,29 @@ export class UsersService {
 
     // 🔥 CASE 2: ADMIN updating manager
     if (loggedUser.roles?.includes('ADMIN')) {
-      const allowed = await this.prisma.userProjectLocation.findFirst({
-        where: {
-          userId: loggedUser.userId || loggedUser.id,
-          projectId: {
-            in: (
-              await this.prisma.userProjectLocation.findMany({
-                where: { userId: managerId },
-                select: { projectId: true },
-              })
-            ).map((p) => p.projectId),
-          },
-        },
-      });
+      const loggedUserId = loggedUser.userId || loggedUser.id;
 
-      if (!allowed) {
-        throw new ForbiddenException('You cannot modify this manager');
+      // Creator admin can always update their own manager
+      if (manager.createdByAdminId !== loggedUserId) {
+        const managerProjects = await this.prisma.userProjectLocation.findMany({
+          where: { userId: managerId },
+          select: { projectId: true },
+        });
+
+        if (managerProjects.length === 0) {
+          throw new ForbiddenException('You cannot modify this manager');
+        }
+
+        const allowed = await this.prisma.userProjectLocation.findFirst({
+          where: {
+            userId: loggedUserId,
+            projectId: { in: managerProjects.map((p) => p.projectId) },
+          },
+        });
+
+        if (!allowed) {
+          throw new ForbiddenException('You cannot modify this manager');
+        }
       }
     }
 
