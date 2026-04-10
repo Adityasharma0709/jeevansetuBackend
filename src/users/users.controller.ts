@@ -34,6 +34,13 @@ export class UsersController {
     return this.usersService.createAdmin(dto);
   }
 
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Get('next-code')
+  getNextCode(@Query('role') role: string, @Req() req) {
+    return this.usersService.getNextUserCode(role, req.user);
+  }
+
 
   // =========================
   // UPDATE ADMIN
