@@ -19,6 +19,13 @@ const ADMIN_CODE_PREFIX = 'AC';
 const ADMIN_CODE_MIN_DIGITS = 3;
 const ADMIN_CODE_MAX_RETRIES = 5;
 
+const MANAGER_CODE_PREFIX = 'MC';
+const MANAGER_CODE_MIN_DIGITS = 2;
+const MANAGER_CODE_MAX_RETRIES = 5;
+
+const OUTREACH_CODE_PREFIX = 'OW';
+const OUTREACH_CODE_MIN_DIGITS = 2;
+
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) { }
@@ -49,19 +56,45 @@ export class UsersService {
   private async generateNextAdminUserCode(
     tx: Prisma.TransactionClient,
   ): Promise<string> {
-    const prefix = ADMIN_CODE_PREFIX;
-    const prefixPattern = `^${prefix}`;
-    const numericPattern = `^${prefix}[0-9]+$`;
+    return this.generateNextUserCode(ADMIN_CODE_PREFIX, ADMIN_CODE_MIN_DIGITS, tx);
+  }
 
+  private async generateNextManagerUserCode(
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
+    return this.generateNextUserCode(MANAGER_CODE_PREFIX, MANAGER_CODE_MIN_DIGITS, tx);
+  }
+
+  private async generateNextOutreachUserCode(
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
+    return this.generateNextUserCode(OUTREACH_CODE_PREFIX, OUTREACH_CODE_MIN_DIGITS, tx);
+  }
+
+  private async generateNextUserCode(
+    prefix: string,
+    minDigits: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
+    const safePrefix = (prefix ?? '')
+      .toString()
+      .toUpperCase()
+      .replace(/[^A-Z]/g, '')
+      .padEnd(2, 'X')
+      .slice(0, 2);
+
+    const likePrefix = `${safePrefix}%`;
     const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
-      SELECT MAX(CAST(regexp_replace("usercode", ${prefixPattern}, '') AS INTEGER)) AS max
+      SELECT MAX(
+        CAST(NULLIF(regexp_replace("usercode", '\\D', '', 'g'), '') AS INTEGER)
+      ) AS max
       FROM "User"
-      WHERE "usercode" ~ ${numericPattern}
+      WHERE upper("usercode") LIKE ${likePrefix}
     `;
 
     const nextNumber = (rows[0]?.max ?? 0) + 1;
-    const numeric = String(nextNumber).padStart(ADMIN_CODE_MIN_DIGITS, '0');
-    return `${prefix}${numeric}`;
+    const digits = String(nextNumber).padStart(Math.max(2, minDigits), '0');
+    return `${safePrefix}${digits}`;
   }
 
   async createAdmin(dto: CreateAdminDto) {
@@ -133,6 +166,41 @@ export class UsersService {
     }
 
     throw new ConflictException('Could not generate a unique admin user code');
+  }
+
+  async getNextUserCode(role: string, loggedUser?: any) {
+    const normalized = (role ?? '').toString().trim().toUpperCase();
+    if (!normalized) {
+      throw new BadRequestException('Role is required');
+    }
+
+    const roles = Array.isArray(loggedUser?.roles) ? loggedUser.roles : [];
+
+    if (normalized === 'ADMIN') {
+      if (!roles.includes('SUPER_ADMIN')) {
+        throw new ForbiddenException('Not allowed to generate admin codes');
+      }
+      const code = await this.generateNextAdminUserCode(this.prisma);
+      return { code };
+    }
+
+    if (normalized === 'MANAGER') {
+      if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+        throw new ForbiddenException('Not allowed to generate manager codes');
+      }
+      const code = await this.generateNextManagerUserCode(this.prisma);
+      return { code };
+    }
+
+    if (normalized === 'OUTREACH') {
+      if (!roles.includes('MANAGER') && !roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+        throw new ForbiddenException('Not allowed to generate outreach codes');
+      }
+      const code = await this.generateNextOutreachUserCode(this.prisma);
+      return { code };
+    }
+
+    throw new BadRequestException('Invalid role');
   }
   async updateAdminStatus(id: number, status: string) {
     return this.prisma.user.update({
@@ -333,88 +401,86 @@ export class UsersService {
     }
 
     const email = (dto.email ?? '').trim();
-    const usercode = dto.usercode ? String(dto.usercode).trim() : undefined;
 
     const exists = await this.prisma.user.findUnique({
       where: { email },
     });
     if (exists) throw new BadRequestException('Email already exists');
 
-    if (usercode) {
-      const codeExists = await this.prisma.user.findUnique({
-        where: { usercode },
-      });
-      if (codeExists) throw new BadRequestException('User code already exists');
-    }
-
     const hash = await bcrypt.hash(dto.password, 10);
 
-    try {
-      const manager = await this.prisma.$transaction(async (tx) => {
-        const role = await tx.role.findUnique({
-          where: { name: 'MANAGER' },
-        });
+    for (let attempt = 0; attempt < MANAGER_CODE_MAX_RETRIES; attempt++) {
+      try {
+        const manager = await this.prisma.$transaction(async (tx) => {
+          const role = await tx.role.findUnique({
+            where: { name: 'MANAGER' },
+          });
 
-        if (!role) {
-          throw new BadRequestException('MANAGER role does not exist');
-        }
+          if (!role) {
+            throw new BadRequestException('MANAGER role does not exist');
+          }
 
-        const user = await tx.user.create({
-          data: {
-            name: dto.name,
-            email,
-            ...(usercode ? { usercode } : {}),
-            mobileNumber: dto.mobileNumber ?? dto.mobile ?? null,
-            password: hash,
-            status: 'ACTIVE',
-            createdByAdminId: adminId,
-          },
-        });
+          const usercode = await this.generateNextManagerUserCode(tx);
 
-        await tx.userRole.create({
-          data: {
-            userId: user.id,
-            roleId: role.id,
-          },
-        });
-
-        if (hasProject && hasLocation) {
-          await this.ensureLocationLinkedToProject(projectId, locationId, tx);
-          await tx.userProjectLocation.create({
+          const user = await tx.user.create({
             data: {
-              userId: user.id,
-              projectId,
-              locationId,
+              name: dto.name,
+              email,
+              usercode,
+              mobileNumber: dto.mobileNumber ?? dto.mobile ?? null,
+              password: hash,
+              status: 'ACTIVE',
+              createdByAdminId: adminId,
             },
           });
-        }
 
-        return user;
-      });
+          await tx.userRole.create({
+            data: {
+              userId: user.id,
+              roleId: role.id,
+            },
+          });
 
-      const { password, ...safeUser } = manager;
-      return {
-        message: 'Manager created successfully',
-        user: safeUser,
-      };
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        const target = error.meta?.target;
-        const targets = Array.isArray(target)
-          ? target
-          : typeof target === 'string'
-            ? [target]
-            : [];
+          if (hasProject && hasLocation) {
+            await this.ensureLocationLinkedToProject(projectId, locationId, tx);
+            await tx.userProjectLocation.create({
+              data: {
+                userId: user.id,
+                projectId,
+                locationId,
+              },
+            });
+          }
 
-        if (targets.some((t) => t.includes('email'))) {
-          throw new ConflictException('Email already exists');
+          return user;
+        });
+
+        const { password, ...safeUser } = manager;
+        return {
+          message: 'Manager created successfully',
+          user: safeUser,
+        };
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          const target = error.meta?.target;
+          const targets = Array.isArray(target)
+            ? target
+            : typeof target === 'string'
+              ? [target]
+              : [];
+
+          if (targets.some((t) => t.includes('email'))) {
+            throw new ConflictException('Email already exists');
+          }
+          if (targets.some((t) => t.includes('usercode'))) {
+            continue;
+          }
         }
-        if (targets.some((t) => t.includes('usercode'))) {
-          throw new ConflictException('User code already exists');
-        }
+        throw error;
       }
-      throw error;
     }
+
+    throw new ConflictException('Could not generate a unique manager user code');
   }
 
   async updateManager(
@@ -655,6 +721,7 @@ export class UsersService {
         id: true,
         name: true,
         email: true,
+        usercode: true,
         mobileNumber: true,
         status: true,
         createdAt: true,

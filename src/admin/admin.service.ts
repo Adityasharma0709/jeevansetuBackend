@@ -7,6 +7,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { CreateActivityDto } from './dto/create-activity.dto';
@@ -17,9 +18,31 @@ import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import * as bcrypt from 'bcrypt';
 
+const OUTREACH_CODE_PREFIX = 'OW';
+const OUTREACH_CODE_MIN_DIGITS = 2;
+const OUTREACH_CODE_MAX_RETRIES = 5;
+
 @Injectable()
 export class AdminService {
   constructor(private prisma: PrismaService) { }
+
+  private async generateNextOutreachUserCode(
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
+    const likePrefix = `${OUTREACH_CODE_PREFIX}%`;
+
+    const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
+      SELECT MAX(
+        CAST(NULLIF(regexp_replace("usercode", '\\D', '', 'g'), '') AS INTEGER)
+      ) AS max
+      FROM "User"
+      WHERE upper("usercode") LIKE ${likePrefix}
+    `;
+
+    const nextNumber = (rows[0]?.max ?? 0) + 1;
+    const digits = String(nextNumber).padStart(OUTREACH_CODE_MIN_DIGITS, '0');
+    return `${OUTREACH_CODE_PREFIX}${digits}`;
+  }
 
   private async ensureProjectIsActive(projectId: number) {
     const project = await this.prisma.project.findUnique({
@@ -609,7 +632,7 @@ export class AdminService {
     }
 
     if (requestType === 'CREATE_WORKER') {
-      const { name, email, password, mobile, mobileNumber, usercode, projectId, locationId } = payload || {};
+      const { name, email, password, mobile, mobileNumber, projectId, locationId } = payload || {};
       if (!name || !email || !password) {
         throw new BadRequestException('Invalid CREATE_WORKER payload');
       }
@@ -620,54 +643,91 @@ export class AdminService {
       const normalizedMobile = mobileNumber ?? mobile;
 
       const hash = await bcrypt.hash(String(password), 10);
-      const worker = await this.prisma.user.create({
-        data: {
-          name: String(name),
-          email: String(email),
-          ...(normalizedMobile ? { mobileNumber: String(normalizedMobile) } : {}),
-          ...(usercode ? { usercode: String(usercode) } : {}),
-          password: hash,
-          status: 'ACTIVE',
-          createdByAdminId: request.requestedById,
-        },
-      });
 
       const role = await this.prisma.role.findUnique({ where: { name: 'OUTREACH' } });
       if (!role) throw new NotFoundException('OUTREACH role not found');
 
-      await this.prisma.userRole.create({
-        data: {
-          userId: worker.id,
-          roleId: role.id,
-        },
-      });
+      for (let attempt = 0; attempt < OUTREACH_CODE_MAX_RETRIES; attempt++) {
+        try {
+          const worker = await this.prisma.$transaction(async (tx) => {
+            const usercode = await this.generateNextOutreachUserCode(tx);
 
-      if (projectId && locationId) {
-        const numericProjectId = Number(projectId);
-        const numericLocationId = Number(locationId);
-        const linked = await this.prisma.project.count({
-          where: {
-            id: numericProjectId,
-            locations: { some: { id: numericLocationId } },
-          },
-        });
+            const created = await tx.user.create({
+              data: {
+                name: String(name),
+                email: String(email),
+                ...(normalizedMobile ? { mobileNumber: String(normalizedMobile) } : {}),
+                usercode,
+                password: hash,
+                status: 'ACTIVE',
+                createdByAdminId: request.requestedById,
+              },
+            });
 
-        if (linked === 0) {
-          await this.prisma.project.update({
-            where: { id: numericProjectId },
-            data: { locations: { connect: { id: numericLocationId } } },
+            await tx.userRole.create({
+              data: {
+                userId: created.id,
+                roleId: role.id,
+              },
+            });
+
+            if (projectId && locationId) {
+              const numericProjectId = Number(projectId);
+              const numericLocationId = Number(locationId);
+              const linked = await tx.project.count({
+                where: {
+                  id: numericProjectId,
+                  locations: { some: { id: numericLocationId } },
+                },
+              });
+
+              if (linked === 0) {
+                await tx.project.update({
+                  where: { id: numericProjectId },
+                  data: { locations: { connect: { id: numericLocationId } } },
+                });
+              }
+
+              await tx.userProjectLocation.create({
+                data: {
+                  userId: created.id,
+                  projectId: numericProjectId,
+                  locationId: numericLocationId,
+                },
+              });
+            } else if (projectId || locationId) {
+              throw new BadRequestException('For worker assignment, provide both projectId and locationId');
+            }
+
+            return created;
           });
-        }
 
-        await this.prisma.userProjectLocation.create({
-          data: {
-            userId: worker.id,
-            projectId: numericProjectId,
-            locationId: numericLocationId,
-          },
-        });
-      } else if (projectId || locationId) {
-        throw new BadRequestException('For worker assignment, provide both projectId and locationId');
+          const { password, ...safeWorker } = worker;
+          payload.usercode = safeWorker.usercode;
+          payload.workerId = safeWorker.id;
+          break;
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+            const target = error.meta?.target;
+            const targets = Array.isArray(target)
+              ? target
+              : typeof target === 'string'
+                ? [target]
+                : [];
+
+            if (targets.some((t) => t.includes('email'))) {
+              throw new ConflictException('Email already exists');
+            }
+            if (targets.some((t) => t.includes('usercode'))) {
+              continue;
+            }
+          }
+          throw error;
+        }
+      }
+
+      if (!payload.usercode) {
+        throw new ConflictException('Could not generate a unique outreach user code');
       }
     }
 
