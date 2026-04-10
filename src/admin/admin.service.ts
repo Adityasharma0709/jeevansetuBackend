@@ -460,7 +460,7 @@ export class AdminService {
     return this.prisma.session.create({
       data: {
         name: dto.name,
-        sessionDate: new Date(dto.sessionDate),
+        sessionDate: new Date(),
         activityId: dto.activityId,
         createdById: user.userId   // ðŸ‘ˆ from JWT
       }
@@ -484,10 +484,7 @@ export class AdminService {
     return this.prisma.session.update({
       where: { id },
       data: {
-        ...dto,
-        sessionDate: dto.sessionDate
-          ? new Date(dto.sessionDate)
-          : undefined
+        ...dto
       }
     });
   }
@@ -749,4 +746,5 @@ export class AdminService {
   }
 
 }
+
 

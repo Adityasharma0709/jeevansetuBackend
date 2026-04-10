@@ -157,11 +157,11 @@ export class ManagerService {
     });
   }
 
-  async createWorker(dto: CreateWorkerDto, user: any) {
+  async createWorker(dto: CreateWorkerDto, manager: any) {
     // 1. Check manager assignment
     const assigned = await this.prisma.userProjectLocation.findFirst({
       where: {
-        userId: user.userId,
+        userId: manager.userId,
         projectId: dto.projectId,
         locationId: dto.locationId
       }
@@ -193,7 +193,7 @@ export class ManagerService {
         password: hash,
         status: 'ACTIVE',
         // Reuse creator field to keep ownership of outreach workers by manager
-        createdByAdminId: user.userId,
+        createdByAdminId: manager.userId,
       }
     });
 
