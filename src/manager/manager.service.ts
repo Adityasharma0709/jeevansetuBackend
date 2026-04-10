@@ -244,7 +244,7 @@ export class ManagerService {
               password: hash,
               status: 'ACTIVE',
               // Reuse creator field to keep ownership of outreach workers by manager
-              createdByAdminId: user.userId,
+              createdByAdminId: manager.userId,
             }
           });
 
