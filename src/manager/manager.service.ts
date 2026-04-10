@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,9 +7,32 @@ import { CreateWorkerDto } from './dto/create-worker.dto';
 import { UpdateWorkerDto } from './dto/update-worker.dto';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
 
+const OUTREACH_CODE_PREFIX = 'OW';
+const OUTREACH_CODE_MIN_DIGITS = 2;
+const OUTREACH_CODE_MAX_RETRIES = 5;
+
 @Injectable()
 export class ManagerService {
   constructor(private prisma: PrismaService) { }
+
+  private async generateNextOutreachUserCode(
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
+    const safePrefix = OUTREACH_CODE_PREFIX;
+    const likePrefix = `${safePrefix}%`;
+
+    const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
+      SELECT MAX(
+        CAST(NULLIF(regexp_replace("usercode", '\\D', '', 'g'), '') AS INTEGER)
+      ) AS max
+      FROM "User"
+      WHERE upper("usercode") LIKE ${likePrefix}
+    `;
+
+    const nextNumber = (rows[0]?.max ?? 0) + 1;
+    const digits = String(nextNumber).padStart(OUTREACH_CODE_MIN_DIGITS, '0');
+    return `${safePrefix}${digits}`;
+  }
 
   private buildBeneficiaryUpdateData(raw: Record<string, any>) {
     const data: Record<string, any> = {};
@@ -183,21 +207,6 @@ export class ManagerService {
     // 3. Hash password
     const hash = await bcrypt.hash(dto.password, 10);
 
-    // 4. Create outreach user
-    const worker = await this.prisma.user.create({
-      data: {
-        name: dto.name,
-        email: dto.email,
-        mobileNumber: dto.mobileNumber ?? dto.mobile,
-        usercode: dto.usercode,
-        password: hash,
-        status: 'ACTIVE',
-        // Reuse creator field to keep ownership of outreach workers by manager
-        createdByAdminId: user.userId,
-      }
-    });
-
-    // 5. Assign role OUTREACH
     const role = await this.prisma.role.findUnique({
       where: { name: 'OUTREACH' }
     });
@@ -206,42 +215,83 @@ export class ManagerService {
       throw new ConflictException('OUTREACH role not found');
     }
 
-    await this.prisma.userRole.create({
-      data: {
-        userId: worker.id,
-        roleId: role.id
+    for (let attempt = 0; attempt < OUTREACH_CODE_MAX_RETRIES; attempt++) {
+      try {
+        const worker = await this.prisma.$transaction(async (tx) => {
+          const usercode = await this.generateNextOutreachUserCode(tx);
+
+          const user = await tx.user.create({
+            data: {
+              name: dto.name,
+              email: dto.email,
+              mobileNumber: dto.mobileNumber ?? dto.mobile,
+              usercode,
+              password: hash,
+              status: 'ACTIVE',
+              // Reuse creator field to keep ownership of outreach workers by manager
+              createdByAdminId: user.userId,
+            }
+          });
+
+          await tx.userRole.create({
+            data: {
+              userId: user.id,
+              roleId: role.id
+            }
+          });
+
+          const linked = await tx.project.count({
+            where: {
+              id: dto.projectId,
+              locations: { some: { id: dto.locationId } },
+            },
+          });
+
+          if (linked === 0) {
+            await tx.project.update({
+              where: { id: dto.projectId },
+              data: { locations: { connect: { id: dto.locationId } } },
+            });
+          }
+
+          await tx.userProjectLocation.create({
+            data: {
+              userId: user.id,
+              projectId: dto.projectId,
+              locationId: dto.locationId
+            }
+          });
+
+          return user;
+        });
+
+        const { password, ...safe } = worker;
+
+        return {
+          message: 'Outreach user created successfully',
+          user: safe
+        };
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          const target = error.meta?.target;
+          const targets = Array.isArray(target)
+            ? target
+            : typeof target === 'string'
+              ? [target]
+              : [];
+
+          if (targets.some((t) => t.includes('email'))) {
+            throw new ConflictException('Email already exists');
+          }
+          if (targets.some((t) => t.includes('usercode'))) {
+            continue;
+          }
+        }
+        throw error;
       }
-    });
-
-    // 6. Assign project/location
-    const linked = await this.prisma.project.count({
-      where: {
-        id: dto.projectId,
-        locations: { some: { id: dto.locationId } },
-      },
-    });
-
-    if (linked === 0) {
-      await this.prisma.project.update({
-        where: { id: dto.projectId },
-        data: { locations: { connect: { id: dto.locationId } } },
-      });
     }
 
-    await this.prisma.userProjectLocation.create({
-      data: {
-        userId: worker.id,
-        projectId: dto.projectId,
-        locationId: dto.locationId
-      }
-    });
-
-    const { password, ...safe } = worker;
-
-    return {
-      message: 'Outreach user created successfully',
-      user: safe
-    };
+    throw new ConflictException('Could not generate a unique outreach user code');
   }
 
   async updateWorker(id: number, dto: UpdateWorkerDto, user: any) {

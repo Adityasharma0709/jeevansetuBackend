@@ -9,7 +9,4 @@ export class CreateSessionDto {
 
   @IsString()
   name: string;
-
-  @IsDateString()
-  sessionDate: string;
 }
