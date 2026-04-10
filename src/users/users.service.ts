@@ -723,6 +723,7 @@ export class UsersService {
         email: true,
         usercode: true,
         mobileNumber: true,
+        createdByAdminId: true,
         status: true,
         createdAt: true,
         roles: {
