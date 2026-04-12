@@ -7,6 +7,7 @@ export class CreateProjectDto {
   projectCode?: string;
 
   @IsString()
+  @Length(1, 50)
   name: string;
 
   @IsOptional()
