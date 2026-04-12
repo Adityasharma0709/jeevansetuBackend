@@ -29,8 +29,9 @@ export class CreateLocationDto {
   @IsString()
   state: string;
 
+  @IsOptional()
   @IsString()
-  district: string;
+  district?: string;
   @IsOptional()
   @IsString()
   block?: string;

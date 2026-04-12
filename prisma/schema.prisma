@@ -89,7 +89,7 @@ model Location {
   locationCode String
 
   state    String
-  district String
+  district String?
   block    String?
   village  String?
 
