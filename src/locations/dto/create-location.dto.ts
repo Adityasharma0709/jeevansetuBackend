@@ -31,11 +31,11 @@ export class CreateLocationDto {
 
   @IsString()
   district: string;
- @IsOptional()
+  @IsOptional()
   @IsString()
-  block: string;
+  block?: string;
 
   @IsOptional()
   @IsString()
-  village: string;
+  village?: string;
 }

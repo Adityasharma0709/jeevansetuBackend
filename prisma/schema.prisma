@@ -70,7 +70,7 @@ model UserRole {
 model Project {
   id          Int     @id @default(autoincrement())
   projectCode String  @unique @db.VarChar(4)
-  name        String
+  name        String  @unique
   description String?
   status      String  @default("ACTIVE")
 
@@ -90,8 +90,8 @@ model Location {
 
   state    String
   district String
-  block    String
-  village  String
+  block    String?
+  village  String?
 
   status String @default("ACTIVE")
 
