@@ -99,6 +99,9 @@ export class LocationsService {
           data: {
             ...rest,
             locationCode: normalizedCode,
+            district: rest.district ?? null,
+            block: rest.block ?? null,
+            village: rest.village ?? null,
             ...(projectIds.length > 0
               ? {
                   projects: {
@@ -128,6 +131,9 @@ export class LocationsService {
               data: {
                 ...rest,
                 locationCode,
+                district: rest.district ?? null,
+                block: rest.block ?? null,
+                village: rest.village ?? null,
                 ...(projectIds.length > 0
                   ? {
                       projects: {
