@@ -226,9 +226,13 @@ export class UsersService {
       throw new NotFoundException('Admin not found');
     }
 
-    const data: any = { ...dto };
-    if (data.password) {
-      data.password = await bcrypt.hash(data.password, 10);
+    const data: any = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.email !== undefined) data.email = dto.email;
+    if (dto.status !== undefined) data.status = dto.status;
+    
+    if (dto.password) {
+      data.password = await bcrypt.hash(dto.password, 10);
     }
 
     return this.prisma.user.update({
@@ -236,6 +240,7 @@ export class UsersService {
       data,
     });
   }
+
 
 
   async deactivateAdmin(id: number) {
