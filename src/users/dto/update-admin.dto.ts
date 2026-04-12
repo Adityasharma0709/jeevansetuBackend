@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsIn, IsEmail } from 'class-validator';
+import { IsOptional, IsString, IsIn, IsEmail, MinLength } from 'class-validator';
 
 export class UpdateAdminDto {
   @IsOptional()
@@ -12,4 +12,9 @@ export class UpdateAdminDto {
   @IsOptional()
   @IsIn(['ACTIVE', 'INACTIVE'])
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(6)
+  password?: string;
 }

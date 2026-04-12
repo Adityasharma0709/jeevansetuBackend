@@ -226,11 +226,17 @@ export class UsersService {
       throw new NotFoundException('Admin not found');
     }
 
+    const data: any = { ...dto };
+    if (data.password) {
+      data.password = await bcrypt.hash(data.password, 10);
+    }
+
     return this.prisma.user.update({
       where: { id },
-      data: dto,
+      data,
     });
   }
+
 
   async deactivateAdmin(id: number) {
     return this.prisma.user.update({
