@@ -697,22 +697,25 @@ export class ManagerService {
 
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId: numId },
-      select: { projectId: true }
+      select: { projectId: true, locationId: true }
     });
 
-    const projectIds = assignments.map(a => a.projectId).filter(Boolean);
+    const orConditions = assignments.map(a => ({
+      projectId: a.projectId,
+      locationId: a.locationId
+    }));
 
-    if (projectIds.length === 0) {
+    if (assignments.length === 0) {
       return [];
     }
 
     return this.prisma.beneficiary.findMany({
       where: {
-        projectId: { in: projectIds },
-        OR: [
-          { createdById: numId },
-          { createdBy: { createdByAdminId: numId } }
-        ]
+        OR: orConditions
+
+
+
+
       },
       include: {
         project: true,
