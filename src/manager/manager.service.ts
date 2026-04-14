@@ -692,12 +692,15 @@ export class ManagerService {
   }
 
   async getBeneficiaries(managerId: number) {
+    const numId = Number(managerId);
+    if (isNaN(numId)) return [];
+
     const assignments = await this.prisma.userProjectLocation.findMany({
-      where: { userId: managerId },
+      where: { userId: numId },
       select: { projectId: true }
     });
 
-    const projectIds = assignments.map(a => a.projectId);
+    const projectIds = assignments.map(a => a.projectId).filter(Boolean);
 
     if (projectIds.length === 0) {
       return [];
@@ -706,7 +709,10 @@ export class ManagerService {
     return this.prisma.beneficiary.findMany({
       where: {
         projectId: { in: projectIds },
-        createdBy: { createdByAdminId: managerId }
+        OR: [
+          { createdById: numId },
+          { createdBy: { createdByAdminId: numId } }
+        ]
       },
       include: {
         project: true,
