@@ -507,25 +507,39 @@ export class ManagerService {
       include: {
         targetAdmin: { select: { id: true, name: true, email: true } },
         approvedBy: { select: { id: true, name: true, email: true } },
+        beneficiary: { select: { id: true, uid: true, name: true, mobileNumber: true } }
       },
       orderBy: { createdAt: 'desc' },
     });
 
     const benIds = [...new Set(requests.map(r => (r.payload as any)?.beneficiaryId).filter(Boolean))] as number[];
+    const workerIds = [...new Set(requests.map(r => (r.payload as any)?.workerId).filter(Boolean))] as number[];
 
-    if (benIds.length === 0) return requests;
+    const beneficiaries = benIds.length > 0 
+      ? await this.prisma.beneficiary.findMany({
+          where: { id: { in: benIds } },
+          select: { id: true, uid: true, name: true, mobileNumber: true }
+        })
+      : [];
 
-    const beneficiaries = await this.prisma.beneficiary.findMany({
-      where: { id: { in: benIds } },
-      select: { id: true, uid: true, name: true, mobileNumber: true }
-    });
+    const workers = workerIds.length > 0
+      ? await this.prisma.user.findMany({
+          where: { id: { in: workerIds } },
+          select: { id: true, name: true, email: true, usercode: true }
+        })
+      : [];
 
     const benMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
+    const workerMap = Object.fromEntries(workers.map(w => [w.id, w]));
 
-    return requests.map(r => ({
-      ...r,
-      beneficiary: benMap[(r.payload as any)?.beneficiaryId] || null
-    }));
+    return requests.map(r => {
+      const payload = (r.payload as any) || {};
+      return {
+        ...r,
+        beneficiary: r.beneficiary || benMap[payload.beneficiaryId] || null,
+        worker: workerMap[payload.workerId] || null
+      };
+    });
   }
 
   async cancelRequest(requestId: number, managerId: number) {
