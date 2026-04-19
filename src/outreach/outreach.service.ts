@@ -185,6 +185,21 @@ export class OutreachService {
     }));
   }
 
+  async cancelRequest(requestId: number, userId: number) {
+    const request = await this.prisma.approvalRequest.findUnique({
+      where: { id: requestId }
+    });
+
+    if (!request) throw new NotFoundException('Request not found');
+    if (request.requestedById !== userId) throw new ForbiddenException('You can only cancel your own requests');
+    if (request.status !== 'PENDING') throw new BadRequestException('Only pending requests can be cancelled');
+
+    return this.prisma.approvalRequest.update({
+      where: { id: requestId },
+      data: { status: 'CANCELLED' }
+    });
+  }
+
   async submitReport(dto: CreateReportDto, user: any) {
     const ben = await this.prisma.beneficiary.findUnique({ where: { id: dto.beneficiaryId } });
     if (!ben) throw new NotFoundException('Beneficiary not found');

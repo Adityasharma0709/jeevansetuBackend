@@ -30,13 +30,15 @@ export class OutreachController {
   createBeneficiary(@Body() dto: CreateBeneficiaryDto, @Req() req) {
     return this.outreachService.createBeneficiary(dto, req.user);
   }
+
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Post('request')
   create(@Body() dto: CreateRequestDto, @Req() req) {
     return this.outreachService.raiseRequest(dto, req.user);
   }
-  //beneficiary uppdate request
+
+  //beneficiary update request
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Post('beneficiary/:id/request-update')
@@ -55,6 +57,12 @@ export class OutreachController {
     return this.outreachService.getMyRequests(req.user.userId);
   }
 
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Delete('my-requests/:id')
+  cancelRequest(@Param('id') id: string, @Req() req) {
+    return this.outreachService.cancelRequest(+id, req.user.userId);
+  }
 
   //report
   @UseGuards(AuthGuard('jwt'), RolesGuard)
