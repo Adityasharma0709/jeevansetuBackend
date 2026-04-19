@@ -507,7 +507,6 @@ export class ManagerService {
       include: {
         targetAdmin: { select: { id: true, name: true, email: true } },
         approvedBy: { select: { id: true, name: true, email: true } },
-        beneficiary: { select: { id: true, uid: true, name: true, mobileNumber: true } }
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -536,7 +535,7 @@ export class ManagerService {
       const payload = (r.payload as any) || {};
       return {
         ...r,
-        beneficiary: r.beneficiary || benMap[payload.beneficiaryId] || null,
+        beneficiary: benMap[payload.beneficiaryId] || null,
         worker: workerMap[payload.workerId] || null
       };
     });
