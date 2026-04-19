@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, UseGuards, Put, Req, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, UseGuards, Put, Req, ParseIntPipe, Delete } from '@nestjs/common';
 import { ManagerService } from './manager.service';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from 'src/auth/roles/roles.guard';
@@ -119,6 +119,11 @@ export class ManagerController {
   @Get('my-requests')
   getMyRequests(@Req() req) {
     return this.managerService.getMyRequests(Number(req.user.userId));
+  }
+
+  @Delete('my-requests/:id')
+  cancelRequest(@Param('id', ParseIntPipe) id: number, @Req() req) {
+    return this.managerService.cancelRequest(id, Number(req.user.userId));
   }
 
   @Patch('profile-requests/:id')

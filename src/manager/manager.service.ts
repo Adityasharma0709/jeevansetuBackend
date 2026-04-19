@@ -527,4 +527,19 @@ export class ManagerService {
       beneficiary: benMap[(r.payload as any)?.beneficiaryId] || null
     }));
   }
+
+  async cancelRequest(requestId: number, managerId: number) {
+    const request = await this.prisma.approvalRequest.findUnique({
+      where: { id: requestId }
+    });
+
+    if (!request) throw new NotFoundException('Request not found');
+    if (request.requestedById !== managerId) throw new ForbiddenException('You can only cancel your own requests');
+    if (request.status !== 'PENDING') throw new BadRequestException('Only pending requests can be cancelled');
+
+    return this.prisma.approvalRequest.update({
+      where: { id: requestId },
+      data: { status: 'CANCELLED' }
+    });
+  }
 }
