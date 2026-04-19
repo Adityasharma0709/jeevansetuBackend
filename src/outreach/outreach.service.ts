@@ -8,6 +8,7 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto';
 import { CreateReportDto } from './dto/create-report.dto';
+import { UpdateReportDto } from './dto/update-report.dto';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
 import { RequestBeneficiaryUpdateDto } from './dto/request-beneficiary-update.dto';
 
@@ -195,6 +196,53 @@ export class OutreachService {
         reportData: {
           ...dto.reportData,
           sessionDate: dto.sessionDate
+        }
+      }
+    });
+  }
+
+  async getReport(id: number, user: any) {
+    const report = await this.prisma.activityReport.findUnique({
+      where: { id },
+      include: {
+        beneficiary: true,
+        activity: true,
+        session: true
+      }
+    });
+
+    if (!report) throw new NotFoundException('Report not found');
+    
+    // We can allow managers/admins to view reports too, but for now just basic auth 
+    return report;
+  }
+
+  async updateReport(id: number, dto: UpdateReportDto, user: any) {
+    const report = await this.prisma.activityReport.findUnique({
+      where: { id }
+    });
+    
+    if (!report) throw new NotFoundException('Report not found');
+
+    // Make sure user owns it or has right role
+    const roles = user.roles?.map((r: any) => r.role?.name || r.name) || [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN') || roles.includes('ADMIN') || roles.includes('MANAGER');
+    
+    if (!isSuperAdmin && report.reportedById !== user.userId) {
+      throw new ForbiddenException('You can only update reports that you created');
+    }
+
+    // Prepare updated data
+    const existingData = (report.reportData as any) || {};
+    const newData = dto.reportData || {};
+
+    return this.prisma.activityReport.update({
+      where: { id },
+      data: {
+        reportData: {
+          ...existingData,
+          ...newData,
+          sessionDate: dto.sessionDate || existingData.sessionDate
         }
       }
     });
