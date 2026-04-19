@@ -117,17 +117,35 @@ export class OutreachService {
     });
   }
 
-  async raiseRequest(dto, user) {
-    // Find the manager who created this outreach worker
+  async raiseRequest(dto: any, user: any) {
     const outreachUser = await this.prisma.user.findUnique({
       where: { id: user.userId },
-      select: { createdByAdminId: true },
+      select: { id: true, name: true, email: true, mobileNumber: true, createdByAdminId: true },
     });
+
+    let payload = dto.data ?? {};
+
+    // If it's a profile update, only store actual changes
+    if (dto.type === 'UPDATE_PROFILE' && outreachUser) {
+      const diff: Record<string, any> = {};
+      const incoming = dto.data || {};
+      
+      if (incoming.name && incoming.name !== outreachUser.name) diff.name = incoming.name;
+      if (incoming.email && incoming.email !== outreachUser.email) diff.email = incoming.email;
+      
+      const mobile = incoming.mobileNumber || incoming.mobile;
+      if (mobile && mobile !== outreachUser.mobileNumber) diff.mobileNumber = mobile;
+      
+      payload = diff;
+      if (Object.keys(diff).length === 0) {
+        throw new BadRequestException('No changes detected in profile update request');
+      }
+    }
 
     return this.prisma.approvalRequest.create({
       data: {
         requestType: dto.type,
-        payload: dto.data ?? {},
+        payload: payload,
         requestedById: user.userId,
         targetAdminId: outreachUser?.createdByAdminId ?? null,
         status: 'PENDING',

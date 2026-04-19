@@ -489,11 +489,50 @@ export class ManagerService {
 
   async submitAccountRequest(type: string, data: any, managerId: number) {
     const targetAdminId = await this.getCreatorAdminIdForManager(managerId);
+    let payload = data;
+
+    // Diffing for updates
+    if (type === 'MODIFY' && data.workerId) {
+      const worker = await this.prisma.user.findUnique({
+        where: { id: Number(data.workerId) },
+        select: { id: true, name: true, email: true, mobileNumber: true }
+      });
+      if (worker) {
+        const diff: Record<string, any> = { workerId: worker.id };
+        const incoming = data.changes || data || {};
+        
+        if (incoming.name && incoming.name !== worker.name) diff.name = incoming.name;
+        if (incoming.email && incoming.email !== worker.email) diff.email = incoming.email;
+        const mobile = incoming.mobileNumber || incoming.mobile;
+        if (mobile && mobile !== worker.mobileNumber) diff.mobileNumber = mobile;
+        
+        payload = diff;
+      }
+    } else if (type === 'UPDATE_PROFILE' || type === 'PROFILE_UPDATE') {
+      const manager = await this.prisma.user.findUnique({
+        where: { id: managerId },
+        select: { id: true, name: true, email: true, mobileNumber: true }
+      });
+      if (manager) {
+        const diff: Record<string, any> = {};
+        const incoming = data || {};
+
+        if (incoming.name && incoming.name !== manager.name) diff.name = incoming.name;
+        if (incoming.email && incoming.email !== manager.email) diff.email = incoming.email;
+        const mobile = incoming.mobileNumber || incoming.mobile;
+        if (mobile && mobile !== manager.mobileNumber) diff.mobileNumber = mobile;
+
+        payload = diff;
+        if (Object.keys(diff).length === 0) {
+          throw new BadRequestException('No changes detected in profile update');
+        }
+      }
+    }
 
     return this.prisma.approvalRequest.create({
       data: {
-        requestType: `${type}_WORKER`,
-        payload: data,
+        requestType: type.includes('_WORKER') ? type : `${type}_WORKER`,
+        payload: payload,
         requestedById: managerId,
         targetAdminId,
         status: 'PENDING'
