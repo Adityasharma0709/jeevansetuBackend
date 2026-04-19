@@ -295,17 +295,48 @@ export class ManagerService {
 
   async submitBeneficiaryUpdateRequest(beneficiaryId: number, changes: UpdateBeneficiaryDto, managerId: number) {
     const beneficiary = await this.prisma.beneficiary.findUnique({
-      where: { id: beneficiaryId },
-      select: { id: true },
+      where: { id: beneficiaryId }
     });
     if (!beneficiary) throw new NotFoundException('Beneficiary not found');
 
     const targetAdminId = await this.getCreatorAdminIdForManager(managerId);
 
+    const diff: Record<string, any> = {};
+    const incoming = (changes as any) || {};
+
+    // Compare applicable fields
+    const fields = [
+      'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
+      'maritalStatus', 'dateOfMarriage', 'womanAgeAtMarriage', 'husbandAgeAtMarriage',
+      'qualification', 'religion', 'caste', 'monthlyIncome', 'economicStatus',
+      'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'
+    ];
+
+    for (const field of fields) {
+      if (incoming[field] !== undefined && incoming[field] !== null) {
+        let currentVal = beneficiary[field];
+        let incomingVal = incoming[field];
+
+        // Normalize dates for comparison
+        if (field === 'dateOfBirth' || field === 'dateOfMarriage') {
+          if (currentVal) currentVal = new Date(currentVal).toISOString().split('T')[0];
+          if (incomingVal) incomingVal = new Date(incomingVal).toISOString().split('T')[0];
+        }
+
+        if (String(incomingVal) !== String(currentVal ?? '')) {
+          diff[field] = incoming[field];
+        }
+      }
+    }
+
+    if (Object.keys(diff).length === 0) {
+      throw new BadRequestException('No changes detected in update request');
+    }
+
     return this.prisma.approvalRequest.create({
       data: {
         requestType: 'MODIFY_BENEFICIARY',
-        payload: { beneficiaryId, changes: changes as any },
+        payload: { beneficiaryId, changes: diff },
         requestedById: managerId,
         targetAdminId,
         status: 'PENDING',

@@ -162,12 +162,44 @@ export class OutreachService {
       select: { createdByAdminId: true }
     });
 
+    const diff: Record<string, any> = {};
+    const incoming = (dto?.changes as any) || {};
+    
+    // Compare applicable fields
+    const fields = [
+      'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
+      'maritalStatus', 'dateOfMarriage', 'womanAgeAtMarriage', 'husbandAgeAtMarriage',
+      'qualification', 'religion', 'caste', 'monthlyIncome', 'economicStatus',
+      'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'
+    ];
+
+    for (const field of fields) {
+      if (incoming[field] !== undefined && incoming[field] !== null) {
+        let currentVal = ben[field];
+        let incomingVal = incoming[field];
+
+        // Normalize dates for comparison
+        if (field === 'dateOfBirth' || field === 'dateOfMarriage') {
+          if (currentVal) currentVal = new Date(currentVal).toISOString().split('T')[0];
+          if (incomingVal) incomingVal = new Date(incomingVal).toISOString().split('T')[0];
+        }
+
+        if (String(incomingVal) !== String(currentVal ?? '')) {
+          diff[field] = incoming[field];
+        }
+      }
+    }
+
+    if (Object.keys(diff).length === 0) {
+      throw new BadRequestException('No changes detected in update request');
+    }
+
     return this.prisma.approvalRequest.create({
       data: {
         requestType: 'UPDATE_BENEFICIARY',
         payload: {
           beneficiaryId: id,
-          changes: dto?.changes as any,
+          changes: diff,
         },
         requestedById: user.userId,
         targetAdminId: requester?.createdByAdminId,
