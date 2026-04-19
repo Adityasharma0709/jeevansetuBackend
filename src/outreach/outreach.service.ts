@@ -159,7 +159,7 @@ export class OutreachService {
   }
 
   async getMyRequests(userId: number) {
-    return this.prisma.approvalRequest.findMany({
+    const requests = await this.prisma.approvalRequest.findMany({
       where: { requestedById: userId },
       include: {
         approvedBy: { select: { name: true, email: true } },
@@ -167,6 +167,22 @@ export class OutreachService {
       },
       orderBy: { createdAt: 'desc' }
     });
+
+    const benIds = [...new Set(requests.map(r => (r.payload as any)?.beneficiaryId).filter(Boolean))] as number[];
+
+    if (benIds.length === 0) return requests;
+
+    const beneficiaries = await this.prisma.beneficiary.findMany({
+      where: { id: { in: benIds } },
+      select: { id: true, uid: true, name: true, mobileNumber: true }
+    });
+
+    const benMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
+
+    return requests.map(r => ({
+      ...r,
+      beneficiary: benMap[(r.payload as any)?.beneficiaryId] || null
+    }));
   }
 
   async submitReport(dto: CreateReportDto, user: any) {
