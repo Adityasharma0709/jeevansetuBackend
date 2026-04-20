@@ -256,6 +256,24 @@ export class UsersService {
     return { message: 'Admin removed from project' };
   }
 
+  async removeManagerFromProject(id: number, projectId: number) {
+    const manager = await this.prisma.user.findFirst({ where: { id, roles: { some: { role: { name: 'MANAGER' } } } } });
+    if (!manager) throw new NotFoundException('Manager not found');
+    await this.prisma.userProjectLocation.deleteMany({
+      where: { userId: id, projectId: projectId },
+    });
+    return { message: 'Manager removed from project' };
+  }
+
+  async removeOutreachFromProject(id: number, projectId: number) {
+    const outreach = await this.prisma.user.findFirst({ where: { id, roles: { some: { role: { name: 'OUTREACH' } } } } });
+    if (!outreach) throw new NotFoundException('Outreach worker not found');
+    await this.prisma.userProjectLocation.deleteMany({
+      where: { userId: id, projectId: projectId },
+    });
+    return { message: 'Outreach worker removed from project' };
+  }
+
   async deactivateAdmin(id: number) {
     return this.prisma.user.update({
       where: { id },

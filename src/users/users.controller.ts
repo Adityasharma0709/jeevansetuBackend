@@ -65,6 +65,20 @@ export class UsersController {
     return this.usersService.removeAdminFromProject(+id, +projectId);
   }
 
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  @Delete('manager/:id/project/:projectId')
+  removeManagerFromProject(@Param('id') id: string, @Param('projectId') projectId: string) {
+    return this.usersService.removeManagerFromProject(+id, +projectId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Delete('outreach/:id/project/:projectId')
+  removeOutreachFromProject(@Param('id') id: string, @Param('projectId') projectId: string) {
+    return this.usersService.removeOutreachFromProject(+id, +projectId);
+  }
+
   // =========================
   // UPDATE ADMIN STATUS
   // =========================
