@@ -9,6 +9,7 @@ import {
   Query,
   Req,
   UseGuards,
+  Delete,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from 'src/auth/roles.decorator';
@@ -53,6 +54,16 @@ export class UsersController {
     return this.usersService.updateAdmin(+id, dto);
   }
 
+  // =========================
+  // REMOVE ADMIN FROM PROJECT
+  // =========================
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Delete('admin/:id/project/:projectId')
+  removeAdminFromProject(@Param('id') id: string, @Param('projectId') projectId: string) {
+    return this.usersService.removeAdminFromProject(+id, +projectId);
+  }
 
   // =========================
   // UPDATE ADMIN STATUS

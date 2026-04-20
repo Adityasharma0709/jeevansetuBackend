@@ -243,6 +243,19 @@ export class UsersService {
 
 
 
+  async removeAdminFromProject(id: number, projectId: number) {
+    const admin = await this.getAdminById(id);
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+    
+    await this.prisma.userProjectLocation.deleteMany({
+      where: { userId: id, projectId: projectId },
+    });
+    
+    return { message: 'Admin removed from project' };
+  }
+
   async deactivateAdmin(id: number) {
     return this.prisma.user.update({
       where: { id },
