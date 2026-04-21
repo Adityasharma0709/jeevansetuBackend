@@ -389,7 +389,7 @@ export class ManagerService {
           select: {
             projectId: true, locationId: true,
             project: { select: { id: true, name: true } },
-            location: { select: { id: true, village: true, block: true, status: true } },
+            location: { select: { id: true, locationCode: true, state: true, district: true, block: true, village: true, status: true } },
           }
         }
       },
@@ -400,7 +400,7 @@ export class ManagerService {
   async getAssignedLocations(managerId: number, projectId: number) {
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId: managerId, projectId },
-      select: { location: { select: { id: true, state: true, district: true, block: true, village: true, status: true } } },
+      select: { location: { select: { id: true, locationCode: true, state: true, district: true, block: true, village: true, status: true } } },
     });
 
     const seen = new Set<number>();
