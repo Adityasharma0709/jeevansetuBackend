@@ -70,7 +70,7 @@ model UserRole {
 model Project {
   id          Int     @id @default(autoincrement())
   projectCode String  @unique @db.VarChar(4)
-  name        String
+  name        String  @unique
   description String?
   status      String  @default("ACTIVE")
 
@@ -89,9 +89,9 @@ model Location {
   locationCode String
 
   state    String
-  district String
-  block    String
-  village  String
+  district String?
+  block    String?
+  village  String?
 
   status String @default("ACTIVE")
 
@@ -317,6 +317,8 @@ model ActivityReport {
   activity    Activity    @relation(fields: [activityId], references: [id])
   session     Session     @relation(fields: [sessionId], references: [id])
   reportedBy  User        @relation(fields: [reportedById], references: [id])
+
+  @@unique([beneficiaryId, activityId, sessionId])
 }
 
 /**

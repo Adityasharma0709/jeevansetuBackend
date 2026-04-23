@@ -99,6 +99,9 @@ export class LocationsService {
           data: {
             ...rest,
             locationCode: normalizedCode,
+            district: rest.district ?? null,
+            block: rest.block ?? null,
+            village: rest.village ?? null,
             ...(projectIds.length > 0
               ? {
                   projects: {
@@ -107,7 +110,7 @@ export class LocationsService {
                 }
               : {}),
           },
-          include: { projects: { select: { id: true } } },
+          include: { projects: { select: { id: true, name: true } } },
         }),
       );
     }
@@ -128,6 +131,9 @@ export class LocationsService {
               data: {
                 ...rest,
                 locationCode,
+                district: rest.district ?? null,
+                block: rest.block ?? null,
+                village: rest.village ?? null,
                 ...(projectIds.length > 0
                   ? {
                       projects: {
@@ -136,7 +142,7 @@ export class LocationsService {
                     }
                   : {}),
               },
-              include: { projects: { select: { id: true } } },
+              include: { projects: { select: { id: true, name: true } } },
             });
           }),
         );
@@ -167,7 +173,7 @@ export class LocationsService {
       await this.prisma.location.update({
         where: { id },
         data: { status },
-        include: { projects: { select: { id: true } } },
+        include: { projects: { select: { id: true, name: true } } },
       }),
     );
   }
@@ -176,7 +182,7 @@ export class LocationsService {
     return this.prisma.location
       .findMany({
         where: projectId ? { projects: { some: { id: projectId } } } : {},
-        include: { projects: { select: { id: true } } },
+        include: { projects: { select: { id: true, name: true } } },
         orderBy: { createdAt: 'desc' },
       })
       .then((rows) => rows.map((r) => this.toLocationResponse(r)));
@@ -186,7 +192,7 @@ export class LocationsService {
     return this.prisma.location
       .findUnique({
         where: { id },
-        include: { projects: { select: { id: true } } },
+        include: { projects: { select: { id: true, name: true } } },
       })
       .then((row) => (row ? this.toLocationResponse(row) : row));
   }
@@ -245,7 +251,7 @@ export class LocationsService {
                 set: projectIds.map((pid) => ({ id: pid })),
               },
             },
-            include: { projects: { select: { id: true } } },
+            include: { projects: { select: { id: true, name: true } } },
           }),
         );
       }
@@ -271,7 +277,7 @@ export class LocationsService {
                     },
                   }),
             },
-            include: { projects: { select: { id: true } } },
+            include: { projects: { select: { id: true, name: true } } },
           }),
         );
       }
@@ -283,7 +289,7 @@ export class LocationsService {
             ...rest,
             ...(normalizedLocationCode ? { locationCode: normalizedLocationCode } : {}),
           },
-          include: { projects: { select: { id: true } } },
+          include: { projects: { select: { id: true, name: true } } },
         }),
       );
     });
@@ -294,7 +300,7 @@ export class LocationsService {
       .update({
         where: { id },
         data: { status: 'INACTIVE' },
-        include: { projects: { select: { id: true } } },
+        include: { projects: { select: { id: true, name: true } } },
       })
       .then((row) => this.toLocationResponse(row));
   }

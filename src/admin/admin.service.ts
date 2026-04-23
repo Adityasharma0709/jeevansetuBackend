@@ -483,7 +483,7 @@ export class AdminService {
     return this.prisma.session.create({
       data: {
         name: dto.name,
-        sessionDate: new Date(dto.sessionDate),
+        sessionDate: dto.sessionDate ? new Date(dto.sessionDate) : new Date(),
         activityId: dto.activityId,
         createdById: user.userId   // ðŸ‘ˆ from JWT
       }
@@ -507,10 +507,7 @@ export class AdminService {
     return this.prisma.session.update({
       where: { id },
       data: {
-        ...dto,
-        sessionDate: dto.sessionDate
-          ? new Date(dto.sessionDate)
-          : undefined
+        ...dto
       }
     });
   }
@@ -587,7 +584,7 @@ export class AdminService {
   }
 
   async getManagerBeneficiaryRequests(adminId: number) {
-    return this.prisma.approvalRequest.findMany({
+    const requests = await this.prisma.approvalRequest.findMany({
       where: {
         status: 'PENDING',
         targetAdminId: adminId,
@@ -613,6 +610,22 @@ export class AdminService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    const benIds = [...new Set(requests.map(r => (r.payload as any)?.beneficiaryId).filter(Boolean))] as number[];
+
+    if (benIds.length === 0) return requests;
+
+    const beneficiaries = await this.prisma.beneficiary.findMany({
+      where: { id: { in: benIds } },
+      select: { id: true, uid: true, name: true, mobileNumber: true }
+    });
+
+    const benMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
+
+    return requests.map(r => ({
+      ...r,
+      beneficiary: benMap[(r.payload as any)?.beneficiaryId] || null
+    }));
   }
 
   async approveManagerBeneficiaryRequest(requestId: number, adminId: number) {
@@ -809,4 +822,5 @@ export class AdminService {
   }
 
 }
+
 

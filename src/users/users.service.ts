@@ -226,10 +226,52 @@ export class UsersService {
       throw new NotFoundException('Admin not found');
     }
 
+    const data: any = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.email !== undefined) data.email = dto.email;
+    if (dto.status !== undefined) data.status = dto.status;
+    
+    if (dto.password) {
+      data.password = await bcrypt.hash(dto.password, 10);
+    }
+
     return this.prisma.user.update({
       where: { id },
-      data: dto,
+      data,
     });
+  }
+
+
+
+  async removeAdminFromProject(id: number, projectId: number) {
+    const admin = await this.getAdminById(id);
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+    
+    await this.prisma.userProjectLocation.deleteMany({
+      where: { userId: id, projectId: projectId },
+    });
+    
+    return { message: 'Admin removed from project' };
+  }
+
+  async removeManagerFromProject(id: number, projectId: number) {
+    const manager = await this.prisma.user.findFirst({ where: { id, roles: { some: { role: { name: 'MANAGER' } } } } });
+    if (!manager) throw new NotFoundException('Manager not found');
+    await this.prisma.userProjectLocation.deleteMany({
+      where: { userId: id, projectId: projectId },
+    });
+    return { message: 'Manager removed from project' };
+  }
+
+  async removeOutreachFromProject(id: number, projectId: number) {
+    const outreach = await this.prisma.user.findFirst({ where: { id, roles: { some: { role: { name: 'OUTREACH' } } } } });
+    if (!outreach) throw new NotFoundException('Outreach worker not found');
+    await this.prisma.userProjectLocation.deleteMany({
+      where: { userId: id, projectId: projectId },
+    });
+    return { message: 'Outreach worker removed from project' };
   }
 
   async deactivateAdmin(id: number) {
@@ -512,22 +554,29 @@ export class UsersService {
 
     // 🔥 CASE 2: ADMIN updating manager
     if (loggedUser.roles?.includes('ADMIN')) {
-      const allowed = await this.prisma.userProjectLocation.findFirst({
-        where: {
-          userId: loggedUser.userId || loggedUser.id,
-          projectId: {
-            in: (
-              await this.prisma.userProjectLocation.findMany({
-                where: { userId: managerId },
-                select: { projectId: true },
-              })
-            ).map((p) => p.projectId),
-          },
-        },
-      });
+      const loggedUserId = loggedUser.userId || loggedUser.id;
 
-      if (!allowed) {
-        throw new ForbiddenException('You cannot modify this manager');
+      // Creator admin can always update their own manager
+      if (manager.createdByAdminId !== loggedUserId) {
+        const managerProjects = await this.prisma.userProjectLocation.findMany({
+          where: { userId: managerId },
+          select: { projectId: true },
+        });
+
+        if (managerProjects.length === 0) {
+          throw new ForbiddenException('You cannot modify this manager');
+        }
+
+        const allowed = await this.prisma.userProjectLocation.findFirst({
+          where: {
+            userId: loggedUserId,
+            projectId: { in: managerProjects.map((p) => p.projectId) },
+          },
+        });
+
+        if (!allowed) {
+          throw new ForbiddenException('You cannot modify this manager');
+        }
       }
     }
 
@@ -723,6 +772,7 @@ export class UsersService {
         email: true,
         usercode: true,
         mobileNumber: true,
+        createdByAdminId: true,
         status: true,
         createdAt: true,
         roles: {

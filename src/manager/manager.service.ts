@@ -1,8 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { UpdateProfileDto } from './dto/update-profile.dto';
-import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import * as bcrypt from 'bcrypt';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateWorkerDto } from './dto/create-worker.dto';
 import { UpdateWorkerDto } from './dto/update-worker.dto';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
@@ -13,13 +13,10 @@ const OUTREACH_CODE_MAX_RETRIES = 5;
 
 @Injectable()
 export class ManagerService {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
-  private async generateNextOutreachUserCode(
-    tx: Prisma.TransactionClient,
-  ): Promise<string> {
-    const safePrefix = OUTREACH_CODE_PREFIX;
-    const likePrefix = `${safePrefix}%`;
+  private async generateNextOutreachUserCode(tx: Prisma.TransactionClient): Promise<string> {
+    const likePrefix = `${OUTREACH_CODE_PREFIX}%`;
 
     const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
       SELECT MAX(
@@ -31,7 +28,7 @@ export class ManagerService {
 
     const nextNumber = (rows[0]?.max ?? 0) + 1;
     const digits = String(nextNumber).padStart(OUTREACH_CODE_MIN_DIGITS, '0');
-    return `${safePrefix}${digits}`;
+    return `${OUTREACH_CODE_PREFIX}${digits}`;
   }
 
   private buildBeneficiaryUpdateData(raw: Record<string, any>) {
@@ -42,9 +39,7 @@ export class ManagerService {
       const value = changes[key];
       if (value === undefined || value === null || value === '') return;
       const num = Number(value);
-      if (Number.isNaN(num)) {
-        throw new BadRequestException(`Invalid number for ${key}`);
-      }
+      if (Number.isNaN(num)) throw new BadRequestException(`Invalid number for ${key}`);
       data[key] = num;
     };
 
@@ -58,34 +53,14 @@ export class ManagerService {
       const value = changes[key];
       if (value === undefined || value === null || value === '') return;
       const date = value instanceof Date ? value : new Date(value);
-      if (Number.isNaN(date.getTime())) {
-        throw new BadRequestException(`Invalid date for ${key}`);
-      }
+      if (Number.isNaN(date.getTime())) throw new BadRequestException(`Invalid date for ${key}`);
       data[key] = date;
     };
 
-    assignNumber('projectId');
-    assignNumber('locationId');
-    assignString('mobileNumber');
-    assignString('name');
-    assignString('gender');
-    assignString('guardianName');
+    // Safely assign all valid properties
+    ['projectId', 'locationId', 'womanAgeAtMarriage', 'husbandAgeAtMarriage', 'monthlyIncome'].forEach(assignNumber);
+    ['mobileNumber', 'name', 'gender', 'guardianName', 'maritalStatus', 'dateOfMarriage', 'qualification', 'religion', 'caste', 'economicStatus', 'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'].forEach(assignString);
     assignDate('dateOfBirth');
-    assignString('maritalStatus');
-    assignString('dateOfMarriage');
-    assignNumber('womanAgeAtMarriage');
-    assignNumber('husbandAgeAtMarriage');
-    assignString('qualification');
-    assignString('religion');
-    assignString('caste');
-    assignNumber('monthlyIncome');
-    assignString('economicStatus');
-    assignString('primaryIncomeSource');
-    assignString('employmentStatus');
-    assignString('state');
-    assignString('district');
-    assignString('block');
-    assignString('village');
 
     return data;
   }
@@ -96,74 +71,42 @@ export class ManagerService {
       select: { id: true, createdByAdminId: true },
     });
 
-    if (!manager) {
-      throw new NotFoundException('Manager not found');
-    }
-
-    if (!manager.createdByAdminId) {
-      throw new BadRequestException(
-        'No creator admin mapped for this manager. Please recreate manager with admin ownership mapping.',
-
-      );
-    }
+    if (!manager) throw new NotFoundException('Manager not found');
+    if (!manager.createdByAdminId) throw new BadRequestException('No creator admin mapped for this manager. Please recreate manager with admin ownership mapping.');
 
     return manager.createdByAdminId;
   }
 
   async managerDashboard(managerId: number) {
-    // workers under this manager
     const workers = await this.prisma.user.count({
       where: {
         createdByAdminId: managerId,
-        roles: {
-          some: {
-            role: { name: 'OUTREACH' }
-          }
-        }
+        roles: { some: { role: { name: 'OUTREACH' } } }
       }
     });
 
-    // pending approvals targeted to this manager
     const pendingRequests = await this.prisma.approvalRequest.count({
-      where: {
-        status: 'PENDING',
-        targetAdminId: managerId
-      }
+      where: { status: 'PENDING', targetAdminId: managerId }
     });
 
-    // today reports submitted by outreach workers under this manager
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const reportsToday = await this.prisma.activityReport.count({
       where: {
-        createdAt: {
-          gte: today
-        },
-        reportedBy: {
-          createdByAdminId: managerId
-        }
+        createdAt: { gte: today },
+        reportedBy: { createdByAdminId: managerId }
       }
     });
 
-    // assigned locations
-    const assignments = await this.prisma.userProjectLocation.count({
+    const assignedLocations = await this.prisma.userProjectLocation.count({
       where: { userId: managerId }
     });
 
-    return {
-      totalWorkers: workers,
-      pendingRequests,
-      reportsToday,
-      assignedLocations: assignments
-    };
+    return { totalWorkers: workers, pendingRequests, reportsToday, assignedLocations };
   }
 
   async updateProfile(userId: number, dto: UpdateProfileDto) {
-    if (dto.password) {
-      dto.password = await bcrypt.hash(dto.password, 10);
-    }
-
     const data: Record<string, any> = { ...dto };
     if (data.mobile !== undefined && data.mobileNumber === undefined) {
       data.mobileNumber = data.mobile;
@@ -172,7 +115,6 @@ export class ManagerService {
 
     if (dto.password) {
       data.password = await bcrypt.hash(dto.password, 10);
-      delete data.password; // Wait, it's actually data.password getting updated above
     }
 
     return this.prisma.user.update({
@@ -181,39 +123,19 @@ export class ManagerService {
     });
   }
 
-  async createWorker(dto: CreateWorkerDto, user: any) {
-    // 1. Check manager assignment
+  async createWorker(dto: CreateWorkerDto, managerId: number) {
     const assigned = await this.prisma.userProjectLocation.findFirst({
-      where: {
-        userId: user.userId,
-        projectId: dto.projectId,
-        locationId: dto.locationId
-      }
+      where: { userId: managerId, projectId: dto.projectId, locationId: dto.locationId }
     });
 
-    if (!assigned) {
-      throw new ForbiddenException(
-        'You are not assigned to this project/location'
-      );
-    }
+    if (!assigned) throw new ForbiddenException('You are not assigned to this project/location');
 
-    // 2. Check email duplicate
-    const exists = await this.prisma.user.findUnique({
-      where: { email: dto.email }
-    });
-
+    const exists = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (exists) throw new ConflictException('Email already exists');
 
-    // 3. Hash password
     const hash = await bcrypt.hash(dto.password, 10);
-
-    const role = await this.prisma.role.findUnique({
-      where: { name: 'OUTREACH' }
-    });
-
-    if (!role) {
-      throw new ConflictException('OUTREACH role not found');
-    }
+    const role = await this.prisma.role.findUnique({ where: { name: 'OUTREACH' } });
+    if (!role) throw new ConflictException('OUTREACH role not found');
 
     for (let attempt = 0; attempt < OUTREACH_CODE_MAX_RETRIES; attempt++) {
       try {
@@ -228,23 +150,16 @@ export class ManagerService {
               usercode,
               password: hash,
               status: 'ACTIVE',
-              // Reuse creator field to keep ownership of outreach workers by manager
-              createdByAdminId: user.userId,
+              createdByAdminId: managerId,
             }
           });
 
           await tx.userRole.create({
-            data: {
-              userId: user.id,
-              roleId: role.id
-            }
+            data: { userId: user.id, roleId: role.id }
           });
 
           const linked = await tx.project.count({
-            where: {
-              id: dto.projectId,
-              locations: { some: { id: dto.locationId } },
-            },
+            where: { id: dto.projectId, locations: { some: { id: dto.locationId } } },
           });
 
           if (linked === 0) {
@@ -255,83 +170,45 @@ export class ManagerService {
           }
 
           await tx.userProjectLocation.create({
-            data: {
-              userId: user.id,
-              projectId: dto.projectId,
-              locationId: dto.locationId
-            }
+            data: { userId: user.id, projectId: dto.projectId, locationId: dto.locationId }
           });
 
           return user;
         });
 
         const { password, ...safe } = worker;
-
-        return {
-          message: 'Outreach user created successfully',
-          user: safe
-        };
+        return { message: 'Outreach user created successfully', user: safe };
       } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
           const target = error.meta?.target;
-          const targets = Array.isArray(target)
-            ? target
-            : typeof target === 'string'
-              ? [target]
-              : [];
-
-          if (targets.some((t) => t.includes('email'))) {
-            throw new ConflictException('Email already exists');
-          }
-          if (targets.some((t) => t.includes('usercode'))) {
-            continue;
-          }
+          const targets = Array.isArray(target) ? target : typeof target === 'string' ? [target] : [];
+          if (targets.some((t) => t.includes('email'))) throw new ConflictException('Email already exists');
+          if (targets.some((t) => t.includes('usercode'))) continue;
         }
         throw error;
       }
     }
-
     throw new ConflictException('Could not generate a unique outreach user code');
   }
 
-  async updateWorker(id: number, dto: UpdateWorkerDto, user: any) {
-    const assigned = await this.prisma.userProjectLocation.findFirst({
-      where: {
-        userId: user.userId,
-        projectId: dto.projectId,
-        locationId: dto.locationId
-      }
-    });
-
-    if (!assigned)
-      throw new ForbiddenException('Not assigned area');
-
-    return this.prisma.user.update({
-      where: { id },
-      data: dto
-    });
+  async updateWorker(id: number, dto: UpdateWorkerDto, managerId: number) {
+    if (dto.projectId && dto.locationId) {
+      const assigned = await this.prisma.userProjectLocation.findFirst({
+        where: { userId: managerId, projectId: dto.projectId, locationId: dto.locationId }
+      });
+      if (!assigned) throw new ForbiddenException('Not assigned area');
+    }
+    return this.prisma.user.update({ where: { id }, data: dto });
   }
 
-  async activateWorker(workerId: number, manager: any) {
-    const worker = await this.prisma.user.findUnique({
-      where: { id: workerId }
-    });
-
-    if (!worker) {
-      throw new NotFoundException('Worker not found');
-    }
+  async activateWorker(workerId: number, managerId: number) {
+    const worker = await this.prisma.user.findUnique({ where: { id: workerId } });
+    if (!worker) throw new NotFoundException('Worker not found');
 
     const outreach = await this.prisma.userRole.findFirst({
-      where: {
-        userId: workerId,
-        role: { name: 'OUTREACH' }
-      },
-      include: { role: true }
+      where: { userId: workerId, role: { name: 'OUTREACH' } }
     });
-
-    if (!outreach) {
-      throw new ForbiddenException('User is not an Outreach Worker');
-    }
+    if (!outreach) throw new ForbiddenException('User is not an Outreach Worker');
 
     const updated = await this.prisma.user.update({
       where: { id: workerId },
@@ -339,33 +216,17 @@ export class ManagerService {
     });
 
     const { password, ...safe } = updated;
-
-    return {
-      message: 'Outreach worker activated successfully',
-      user: safe
-    };
+    return { message: 'Outreach worker activated successfully', user: safe };
   }
 
-  async deactivateWorker(workerId: number, manager: any) {
-    const worker = await this.prisma.user.findUnique({
-      where: { id: workerId }
-    });
-
-    if (!worker) {
-      throw new NotFoundException('Worker not found');
-    }
+  async deactivateWorker(workerId: number, managerId: number) {
+    const worker = await this.prisma.user.findUnique({ where: { id: workerId } });
+    if (!worker) throw new NotFoundException('Worker not found');
 
     const outreach = await this.prisma.userRole.findFirst({
-      where: {
-        userId: workerId,
-        role: { name: 'OUTREACH' }
-      },
-      include: { role: true }
+      where: { userId: workerId, role: { name: 'OUTREACH' } }
     });
-
-    if (!outreach) {
-      throw new ForbiddenException('User is not an Outreach Worker');
-    }
+    if (!outreach) throw new ForbiddenException('User is not an Outreach Worker');
 
     const updated = await this.prisma.user.update({
       where: { id: workerId },
@@ -373,11 +234,7 @@ export class ManagerService {
     });
 
     const { password, ...safe } = updated;
-
-    return {
-      message: 'Outreach worker deactivated successfully',
-      user: safe
-    };
+    return { message: 'Outreach worker deactivated successfully', user: safe };
   }
 
   async getAll(managerId: number) {
@@ -387,11 +244,8 @@ export class ManagerService {
     });
   }
 
-  async approve(id: number, manager: any) {
-    const req = await this.prisma.approvalRequest.findUnique({
-      where: { id }
-    });
-
+  async approve(id: number, managerId: number) {
+    const req = await this.prisma.approvalRequest.findUnique({ where: { id } });
     if (!req) throw new NotFoundException();
 
     if (req.requestType === 'UPDATE_PROFILE') {
@@ -403,68 +257,86 @@ export class ManagerService {
 
     return this.prisma.approvalRequest.update({
       where: { id },
-      data: {
-        status: 'APPROVED',
-        approvedById: manager.userId,
-        approvedAt: new Date()
-      }
+      data: { status: 'APPROVED', approvedById: managerId, approvedAt: new Date() }
     });
   }
 
-  async reject(id: number, dto: any, manager: any) {
+  async reject(id: number, dto: any, managerId: number) {
     return this.prisma.approvalRequest.update({
       where: { id },
-      data: {
-        status: 'REJECTED',
-        remarks: dto.reason,
-        approvedById: manager.userId
-      }
+      data: { status: 'REJECTED', remarks: dto.reason, approvedById: managerId }
     });
   }
 
   async getBeneficiaryRequests() {
-    return this.prisma.approvalRequest.findMany({
-      where: {
-        requestType: 'UPDATE_BENEFICIARY',
-        status: 'PENDING'
-      },
+    const requests = await this.prisma.approvalRequest.findMany({
+      where: { requestType: 'UPDATE_BENEFICIARY', status: 'PENDING' },
       include: {
-        requestedBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            status: true,
-            createdAt: true
-          }
-        }
+        requestedBy: { select: { id: true, name: true, email: true, status: true, createdAt: true } }
       }
     });
-  }
 
-  async submitBeneficiaryUpdateRequest(
-    beneficiaryId: number,
-    changes: UpdateBeneficiaryDto,
-    managerId: number,
-  ) {
-    const beneficiary = await this.prisma.beneficiary.findUnique({
-      where: { id: beneficiaryId },
-      select: { id: true },
+    const benIds = [...new Set(requests.map(r => (r.payload as any)?.beneficiaryId).filter(Boolean))] as number[];
+
+    if (benIds.length === 0) return requests;
+
+    const beneficiaries = await this.prisma.beneficiary.findMany({
+      where: { id: { in: benIds } },
+      select: { id: true, uid: true, name: true, mobileNumber: true }
     });
 
-    if (!beneficiary) {
-      throw new NotFoundException('Beneficiary not found');
-    }
+    const benMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
+
+    return requests.map(r => ({
+      ...r,
+      beneficiary: benMap[(r.payload as any)?.beneficiaryId] || null
+    }));
+  }
+
+  async submitBeneficiaryUpdateRequest(beneficiaryId: number, changes: UpdateBeneficiaryDto, managerId: number) {
+    const beneficiary = await this.prisma.beneficiary.findUnique({
+      where: { id: beneficiaryId }
+    });
+    if (!beneficiary) throw new NotFoundException('Beneficiary not found');
 
     const targetAdminId = await this.getCreatorAdminIdForManager(managerId);
+
+    const diff: Record<string, any> = {};
+    const incoming = (changes as any) || {};
+
+    // Compare applicable fields
+    const fields = [
+      'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
+      'maritalStatus', 'dateOfMarriage', 'womanAgeAtMarriage', 'husbandAgeAtMarriage',
+      'qualification', 'religion', 'caste', 'monthlyIncome', 'economicStatus',
+      'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'
+    ];
+
+    for (const field of fields) {
+      if (incoming[field] !== undefined && incoming[field] !== null) {
+        let currentVal = beneficiary[field];
+        let incomingVal = incoming[field];
+
+        // Normalize dates for comparison
+        if (field === 'dateOfBirth' || field === 'dateOfMarriage') {
+          if (currentVal) currentVal = new Date(currentVal).toISOString().split('T')[0];
+          if (incomingVal) incomingVal = new Date(incomingVal).toISOString().split('T')[0];
+        }
+
+        if (String(incomingVal) !== String(currentVal ?? '')) {
+          diff[field] = incoming[field];
+        }
+      }
+    }
+
+    if (Object.keys(diff).length === 0) {
+      throw new BadRequestException('No changes detected in update request');
+    }
 
     return this.prisma.approvalRequest.create({
       data: {
         requestType: 'MODIFY_BENEFICIARY',
-        payload: {
-          beneficiaryId,
-          changes: changes as any,
-        },
+        payload: { beneficiaryId, changes: diff },
         requestedById: managerId,
         targetAdminId,
         status: 'PENDING',
@@ -472,14 +344,11 @@ export class ManagerService {
     });
   }
 
-  async approveRequest(id: number, manager: any) {
-    const req = await this.prisma.approvalRequest.findUnique({
-      where: { id }
-    });
-
+  async approveRequest(id: number, managerId: number) {
+    const req = await this.prisma.approvalRequest.findUnique({ where: { id } });
     if (!req) throw new NotFoundException();
 
-    if (req.requestType === 'UPDATE_BENEFICIARY') {
+    if (['UPDATE_BENEFICIARY', 'MODIFY_BENEFICIARY'].includes(req.requestType)) {
       const { beneficiaryId, changes } = req.payload as { beneficiaryId: number; changes: any };
       const data = this.buildBeneficiaryUpdateData(changes || {});
 
@@ -493,35 +362,18 @@ export class ManagerService {
 
     return this.prisma.approvalRequest.update({
       where: { id },
-      data: {
-        status: 'APPROVED',
-        approvedById: manager.userId,
-        approvedAt: new Date()
-      }
+      data: { status: 'APPROVED', approvedById: managerId, approvedAt: new Date() }
     });
   }
 
-  async rejectRequest(requestId: number, dto: { reason: string }, manager: any) {
-    const req = await this.prisma.approvalRequest.findUnique({
-      where: { id: requestId }
-    });
-
-    if (!req) {
-      throw new NotFoundException('Request not found');
-    }
-
-    if (req.status !== 'PENDING') {
-      throw new BadRequestException('Request already processed');
-    }
+  async rejectRequest(requestId: number, dto: { reason: string }, managerId: number) {
+    const req = await this.prisma.approvalRequest.findUnique({ where: { id: requestId } });
+    if (!req) throw new NotFoundException('Request not found');
+    if (req.status !== 'PENDING') throw new BadRequestException('Request already processed');
 
     return this.prisma.approvalRequest.update({
       where: { id: requestId },
-      data: {
-        status: 'REJECTED',
-        remarks: dto.reason,
-        approvedById: manager.userId,
-        approvedAt: new Date()
-      }
+      data: { status: 'REJECTED', remarks: dto.reason, approvedById: managerId, approvedAt: new Date() }
     });
   }
 
@@ -529,25 +381,15 @@ export class ManagerService {
     return this.prisma.user.findMany({
       where: {
         createdByAdminId: managerId,
-        roles: {
-          some: {
-            role: { name: 'OUTREACH' }
-          }
-        }
+        roles: { some: { role: { name: 'OUTREACH' } } }
       },
       select: {
-        id: true,
-        name: true,
-        email: true,
-        mobileNumber: true,
-        usercode: true,
-        status: true,
+        id: true, name: true, email: true, mobileNumber: true, usercode: true, status: true,
         projectAssignments: {
           select: {
-            projectId: true,
-            locationId: true,
+            projectId: true, locationId: true,
             project: { select: { id: true, name: true } },
-            location: { select: { id: true, village: true, block: true, status: true } },
+            location: { select: { id: true, locationCode: true, state: true, district: true, block: true, village: true, status: true } },
           }
         }
       },
@@ -556,165 +398,106 @@ export class ManagerService {
   }
 
   async getAssignedLocations(managerId: number, projectId: number) {
-    const numericProjectId = Number(projectId);
-    if (!Number.isFinite(numericProjectId)) {
-      throw new BadRequestException('Invalid projectId');
-    }
-
     const assignments = await this.prisma.userProjectLocation.findMany({
-      where: { userId: managerId, projectId: numericProjectId },
-      select: {
-        location: { select: { id: true, state: true, district: true, block: true, village: true, status: true } },
-      },
+      where: { userId: managerId, projectId },
+      select: { location: { select: { id: true, locationCode: true, state: true, district: true, block: true, village: true, status: true } } },
     });
 
     const seen = new Set<number>();
     return (assignments || [])
-      .map((a: any) => a.location)
+      .map(a => a.location)
       .filter(Boolean)
-      .filter((l: any) => (l.status ?? '').toString().toUpperCase() === 'ACTIVE')
-      .filter((l: any) => {
-        const id = Number(l.id);
-        if (!Number.isFinite(id) || seen.has(id)) return false;
-        seen.add(id);
+      .filter(l => l.status?.toUpperCase() === 'ACTIVE')
+      .filter(l => {
+        if (seen.has(l.id)) return false;
+        seen.add(l.id);
         return true;
       });
   }
 
-  async tagWorkerProjectLocation(managerId: number, workerId: number, projectId: any, locationId: any) {
-    const numericWorkerId = Number(workerId);
-    const numericProjectId = Number(projectId);
-    const numericLocationId = Number(locationId);
-
-    if (!Number.isFinite(numericWorkerId) || !Number.isFinite(numericProjectId) || !Number.isFinite(numericLocationId)) {
-      throw new BadRequestException('Invalid project/location selection');
-    }
-
+  async tagWorkerProjectLocation(managerId: number, workerId: number, projectId: number, locationId: number) {
     const managerAssigned = await this.prisma.userProjectLocation.findFirst({
-      where: {
-        userId: managerId,
-        projectId: numericProjectId,
-        locationId: numericLocationId,
-      },
+      where: { userId: managerId, projectId, locationId },
       select: { id: true },
     });
-
-    if (!managerAssigned) {
-      throw new ForbiddenException('You are not assigned to this project/location');
-    }
+    if (!managerAssigned) throw new ForbiddenException('You are not assigned to this project/location');
 
     const worker = await this.prisma.user.findFirst({
       where: {
-        id: numericWorkerId,
+        id: workerId,
         createdByAdminId: managerId,
-        roles: {
-          some: {
-            role: { name: 'OUTREACH' }
-          }
-        }
+        roles: { some: { role: { name: 'OUTREACH' } } }
       },
       select: { id: true },
     });
-
-    if (!worker) {
-      throw new NotFoundException('Worker not found');
-    }
+    if (!worker) throw new NotFoundException('Worker not found');
 
     const already = await this.prisma.userProjectLocation.findFirst({
-      where: { userId: numericWorkerId, projectId: numericProjectId, locationId: numericLocationId },
+      where: { userId: workerId, projectId, locationId },
       select: { id: true },
     });
-
-    if (already) {
-      return { message: 'Already tagged' };
-    }
+    if (already) return { message: 'Already tagged' };
 
     const linked = await this.prisma.project.count({
-      where: {
-        id: numericProjectId,
-        locations: { some: { id: numericLocationId } },
-      },
+      where: { id: projectId, locations: { some: { id: locationId } } },
     });
 
     if (linked === 0) {
       await this.prisma.project.update({
-        where: { id: numericProjectId },
-        data: { locations: { connect: { id: numericLocationId } } },
+        where: { id: projectId },
+        data: { locations: { connect: { id: locationId } } },
       });
     }
 
     await this.prisma.userProjectLocation.create({
-      data: {
-        userId: numericWorkerId,
-        projectId: numericProjectId,
-        locationId: numericLocationId,
-      }
+      data: { userId: workerId, projectId, locationId }
     });
 
     return { message: 'Tagged successfully' };
   }
+
   async getProfileRequests(managerId: number) {
     return this.prisma.approvalRequest.findMany({
       where: {
-        status: 'PENDING',
-        targetAdminId: managerId,
-        requestType: {
-          in: ['UPDATE_PROFILE', 'MODIFY_PROFILE'],
-        },
+        status: 'PENDING', targetAdminId: managerId,
+        requestType: { in: ['UPDATE_PROFILE', 'MODIFY_PROFILE'] },
       },
       include: {
-        requestedBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        }
+        requestedBy: { select: { id: true, name: true, email: true } }
       }
-
-
     });
   }
 
+  // Refactored to fetch beneficiaries natively mapped to the assigned Projects & Locations.
   async getBeneficiaries(managerId: number) {
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId: managerId },
-      select: { projectId: true }
+      select: { projectId: true, locationId: true }
     });
 
-    const projectIds = assignments.map(a => a.projectId);
+    if (assignments.length === 0) return [];
 
-    if (projectIds.length === 0) {
-      return [];
-    }
+    const orConditions = assignments.map(a => ({
+      projectId: a.projectId,
+      locationId: a.locationId
+    }));
 
     return this.prisma.beneficiary.findMany({
-      where: {
-        projectId: { in: projectIds },
-        createdBy: { createdByAdminId: managerId }
-      },
+      where: { OR: orConditions },
       include: {
         project: true,
         location: true,
         createdBy: { select: { name: true, email: true, mobileNumber: true } }
       },
-      orderBy: {
-        createdAt: 'desc'
-      }
+      orderBy: { createdAt: 'desc' }
     });
   }
 
   async updateRequestStatus(id: number, status: 'APPROVED' | 'REJECTED', managerId: number) {
-    const req = await this.prisma.approvalRequest.findUnique({
-      where: { id }
-    });
-
+    const req = await this.prisma.approvalRequest.findUnique({ where: { id } });
     if (!req) throw new NotFoundException('Request not found');
 
-    if (
-      status === 'APPROVED' &&
-      ['UPDATE_PROFILE', 'MODIFY_PROFILE'].includes(String(req.requestType || ''))
-    ) {
+    if (status === 'APPROVED' && ['UPDATE_PROFILE', 'MODIFY_PROFILE'].includes(String(req.requestType))) {
       const payload = (req.payload as any) || {};
       const profileUpdates: any = {};
       if (payload.name) profileUpdates.name = payload.name;
@@ -731,21 +514,56 @@ export class ManagerService {
 
     return this.prisma.approvalRequest.update({
       where: { id },
-      data: {
-        status,
-        approvedById: managerId,
-        approvedAt: new Date()
-      }
+      data: { status, approvedById: managerId, approvedAt: new Date() }
     });
   }
 
   async submitAccountRequest(type: string, data: any, managerId: number) {
     const targetAdminId = await this.getCreatorAdminIdForManager(managerId);
+    let payload = data;
+
+    // Diffing for updates
+    if (type === 'MODIFY' && data.workerId) {
+      const worker = await this.prisma.user.findUnique({
+        where: { id: Number(data.workerId) },
+        select: { id: true, name: true, email: true, mobileNumber: true }
+      });
+      if (worker) {
+        const diff: Record<string, any> = { workerId: worker.id };
+        const incoming = data.changes || data || {};
+        
+        if (incoming.name && incoming.name !== worker.name) diff.name = incoming.name;
+        if (incoming.email && incoming.email !== worker.email) diff.email = incoming.email;
+        const mobile = incoming.mobileNumber || incoming.mobile;
+        if (mobile && mobile !== worker.mobileNumber) diff.mobileNumber = mobile;
+        
+        payload = diff;
+      }
+    } else if (type === 'UPDATE_PROFILE' || type === 'PROFILE_UPDATE') {
+      const manager = await this.prisma.user.findUnique({
+        where: { id: managerId },
+        select: { id: true, name: true, email: true, mobileNumber: true }
+      });
+      if (manager) {
+        const diff: Record<string, any> = {};
+        const incoming = data || {};
+
+        if (incoming.name && incoming.name !== manager.name) diff.name = incoming.name;
+        if (incoming.email && incoming.email !== manager.email) diff.email = incoming.email;
+        const mobile = incoming.mobileNumber || incoming.mobile;
+        if (mobile && mobile !== manager.mobileNumber) diff.mobileNumber = mobile;
+
+        payload = diff;
+        if (Object.keys(diff).length === 0) {
+          throw new BadRequestException('No changes detected in profile update');
+        }
+      }
+    }
 
     return this.prisma.approvalRequest.create({
       data: {
-        requestType: `${type}_WORKER`,
-        payload: data,
+        requestType: type.includes('_WORKER') ? type : `${type}_WORKER`,
+        payload: payload,
         requestedById: managerId,
         targetAdminId,
         status: 'PENDING'
@@ -754,31 +572,57 @@ export class ManagerService {
   }
 
   async getMyRequests(managerId: number) {
-    return this.prisma.approvalRequest.findMany({
-      where: {
-        requestedById: managerId,
-      },
+    const requests = await this.prisma.approvalRequest.findMany({
+      where: { requestedById: managerId },
       include: {
-        targetAdmin: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        approvedBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
+        targetAdmin: { select: { id: true, name: true, email: true } },
+        approvedBy: { select: { id: true, name: true, email: true } },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const benIds = [...new Set(requests.map(r => (r.payload as any)?.beneficiaryId).filter(Boolean))] as number[];
+    const workerIds = [...new Set(requests.map(r => (r.payload as any)?.workerId).filter(Boolean))] as number[];
+
+    const beneficiaries = benIds.length > 0 
+      ? await this.prisma.beneficiary.findMany({
+          where: { id: { in: benIds } },
+          select: { id: true, uid: true, name: true, mobileNumber: true }
+        })
+      : [];
+
+    const workers = workerIds.length > 0
+      ? await this.prisma.user.findMany({
+          where: { id: { in: workerIds } },
+          select: { id: true, name: true, email: true, usercode: true }
+        })
+      : [];
+
+    const benMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
+    const workerMap = Object.fromEntries(workers.map(w => [w.id, w]));
+
+    return requests.map(r => {
+      const payload = (r.payload as any) || {};
+      return {
+        ...r,
+        beneficiary: benMap[payload.beneficiaryId] || null,
+        worker: workerMap[payload.workerId] || null
+      };
+    });
+  }
+
+  async cancelRequest(requestId: number, managerId: number) {
+    const request = await this.prisma.approvalRequest.findUnique({
+      where: { id: requestId }
+    });
+
+    if (!request) throw new NotFoundException('Request not found');
+    if (request.requestedById !== managerId) throw new ForbiddenException('You can only cancel your own requests');
+    if (request.status !== 'PENDING') throw new BadRequestException('Only pending requests can be cancelled');
+
+    return this.prisma.approvalRequest.update({
+      where: { id: requestId },
+      data: { status: 'CANCELLED' }
     });
   }
 }
-
-

@@ -8,6 +8,7 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto';
 import { CreateReportDto } from './dto/create-report.dto';
+import { UpdateReportDto } from './dto/update-report.dto';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
 import { RequestBeneficiaryUpdateDto } from './dto/request-beneficiary-update.dto';
 
@@ -116,17 +117,35 @@ export class OutreachService {
     });
   }
 
-  async raiseRequest(dto, user) {
-    // Find the manager who created this outreach worker
+  async raiseRequest(dto: any, user: any) {
     const outreachUser = await this.prisma.user.findUnique({
       where: { id: user.userId },
-      select: { createdByAdminId: true },
+      select: { id: true, name: true, email: true, mobileNumber: true, createdByAdminId: true },
     });
+
+    let payload = dto.data ?? {};
+
+    // If it's a profile update, only store actual changes
+    if (dto.type === 'UPDATE_PROFILE' && outreachUser) {
+      const diff: Record<string, any> = {};
+      const incoming = dto.data || {};
+      
+      if (incoming.name && incoming.name !== outreachUser.name) diff.name = incoming.name;
+      if (incoming.email && incoming.email !== outreachUser.email) diff.email = incoming.email;
+      
+      const mobile = incoming.mobileNumber || incoming.mobile;
+      if (mobile && mobile !== outreachUser.mobileNumber) diff.mobileNumber = mobile;
+      
+      payload = diff;
+      if (Object.keys(diff).length === 0) {
+        throw new BadRequestException('No changes detected in profile update request');
+      }
+    }
 
     return this.prisma.approvalRequest.create({
       data: {
         requestType: dto.type,
-        payload: dto.data ?? {},
+        payload: payload,
         requestedById: user.userId,
         targetAdminId: outreachUser?.createdByAdminId ?? null,
         status: 'PENDING',
@@ -143,12 +162,44 @@ export class OutreachService {
       select: { createdByAdminId: true }
     });
 
+    const diff: Record<string, any> = {};
+    const incoming = (dto?.changes as any) || {};
+    
+    // Compare applicable fields
+    const fields = [
+      'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
+      'maritalStatus', 'dateOfMarriage', 'womanAgeAtMarriage', 'husbandAgeAtMarriage',
+      'qualification', 'religion', 'caste', 'monthlyIncome', 'economicStatus',
+      'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'
+    ];
+
+    for (const field of fields) {
+      if (incoming[field] !== undefined && incoming[field] !== null) {
+        let currentVal = ben[field];
+        let incomingVal = incoming[field];
+
+        // Normalize dates for comparison
+        if (field === 'dateOfBirth' || field === 'dateOfMarriage') {
+          if (currentVal) currentVal = new Date(currentVal).toISOString().split('T')[0];
+          if (incomingVal) incomingVal = new Date(incomingVal).toISOString().split('T')[0];
+        }
+
+        if (String(incomingVal) !== String(currentVal ?? '')) {
+          diff[field] = incoming[field];
+        }
+      }
+    }
+
+    if (Object.keys(diff).length === 0) {
+      throw new BadRequestException('No changes detected in update request');
+    }
+
     return this.prisma.approvalRequest.create({
       data: {
         requestType: 'UPDATE_BENEFICIARY',
         payload: {
           beneficiaryId: id,
-          changes: dto?.changes as any,
+          changes: diff,
         },
         requestedById: user.userId,
         targetAdminId: requester?.createdByAdminId,
@@ -158,13 +209,44 @@ export class OutreachService {
   }
 
   async getMyRequests(userId: number) {
-    return this.prisma.approvalRequest.findMany({
+    const requests = await this.prisma.approvalRequest.findMany({
       where: { requestedById: userId },
       include: {
         approvedBy: { select: { name: true, email: true } },
         targetAdmin: { select: { name: true, email: true } }
       },
       orderBy: { createdAt: 'desc' }
+    });
+
+    const benIds = [...new Set(requests.map(r => (r.payload as any)?.beneficiaryId).filter(Boolean))] as number[];
+
+    if (benIds.length === 0) return requests;
+
+    const beneficiaries = await this.prisma.beneficiary.findMany({
+      where: { id: { in: benIds } },
+      select: { id: true, uid: true, name: true, mobileNumber: true }
+    });
+
+    const benMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
+
+    return requests.map(r => ({
+      ...r,
+      beneficiary: benMap[(r.payload as any)?.beneficiaryId] || null
+    }));
+  }
+
+  async cancelRequest(requestId: number, userId: number) {
+    const request = await this.prisma.approvalRequest.findUnique({
+      where: { id: requestId }
+    });
+
+    if (!request) throw new NotFoundException('Request not found');
+    if (request.requestedById !== userId) throw new ForbiddenException('You can only cancel your own requests');
+    if (request.status !== 'PENDING') throw new BadRequestException('Only pending requests can be cancelled');
+
+    return this.prisma.approvalRequest.update({
+      where: { id: requestId },
+      data: { status: 'CANCELLED' }
     });
   }
 
@@ -180,6 +262,9 @@ export class OutreachService {
 
     const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
     if (!session) throw new NotFoundException('Session not found');
+    if (session.activityId !== dto.activityId) {
+      throw new BadRequestException('Session does not belong to the selected activity');
+    }
 
     const exists = await this.prisma.activityReport.findFirst({
       where: { beneficiaryId: dto.beneficiaryId, activityId: dto.activityId, sessionId }
@@ -195,6 +280,53 @@ export class OutreachService {
         reportData: {
           ...dto.reportData,
           sessionDate: dto.sessionDate
+        }
+      }
+    });
+  }
+
+  async getReport(id: number, user: any) {
+    const report = await this.prisma.activityReport.findUnique({
+      where: { id },
+      include: {
+        beneficiary: true,
+        activity: true,
+        session: true
+      }
+    });
+
+    if (!report) throw new NotFoundException('Report not found');
+    
+    // We can allow managers/admins to view reports too, but for now just basic auth 
+    return report;
+  }
+
+  async updateReport(id: number, dto: UpdateReportDto, user: any) {
+    const report = await this.prisma.activityReport.findUnique({
+      where: { id }
+    });
+    
+    if (!report) throw new NotFoundException('Report not found');
+
+    // Make sure user owns it or has right role
+    const roles = user.roles?.map((r: any) => r.role?.name || r.name) || [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN') || roles.includes('ADMIN') || roles.includes('MANAGER');
+    
+    if (!isSuperAdmin && report.reportedById !== user.userId) {
+      throw new ForbiddenException('You can only update reports that you created');
+    }
+
+    // Prepare updated data
+    const existingData = (report.reportData as any) || {};
+    const newData = dto.reportData || {};
+
+    return this.prisma.activityReport.update({
+      where: { id },
+      data: {
+        reportData: {
+          ...existingData,
+          ...newData,
+          sessionDate: dto.sessionDate || existingData.sessionDate
         }
       }
     });
@@ -407,19 +539,25 @@ export class OutreachService {
     });
   }
 
-  async getSessions(activityId: number) {
-    return this.prisma.session.findMany({
+  async getSessions(activityId: number, beneficiaryId?: number) {
+    const sessions = await this.prisma.session.findMany({
       where: { activityId, status: 'ACTIVE' },
-      include: {
-        creator: {
-          select: { id: true, name: true, email: true },
-        },
-        activity: {
-          select: { id: true, name: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'desc' }
     });
+
+    if (beneficiaryId) {
+      const alreadyReported = await this.prisma.activityReport.findMany({
+        where: {
+          beneficiaryId,
+          activityId
+        },
+        select: { sessionId: true }
+      });
+      const reportedIds = new Set(alreadyReported.map(r => r.sessionId));
+      return sessions.filter(s => !reportedIds.has(s.id));
+    }
+
+    return sessions;
   }
 
   async getBeneficiary(id: number) {

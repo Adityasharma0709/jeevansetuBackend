@@ -8,6 +8,7 @@ export class UpdateProjectDto {
 
   @IsOptional()
   @IsString()
+  @Length(1, 50)
   name?: string;
 
   @IsOptional()

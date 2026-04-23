@@ -17,6 +17,7 @@ import { Roles } from 'src/auth/roles.decorator';
 import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { CreateReportDto } from './dto/create-report.dto';
+import { UpdateReportDto } from './dto/update-report.dto';
 import { RequestBeneficiaryUpdateDto } from './dto/request-beneficiary-update.dto';
 
 @Controller('outreach')
@@ -29,13 +30,15 @@ export class OutreachController {
   createBeneficiary(@Body() dto: CreateBeneficiaryDto, @Req() req) {
     return this.outreachService.createBeneficiary(dto, req.user);
   }
+
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Post('request')
   create(@Body() dto: CreateRequestDto, @Req() req) {
     return this.outreachService.raiseRequest(dto, req.user);
   }
-  //beneficiary uppdate request
+
+  //beneficiary update request
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Post('beneficiary/:id/request-update')
@@ -54,8 +57,28 @@ export class OutreachController {
     return this.outreachService.getMyRequests(req.user.userId);
   }
 
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Delete('my-requests/:id')
+  cancelRequest(@Param('id') id: string, @Req() req) {
+    return this.outreachService.cancelRequest(+id, req.user.userId);
+  }
 
   //report
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Get('activity-report/:id')
+  getReport(@Param('id') id: string, @Req() req) {
+    return this.outreachService.getReport(+id, req.user);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Patch('activity-report/:id')
+  updateReport(@Param('id') id: string, @Body() dto: UpdateReportDto, @Req() req) {
+    return this.outreachService.updateReport(+id, dto, req.user);
+  }
+
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Post('activity-report')
@@ -131,8 +154,8 @@ export class OutreachController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Get('activity/:id/sessions')
-  getSessions(@Param('id') id: string) {
-    return this.outreachService.getSessions(+id);
+  getSessions(@Param('id') id: string, @Query('beneficiaryId') beneficiaryId?: string) {
+    return this.outreachService.getSessions(+id, beneficiaryId ? +beneficiaryId : undefined);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
