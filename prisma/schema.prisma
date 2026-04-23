@@ -311,6 +311,7 @@ model ActivityReport {
   reportedById  Int
 
   reportData Json
+  date       DateTime @default(now())
   createdAt  DateTime @default(now())
 
   beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])

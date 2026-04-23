@@ -271,10 +271,8 @@ export class OutreachService {
         activityId: dto.activityId,
         sessionId,
         reportedById: user.userId,
-        reportData: {
-          ...dto.reportData,
-          sessionDate: dto.sessionDate
-        }
+        date: dto.sessionDate ? new Date(dto.sessionDate) : new Date(),
+        reportData: dto.reportData
       }
     });
   }
