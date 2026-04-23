@@ -539,19 +539,25 @@ export class OutreachService {
     });
   }
 
-  async getSessions(activityId: number) {
-    return this.prisma.session.findMany({
+  async getSessions(activityId: number, beneficiaryId?: number) {
+    const sessions = await this.prisma.session.findMany({
       where: { activityId, status: 'ACTIVE' },
-      include: {
-        creator: {
-          select: { id: true, name: true, email: true },
-        },
-        activity: {
-          select: { id: true, name: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'desc' }
     });
+
+    if (beneficiaryId) {
+      const alreadyReported = await this.prisma.activityReport.findMany({
+        where: {
+          beneficiaryId,
+          activityId
+        },
+        select: { sessionId: true }
+      });
+      const reportedIds = new Set(alreadyReported.map(r => r.sessionId));
+      return sessions.filter(s => !reportedIds.has(s.id));
+    }
+
+    return sessions;
   }
 
   async getBeneficiary(id: number) {

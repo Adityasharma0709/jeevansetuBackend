@@ -154,8 +154,8 @@ export class OutreachController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Get('activity/:id/sessions')
-  getSessions(@Param('id') id: string) {
-    return this.outreachService.getSessions(+id);
+  getSessions(@Param('id') id: string, @Query('beneficiaryId') beneficiaryId?: string) {
+    return this.outreachService.getSessions(+id, beneficiaryId ? +beneficiaryId : undefined);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
