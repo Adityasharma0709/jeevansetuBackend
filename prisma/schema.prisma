@@ -317,6 +317,8 @@ model ActivityReport {
   activity    Activity    @relation(fields: [activityId], references: [id])
   session     Session     @relation(fields: [sessionId], references: [id])
   reportedBy  User        @relation(fields: [reportedById], references: [id])
+
+  @@unique([beneficiaryId, activityId, sessionId])
 }
 
 /**

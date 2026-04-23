@@ -262,6 +262,9 @@ export class OutreachService {
 
     const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
     if (!session) throw new NotFoundException('Session not found');
+    if (session.activityId !== dto.activityId) {
+      throw new BadRequestException('Session does not belong to the selected activity');
+    }
 
     const exists = await this.prisma.activityReport.findFirst({
       where: { beneficiaryId: dto.beneficiaryId, activityId: dto.activityId, sessionId }
