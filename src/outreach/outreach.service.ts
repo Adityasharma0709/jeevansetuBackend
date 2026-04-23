@@ -262,14 +262,8 @@ export class OutreachService {
 
     const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
     if (!session) throw new NotFoundException('Session not found');
-    if (session.activityId !== dto.activityId) {
-      throw new BadRequestException('Session does not belong to the selected activity');
-    }
 
-    const exists = await this.prisma.activityReport.findFirst({
-      where: { beneficiaryId: dto.beneficiaryId, activityId: dto.activityId, sessionId }
-    });
-    if (exists) throw new ConflictException('Report already submitted');
+    // Duplicate check removed as per user request
 
     return this.prisma.activityReport.create({
       data: {
@@ -539,25 +533,19 @@ export class OutreachService {
     });
   }
 
-  async getSessions(activityId: number, beneficiaryId?: number) {
-    const sessions = await this.prisma.session.findMany({
+  async getSessions(activityId: number) {
+    return this.prisma.session.findMany({
       where: { activityId, status: 'ACTIVE' },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    if (beneficiaryId) {
-      const alreadyReported = await this.prisma.activityReport.findMany({
-        where: {
-          beneficiaryId,
-          activityId
+      include: {
+        creator: {
+          select: { id: true, name: true, email: true },
         },
-        select: { sessionId: true }
-      });
-      const reportedIds = new Set(alreadyReported.map(r => r.sessionId));
-      return sessions.filter(s => !reportedIds.has(s.id));
-    }
-
-    return sessions;
+        activity: {
+          select: { id: true, name: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async getBeneficiary(id: number) {
