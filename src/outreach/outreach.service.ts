@@ -649,8 +649,8 @@ export class OutreachService {
         relationship: dto.relationship,
         dateOfBirth: new Date(dto.dateOfBirth),
         gender: dto.gender,
-        schoolingStatus: ageYears <= 14 ? dto.schoolingStatus : null,
-        employmentStatus: ageYears > 14 ? dto.employmentStatus : null,
+        schoolingStatus: (ageYears <= 14 ? (dto.schoolingStatus ?? null) : null) as any,
+        employmentStatus: (ageYears > 14 ? (dto.employmentStatus ?? null) : null) as any,
       },
     });
   }
