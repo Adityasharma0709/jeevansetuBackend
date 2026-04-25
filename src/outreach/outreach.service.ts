@@ -620,16 +620,19 @@ export class OutreachService {
     // 3. Age-based field validation
     const dob = new Date(dto.dateOfBirth);
     const today = new Date();
-    const ageMs = today.getTime() - dob.getTime();
-    const ageYears = Math.floor(ageMs / (1000 * 60 * 60 * 24 * 365.25));
+    let ageYears = today.getFullYear() - dob.getFullYear();
+    const m = today.getMonth() - dob.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+      ageYears--;
+    }
 
     if (ageYears <= 14) {
       if (!dto.schoolingStatus) {
-        throw new BadRequestException('schoolingStatus is required for children aged 14 or below');
+        throw new BadRequestException(`schoolingStatus is required for children (Age: ${ageYears})`);
       }
     } else {
       if (!dto.employmentStatus) {
-        throw new BadRequestException('employmentStatus is required for family members aged above 14');
+        throw new BadRequestException(`employmentStatus is required for family members (Age: ${ageYears})`);
       }
     }
 
