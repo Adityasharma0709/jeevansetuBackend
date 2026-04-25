@@ -206,13 +206,16 @@ model GroupMember {
 }
 
 model BeneficiaryChild {
-  id            Int @id @default(autoincrement())
+  id            Int    @id @default(autoincrement())
   beneficiaryId Int
+  uid           String @unique
 
-  name            String
-  dateOfBirth     DateTime
-  gender          String
-  schoolingStatus String
+  name             String
+  relationship     String
+  dateOfBirth      DateTime
+  gender           String
+  schoolingStatus  String?
+  employmentStatus String?
 
   beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
 }

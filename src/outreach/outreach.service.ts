@@ -11,6 +11,7 @@ import { CreateReportDto } from './dto/create-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
 import { RequestBeneficiaryUpdateDto } from './dto/request-beneficiary-update.dto';
+import { AddFamilyMemberDto } from './dto/add-family-member.dto';
 
 @Injectable()
 export class OutreachService {
@@ -598,6 +599,73 @@ export class OutreachService {
 
     // Extract and return just the locations
     return assignments.map(a => a.location);
+  }
+
+  // ── Family Members ─────────────────────────────────────────────────────────
+
+  async addFamilyMember(beneficiaryId: number, dto: AddFamilyMemberDto, user: any) {
+    const userId = Number(user?.userId);
+    if (!Number.isFinite(userId)) throw new BadRequestException('Invalid user');
+
+    // 1. Verify beneficiary exists
+    const beneficiary = await this.prisma.beneficiary.findUnique({
+      where: { id: beneficiaryId },
+      select: { id: true, uid: true, projectId: true, locationId: true },
+    });
+    if (!beneficiary) throw new NotFoundException('Beneficiary not found');
+
+    // 2. Verify outreach user is assigned to this beneficiary
+    await this.ensureOutreachAssignedToBeneficiary(userId, beneficiary);
+
+    // 3. Age-based field validation
+    const dob = new Date(dto.dateOfBirth);
+    const today = new Date();
+    const ageMs = today.getTime() - dob.getTime();
+    const ageYears = Math.floor(ageMs / (1000 * 60 * 60 * 24 * 365.25));
+
+    if (ageYears <= 14) {
+      if (!dto.schoolingStatus) {
+        throw new BadRequestException('schoolingStatus is required for children aged 14 or below');
+      }
+    } else {
+      if (!dto.employmentStatus) {
+        throw new BadRequestException('employmentStatus is required for family members aged above 14');
+      }
+    }
+
+    // 4. Generate family member UID: <beneficiaryUid>+f<NN>
+    const existingCount = await this.prisma.beneficiaryChild.count({
+      where: { beneficiaryId },
+    });
+    const suffix = String(existingCount + 1).padStart(2, '0');
+    const memberUid = `${beneficiary.uid}+f${suffix}`;
+
+    // 5. Create family member record
+    return this.prisma.beneficiaryChild.create({
+      data: {
+        uid: memberUid,
+        beneficiaryId,
+        name: dto.name,
+        relationship: dto.relationship,
+        dateOfBirth: new Date(dto.dateOfBirth),
+        gender: dto.gender,
+        schoolingStatus: ageYears <= 14 ? dto.schoolingStatus : null,
+        employmentStatus: ageYears > 14 ? dto.employmentStatus : null,
+      },
+    });
+  }
+
+  async getFamilyMembers(beneficiaryId: number) {
+    const beneficiary = await this.prisma.beneficiary.findUnique({
+      where: { id: beneficiaryId },
+      select: { id: true },
+    });
+    if (!beneficiary) throw new NotFoundException('Beneficiary not found');
+
+    return this.prisma.beneficiaryChild.findMany({
+      where: { beneficiaryId },
+      orderBy: { id: 'asc' },
+    });
   }
 }
 
