@@ -641,7 +641,7 @@ export class OutreachService {
       where: { beneficiaryId },
     });
     const suffix = String(existingCount + 1).padStart(2, '0');
-    const memberUid = `${beneficiary.uid}+f${suffix}`;
+    const memberUid = `${beneficiary.uid}F${suffix}`;
 
     // 5. Create family member record
     return this.prisma.beneficiaryChild.create({
