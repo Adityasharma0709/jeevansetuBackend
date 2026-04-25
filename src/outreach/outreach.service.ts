@@ -263,7 +263,29 @@ export class OutreachService {
     const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
     if (!session) throw new NotFoundException('Session not found');
 
-    // Duplicate check removed as per user request
+    const reportDate = dto.sessionDate ? new Date(dto.sessionDate) : new Date();
+
+    // Check for duplicate report on the same date
+    const startOfDay = new Date(reportDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(reportDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const existingReport = await this.prisma.activityReport.findFirst({
+      where: {
+        beneficiaryId: dto.beneficiaryId,
+        activityId: dto.activityId,
+        sessionId,
+        date: {
+          gte: startOfDay,
+          lte: endOfDay,
+        }
+      }
+    });
+
+    if (existingReport) {
+      throw new ConflictException('A report for this activity and session has already been submitted for this beneficiary on this date.');
+    }
 
     return this.prisma.activityReport.create({
       data: {
@@ -271,7 +293,7 @@ export class OutreachService {
         activityId: dto.activityId,
         sessionId,
         reportedById: user.userId,
-        date: dto.sessionDate ? new Date(dto.sessionDate) : new Date(),
+        date: reportDate,
         reportData: dto.reportData
       }
     });
