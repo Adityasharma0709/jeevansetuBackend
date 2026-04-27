@@ -275,6 +275,7 @@ export class OutreachService {
     const existingReport = await this.prisma.activityReport.findFirst({
       where: {
         beneficiaryId: dto.beneficiaryId,
+        childId: dto.childId || null,
         activityId: dto.activityId,
         sessionId,
         date: {
@@ -291,6 +292,7 @@ export class OutreachService {
     return this.prisma.activityReport.create({
       data: {
         beneficiaryId: dto.beneficiaryId,
+        childId: dto.childId || null,
         activityId: dto.activityId,
         sessionId,
         reportedById: user.userId,
@@ -305,6 +307,7 @@ export class OutreachService {
       where: { id },
       include: {
         beneficiary: true,
+        child: true,
         activity: true,
         session: true
       }
@@ -380,6 +383,7 @@ export class OutreachService {
       where: { reportedById: userId },
       include: {
         beneficiary: { select: { name: true, uid: true, mobileNumber: true } },
+        child: { select: { name: true, uid: true } },
         activity: { select: { name: true } },
         session: { select: { name: true } }
       },
@@ -424,6 +428,8 @@ export class OutreachService {
         { name: { contains: search, mode: 'insensitive' } },
         { uid: { contains: search, mode: 'insensitive' } },
         { mobileNumber: { contains: search, mode: 'insensitive' } },
+        { children: { some: { name: { contains: search, mode: 'insensitive' } } } },
+        { children: { some: { uid: { contains: search, mode: 'insensitive' } } } },
       ];
     }
 
@@ -432,6 +438,7 @@ export class OutreachService {
       include: {
         project: true,
         location: true,
+        children: true,
         createdBy: {
           select: { name: true, email: true }
         }

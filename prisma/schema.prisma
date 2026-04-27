@@ -219,6 +219,7 @@ model BeneficiaryChild {
   qualification    String?
 
   beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
+  reports     ActivityReport[]
 }
 
 /**
@@ -310,6 +311,7 @@ model BeneficiaryActivity {
 model ActivityReport {
   id            Int @id @default(autoincrement())
   beneficiaryId Int
+  childId       Int?
   activityId    Int
   sessionId     Int
   reportedById  Int
@@ -319,6 +321,7 @@ model ActivityReport {
   createdAt  DateTime @default(now())
 
   beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
+  child       BeneficiaryChild? @relation(fields: [childId], references: [id])
   activity    Activity    @relation(fields: [activityId], references: [id])
   session     Session     @relation(fields: [sessionId], references: [id])
   reportedBy  User        @relation(fields: [reportedById], references: [id])
