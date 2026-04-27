@@ -216,6 +216,7 @@ model BeneficiaryChild {
   gender           String
   schoolingStatus  String?
   employmentStatus String?
+  qualification    String?
 
   beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
 }

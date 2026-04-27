@@ -636,6 +636,12 @@ export class OutreachService {
       }
     }
 
+    if (ageYears > 6) {
+      if (!dto.qualification) {
+        throw new BadRequestException(`qualification is required for family members (Age: ${ageYears})`);
+      }
+    }
+
     // 4. Generate family member UID: <beneficiaryUid>+f<NN>
     const existingCount = await this.prisma.beneficiaryChild.count({
       where: { beneficiaryId },
@@ -654,6 +660,7 @@ export class OutreachService {
         gender: dto.gender,
         schoolingStatus: (ageYears <= 14 ? (dto.schoolingStatus ?? null) : null) as any,
         employmentStatus: (ageYears > 14 ? (dto.employmentStatus ?? null) : null) as any,
+        qualification: (ageYears > 6 ? (dto.qualification ?? null) : null) as any,
       },
     });
   }

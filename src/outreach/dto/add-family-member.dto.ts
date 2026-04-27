@@ -28,4 +28,8 @@ export class AddFamilyMemberDto {
   @IsOptional()
   @IsString()
   employmentStatus?: string;
+
+  @IsOptional()
+  @IsString()
+  qualification?: string;
 }
