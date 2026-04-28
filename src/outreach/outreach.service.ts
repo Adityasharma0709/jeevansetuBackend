@@ -23,12 +23,12 @@ export class OutreachService {
     }
   }
 
-  private async ensureOutreachAssignedToBeneficiary(userId: number, beneficiary: { projectId: number; locationId: number }) {
+  private async ensureOutreachAssignedToBeneficiary(userId: number, beneficiary: { projectId: number; awcId: number }) {
     const assigned = await this.prisma.userProjectLocation.findFirst({
       where: {
         userId,
         projectId: beneficiary.projectId,
-        locationId: beneficiary.locationId,
+        awcId: beneficiary.awcId,
       },
       select: { id: true },
     });
@@ -44,7 +44,7 @@ export class OutreachService {
       where: {
         userId: user.userId,
         projectId: dto.projectId,
-        locationId: dto.locationId
+        awcId: dto.locationId
       }
     });
 
@@ -65,12 +65,12 @@ export class OutreachService {
     }
     this.assertIsActive(project.status, 'Project');
 
-    const location = await this.prisma.location.findUnique({
+    const awc = await this.prisma.awc.findUnique({
       where: { id: dto.locationId },
       select: { id: true, status: true },
     });
-    if (!location) throw new NotFoundException('Location not found');
-    this.assertIsActive(location.status, 'Location');
+    if (!awc) throw new NotFoundException('AWC not found');
+    this.assertIsActive(awc.status, 'AWC');
 
     // 3. Count existing beneficiaries in project
     const count = await this.prisma.beneficiary.count({
@@ -88,7 +88,7 @@ export class OutreachService {
       data: {
         uid,
         projectId: dto.projectId,
-        locationId: dto.locationId,
+        awcId: dto.locationId,
         state: dto.state,
         district: dto.district,
         block: dto.block,
@@ -367,7 +367,7 @@ export class OutreachService {
     });
 
     const assignedLocations = await this.prisma.userProjectLocation.count({
-      where: { userId }
+      where: { userId, awcId: { not: undefined } }
     });
 
     return {
@@ -394,10 +394,10 @@ export class OutreachService {
   async getDebugInfo() {
     const users = await this.prisma.user.findMany();
     const projects = await this.prisma.project.findMany();
-    const locations = await this.prisma.location.findMany();
+    const awcs = await this.prisma.awc.findMany();
     const assignments = await this.prisma.userProjectLocation.findMany();
 
-    return { users, projects, locations, assignments };
+    return { users, projects, awcs, assignments };
   }
   async getBeneficiaryList(user: any, search?: string) {
     const roles = user.roles?.map(r => r.role?.name || r.name) || [];
@@ -437,7 +437,7 @@ export class OutreachService {
       where,
       include: {
         project: true,
-        location: true,
+        awc: true,
         children: true,
         createdBy: {
           select: { name: true, email: true }
@@ -454,7 +454,7 @@ export class OutreachService {
 
     const beneficiary = await this.prisma.beneficiary.findUnique({
       where: { id: Number(beneficiaryId) },
-      select: { id: true, projectId: true, locationId: true },
+      select: { id: true, projectId: true, awcId: true },
     });
     if (!beneficiary) throw new NotFoundException('Beneficiary not found');
 
@@ -487,7 +487,7 @@ export class OutreachService {
 
     const beneficiary = await this.prisma.beneficiary.findUnique({
       where: { id: Number(beneficiaryId) },
-      select: { id: true, projectId: true, locationId: true },
+      select: { id: true, projectId: true, awcId: true },
     });
     if (!beneficiary) throw new NotFoundException('Beneficiary not found');
 
@@ -581,7 +581,7 @@ export class OutreachService {
       where: { id },
       include: {
         project: true,
-        location: true,
+        awc: true,
         children: true,
         groups: { include: { group: true } },
         activities: { include: { activity: true, session: true } }
@@ -600,12 +600,12 @@ export class OutreachService {
         projectId
       },
       include: {
-        location: true
+        awc: true
       }
     });
 
     // Extract and return just the locations
-    return assignments.map(a => a.location);
+    return assignments.map(a => a.awc);
   }
 
   // ── Family Members ─────────────────────────────────────────────────────────
@@ -617,7 +617,7 @@ export class OutreachService {
     // 1. Verify beneficiary exists
     const beneficiary = await this.prisma.beneficiary.findUnique({
       where: { id: beneficiaryId },
-      select: { id: true, uid: true, projectId: true, locationId: true },
+      select: { id: true, uid: true, projectId: true, awcId: true },
     });
     if (!beneficiary) throw new NotFoundException('Beneficiary not found');
 

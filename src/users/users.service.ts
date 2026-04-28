@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
@@ -42,14 +43,14 @@ export class UsersService {
     tx: Prisma.TransactionClient = this.prisma,
   ) {
     const linked = await tx.project.count({
-      where: { id: projectId, locations: { some: { id: locationId } } },
+      where: { id: projectId, awcs: { some: { id: locationId } } },
     });
 
     if (linked > 0) return;
 
     await tx.project.update({
       where: { id: projectId },
-      data: { locations: { connect: { id: locationId } } },
+      data: { awcs: { connect: { id: locationId } } },
     });
   }
 
@@ -241,8 +242,6 @@ export class UsersService {
     });
   }
 
-
-
   async removeAdminFromProject(id: number, projectId: number) {
     const admin = await this.getAdminById(id);
     if (!admin) {
@@ -374,10 +373,10 @@ export class UsersService {
     if (!project) throw new NotFoundException('Project not found');
 
     // check location exists
-    const location = await this.prisma.location.findUnique({
+    const awc = await this.prisma.awc.findUnique({
       where: { id: dto.locationId },
     });
-    if (!location) throw new NotFoundException('Location not found');
+    if (!awc) throw new NotFoundException('AWC not found');
 
     await this.ensureLocationLinkedToProject(dto.projectId, dto.locationId);
 
@@ -386,7 +385,7 @@ export class UsersService {
       where: {
         userId: dto.userId,
         projectId: dto.projectId,
-        locationId: dto.locationId,
+        awcId: dto.locationId,
       },
     });
 
@@ -395,14 +394,18 @@ export class UsersService {
     }
 
     return this.prisma.userProjectLocation.create({
-      data: dto,
+      data: {
+        userId: dto.userId,
+        projectId: dto.projectId,
+        awcId: dto.locationId,
+      },
     });
   }
 
   async createManager(dto: CreateManagerDto, adminUser: any) {
     const adminId = adminUser?.userId ?? adminUser?.id;
     if (!adminId) {
-      throw new ForbiddenException('Admin identity not found in token');
+      throw new UnauthorizedException('Admin identity not found in token');
     }
 
     const projectId = Number(dto.projectId);
@@ -419,7 +422,7 @@ export class UsersService {
         where: {
           userId: adminId,
           projectId,
-          locationId,
+          awcId: locationId,
         },
       });
 
@@ -434,12 +437,12 @@ export class UsersService {
       if (!project) throw new NotFoundException('Project not found');
       this.assertIsActive(project.status, 'Project');
 
-      const location = await this.prisma.location.findUnique({
+      const awc = await this.prisma.awc.findUnique({
         where: { id: locationId },
         select: { id: true, status: true },
       });
-      if (!location) throw new NotFoundException('Location not found');
-      this.assertIsActive(location.status, 'Location');
+      if (!awc) throw new NotFoundException('AWC not found');
+      this.assertIsActive(awc.status, 'AWC');
     }
 
     const email = (dto.email ?? '').trim();
@@ -489,7 +492,7 @@ export class UsersService {
               data: {
                 userId: user.id,
                 projectId,
-                locationId,
+                awcId: locationId,
               },
             });
           }
@@ -547,12 +550,12 @@ export class UsersService {
       throw new BadRequestException('User is not a Manager');
     }
 
-    // 🔥 CASE 1: MANAGER updating self
+    // MANAGER updating self
     if (loggedUser.roles?.includes('MANAGER') && (loggedUser.userId || loggedUser.id) !== managerId) {
       throw new ForbiddenException('You can update only your own profile');
     }
 
-    // 🔥 CASE 2: ADMIN updating manager
+    // ADMIN updating manager
     if (loggedUser.roles?.includes('ADMIN')) {
       const loggedUserId = loggedUser.userId || loggedUser.id;
 
@@ -622,7 +625,7 @@ export class UsersService {
               // Managers are scoped to project + location
               userId: loggedUserId,
               projectId: dto.projectId,
-              locationId: dto.locationId,
+              awcId: dto.locationId,
             },
       });
 
@@ -675,14 +678,14 @@ export class UsersService {
     }
     this.assertIsActive(project.status, 'Project');
 
-    const location = await this.prisma.location.findUnique({
+    const awc = await this.prisma.awc.findUnique({
       where: { id: dto.locationId },
       select: { id: true, status: true },
     });
-    if (!location) {
-      throw new NotFoundException('Location not found');
+    if (!awc) {
+      throw new NotFoundException('AWC not found');
     }
-    this.assertIsActive(location.status, 'Location');
+    this.assertIsActive(awc.status, 'AWC');
 
     await this.ensureLocationLinkedToProject(dto.projectId, dto.locationId);
 
@@ -696,7 +699,7 @@ export class UsersService {
         : {
             userId: dto.userId,
             projectId: dto.projectId,
-            locationId: dto.locationId,
+            awcId: dto.locationId,
           },
     });
 
@@ -712,15 +715,14 @@ export class UsersService {
       data: {
         userId: dto.userId,
         projectId: dto.projectId,
-        locationId: dto.locationId,
+        awcId: dto.locationId,
       },
     });
   }
-  //super-admin dashboard
-  async superAdminDashboard() {
 
+  async superAdminDashboard() {
     const totalProjects = await this.prisma.project.count();
-    const totalLocations = await this.prisma.location.count();
+    const totalLocations = await this.prisma.awc.count();
 
     const beneficiariesPerProject =
       await this.prisma.project.findMany({
@@ -804,7 +806,7 @@ export class UsersService {
     delete dto.email;
     delete dto.status;
     delete dto.roles;
-    delete dto.mobile; // mobile field doesn't exist in User model
+    delete dto.mobile;
 
     return this.prisma.user.update({
       where: { id: userId },
@@ -821,5 +823,3 @@ export class UsersService {
     });
   }
 }
-
-

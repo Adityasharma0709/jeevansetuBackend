@@ -115,7 +115,7 @@ export class ProjectsService {
       where: { userId },
       include: {
         project: true,
-        location: true,
+        awc: true,
       },
       orderBy: { project: { createdAt: 'desc' } },
     });
@@ -126,13 +126,13 @@ export class ProjectsService {
 
       const projects = await this.prisma.project.findMany({
         where: { id: { in: projectIds } },
-        include: { locations: true },
+        include: { awcs: true },
         orderBy: { createdAt: 'desc' },
       });
 
       return projects.map((p) => ({
         ...p,
-        locations: p.locations,
+        awcs: p.awcs,
       }));
     }
 
@@ -141,11 +141,11 @@ export class ProjectsService {
       if (!projectMap.has(a.projectId)) {
         projectMap.set(a.projectId, {
           ...a.project,
-          locations: [],
+          awcs: [],
         });
       }
-      if (a.location) {
-        projectMap.get(a.projectId).locations.push(a.location);
+      if (a.awc) {
+        projectMap.get(a.projectId).awcs.push(a.awc);
       }
     }
 
@@ -155,7 +155,7 @@ export class ProjectsService {
   findAll(search?: string) {
     if (!search) {
       return this.prisma.project.findMany({
-        include: { locations: true },
+        include: { awcs: true },
         orderBy: { createdAt: 'desc' },
       });
     }
@@ -177,7 +177,7 @@ export class ProjectsService {
           },
         ],
       },
-      include: { locations: true },
+      include: { awcs: true },
       orderBy: { createdAt: 'desc' },
     });
   }

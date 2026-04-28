@@ -15,7 +15,7 @@ async function main() {
       },
       include: {
         project: true,
-        location: true,
+        awc: true,
         createdBy: { select: { name: true, email: true, mobileNumber: true } }
       },
       orderBy: {

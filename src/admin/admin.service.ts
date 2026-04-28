@@ -693,14 +693,14 @@ export class AdminService {
               const linked = await tx.project.count({
                 where: {
                   id: numericProjectId,
-                  locations: { some: { id: numericLocationId } },
+                  awcs: { some: { id: numericLocationId } },
                 },
               });
 
               if (linked === 0) {
                 await tx.project.update({
                   where: { id: numericProjectId },
-                  data: { locations: { connect: { id: numericLocationId } } },
+                  data: { awcs: { connect: { id: numericLocationId } } },
                 });
               }
 
@@ -708,7 +708,7 @@ export class AdminService {
                 data: {
                   userId: created.id,
                   projectId: numericProjectId,
-                  locationId: numericLocationId,
+                  awcId: numericLocationId,
                 },
               });
             } else if (projectId || locationId) {
