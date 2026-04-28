@@ -1,38 +1,22 @@
-import { Transform } from 'class-transformer';
-import {
-  IsArray,
-  IsInt,
-  IsOptional,
-  IsString,
-  Matches,
-  ArrayUnique,
-} from 'class-validator';
+import { IsInt, IsOptional, IsString, IsIn } from 'class-validator';
 
 export class CreateLocationDto {
-  @IsOptional()
   @IsInt()
-  projectId?: number;
+  projectId: number;
 
-  @IsOptional()
-  @IsArray()
-  @ArrayUnique()
-  @IsInt({ each: true })
-  projectIds?: number[];
-
-  @IsOptional()
   @IsString()
-  locationCode?: string;
+  locationCode: string;
 
   @IsOptional()
   @IsString()
   awcName?: string;
 
-  @IsString()
-  state: string;
+  @IsInt()
+  stateId: number;
 
   @IsOptional()
-  @IsString()
-  district?: string;
+  @IsInt()
+  districtId?: number;
 
   @IsOptional()
   @IsString()

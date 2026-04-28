@@ -18,6 +18,7 @@ model State {
   name      String
   locationCode String? @unique @db.VarChar(8)
   districts District[]
+  awcs      Awc[]
 }
 
 model District {
@@ -25,6 +26,7 @@ model District {
   name    String
   stateId Int
   state   State  @relation(fields: [stateId], references: [id], onDelete: Cascade)
+  awcs    Awc[]
 }
 
 
@@ -95,7 +97,7 @@ model Project {
   description String?
   status      String  @default("ACTIVE")
 
-  locations   Location[]
+  awcs        Awc[]
   assignments UserProjectLocation[]
 
   beneficiaries Beneficiary[] // ✅ ADD THIS
@@ -105,19 +107,23 @@ model Project {
   updatedAt DateTime @updatedAt
 }
 
-model Location {
+model Awc {
   id           Int    @id @default(autoincrement())
-  locationCode String
+  locationCode String @unique
   awcName      String?
 
-  state    String
-  district String?
-  block    String?
-  village  String?
+  stateId    Int
+  districtId Int?
+  block      String?
+  village    String?
 
   status String @default("ACTIVE")
 
-  projects Project[]
+  projectId Int
+  project   Project @relation(fields: [projectId], references: [id])
+
+  state    State     @relation(fields: [stateId], references: [id])
+  district District? @relation(fields: [districtId], references: [id])
 
   beneficiaries Beneficiary[]
   assignments   UserProjectLocation[]
@@ -127,16 +133,16 @@ model Location {
 }
 
 model UserProjectLocation {
-  id         Int @id @default(autoincrement())
-  userId     Int
-  projectId  Int
-  locationId Int
+  id        Int @id @default(autoincrement())
+  userId    Int
+  projectId Int
+  awcId     Int
 
-  user     User     @relation(fields: [userId], references: [id])
-  project  Project  @relation(fields: [projectId], references: [id])
-  location Location @relation(fields: [locationId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+  awc     Awc     @relation(fields: [awcId], references: [id])
 
-  @@unique([userId, projectId, locationId])
+  @@unique([userId, projectId, awcId])
 }
 
 /**
@@ -173,7 +179,7 @@ model Beneficiary {
   uid String @unique
 
   projectId   Int
-  locationId  Int
+  awcId       Int
   createdById Int
 
   state    String?
@@ -205,7 +211,7 @@ model Beneficiary {
   updatedAt DateTime @updatedAt
 
   project   Project  @relation(fields: [projectId], references: [id])
-  location  Location @relation(fields: [locationId], references: [id])
+  awc       Awc      @relation(fields: [awcId], references: [id])
   createdBy User     @relation(fields: [createdById], references: [id])
 
   children   BeneficiaryChild[]

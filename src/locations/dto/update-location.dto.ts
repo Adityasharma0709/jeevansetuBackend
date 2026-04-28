@@ -1,25 +1,9 @@
-import { Transform } from 'class-transformer';
-import {
-  ArrayUnique,
-  IsArray,
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  Matches,
-} from 'class-validator';
+import { IsInt, IsOptional, IsString, IsIn } from 'class-validator';
 
 export class UpdateLocationDto {
-
   @IsOptional()
   @IsInt()
   projectId?: number;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayUnique()
-  @IsInt({ each: true })
-  projectIds?: number[];
 
   @IsOptional()
   @IsString()
@@ -30,12 +14,12 @@ export class UpdateLocationDto {
   awcName?: string;
 
   @IsOptional()
-  @IsString()
-  state?: string;
+  @IsInt()
+  stateId?: number;
 
   @IsOptional()
-  @IsString()
-  district?: string;
+  @IsInt()
+  districtId?: number;
 
   @IsOptional()
   @IsString()

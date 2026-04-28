@@ -12,45 +12,28 @@ const LOCATION_CODE_MAX_RETRIES = 5;
 export class LocationsService {
   constructor(private prisma: PrismaService) {}
 
-  private async assertProjectsExist(projectIds: number[]) {
-    if (projectIds.length === 0) return;
-
-    const existing = await this.prisma.project.findMany({
-      where: { id: { in: projectIds } },
+  private async assertProjectExists(projectId: number) {
+    const existing = await this.prisma.project.findUnique({
+      where: { id: projectId },
       select: { id: true, status: true },
     });
 
-    const existingIds = new Set(existing.map((p) => p.id));
-    const missing = projectIds.filter((id) => !existingIds.has(id));
-    if (missing.length > 0) {
-      throw new NotFoundException(`Project not found: ${missing.join(', ')}`);
+    if (!existing) {
+      throw new NotFoundException(`Project not found: ${projectId}`);
     }
 
-    const inactive = existing
-      .filter((p) => (p?.status ?? '').toString().toUpperCase() !== 'ACTIVE')
-      .map((p) => p.id);
-    if (inactive.length > 0) {
-      throw new BadRequestException(`Project is deactivated: ${inactive.join(', ')}`);
+    if ((existing?.status ?? '').toString().toUpperCase() !== 'ACTIVE') {
+      throw new BadRequestException(`Project is deactivated: ${projectId}`);
     }
   }
 
-  private normalizeProjectIds(dto: {
-    projectId?: number;
-    projectIds?: number[];
-  }): number[] {
-    if (Array.isArray(dto.projectIds) && dto.projectIds.length > 0) {
-      return dto.projectIds;
-    }
-
-    if (dto.projectId != null) return [dto.projectId];
-    return [];
-  }
-
-  private toLocationResponse(location: any) {
-    const projectIds = Array.isArray(location?.projects)
-      ? location.projects.map((p: any) => p.id)
-      : [];
-    return { ...location, projectIds };
+  private toAwcResponse(awc: any) {
+    if (!awc) return null;
+    return {
+      ...awc,
+      stateName: awc.state?.name,
+      districtName: awc.district?.name,
+    };
   }
 
   private async generateNextLocationCode(
@@ -67,7 +50,7 @@ export class LocationsService {
           AS INTEGER
         )
       ) AS max
-      FROM "Location"
+      FROM "Awc"
       WHERE UPPER("locationCode") ~ ${numericPattern}
     `;
 
@@ -77,72 +60,50 @@ export class LocationsService {
   }
 
   async create(dto: CreateLocationDto) {
-    const projectIds = this.normalizeProjectIds(dto);
-    await this.assertProjectsExist(projectIds);
+    await this.assertProjectExists(dto.projectId);
 
     const providedCode = dto.locationCode?.trim();
     const normalizedCode = providedCode ? providedCode.toUpperCase() : undefined;
 
     if (normalizedCode) {
-      const existing = await this.prisma.location.findFirst({
+      const existing = await this.prisma.awc.findFirst({
         where: { locationCode: normalizedCode },
         select: { id: true },
       });
       if (existing) {
-        throw new ConflictException('Location code already exists');
+        throw new ConflictException('AWC code already exists');
       }
 
-      const { projectId: _projectId, projectIds: _projectIds, ...rest } = dto;
-
-      return this.toLocationResponse(
-        await this.prisma.location.create({
+      return this.toAwcResponse(
+        await this.prisma.awc.create({
           data: {
-            ...rest,
+            ...dto,
             locationCode: normalizedCode,
-            district: rest.district ?? null,
-            block: rest.block ?? null,
-            village: rest.village ?? null,
-            ...(projectIds.length > 0
-              ? {
-                  projects: {
-                    connect: projectIds.map((id) => ({ id })),
-                  },
-                }
-              : {}),
           },
-          include: { projects: { select: { id: true, name: true } } },
+          include: { 
+            project: { select: { id: true, name: true } },
+            state: { select: { name: true } },
+            district: { select: { name: true } }
+          },
         }),
       );
     }
 
-    const {
-      locationCode: _locationCode,
-      projectId: _projectId,
-      projectIds: _projectIds,
-      ...rest
-    } = dto;
-
     for (let attempt = 0; attempt < LOCATION_CODE_MAX_RETRIES; attempt++) {
       try {
-        return this.toLocationResponse(
+        return this.toAwcResponse(
           await this.prisma.$transaction(async (tx) => {
             const locationCode = await this.generateNextLocationCode(tx);
-            return tx.location.create({
+            return tx.awc.create({
               data: {
-                ...rest,
+                ...dto,
                 locationCode,
-                district: rest.district ?? null,
-                block: rest.block ?? null,
-                village: rest.village ?? null,
-                ...(projectIds.length > 0
-                  ? {
-                      projects: {
-                        connect: projectIds.map((id) => ({ id })),
-                      },
-                    }
-                  : {}),
               },
-              include: { projects: { select: { id: true, name: true } } },
+              include: { 
+                project: { select: { id: true, name: true } },
+                state: { select: { name: true } },
+                district: { select: { name: true } }
+              },
             });
           }),
         );
@@ -162,147 +123,97 @@ export class LocationsService {
           }
         }
 
-        this.handleLocationPrismaError(error);
+        this.handleAwcPrismaError(error);
       }
     }
 
-    throw new ConflictException('Could not generate a unique location code');
+    throw new ConflictException('Could not generate a unique AWC code');
   }
-  async updateStatus(id: number, status: string) {
-    return this.toLocationResponse(
-      await this.prisma.location.update({
+
+  async findAll(projectId?: number) {
+    const rows = await this.prisma.awc.findMany({
+      where: projectId ? { projectId } : {},
+      include: { 
+        project: { select: { id: true, name: true } },
+        state: { select: { name: true } },
+        district: { select: { name: true } }
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((r) => this.toAwcResponse(r));
+  }
+
+  async findOne(id: number) {
+    const row = await this.prisma.awc.findUnique({
+      where: { id },
+      include: { 
+        project: { select: { id: true, name: true } },
+        state: { select: { name: true } },
+        district: { select: { name: true } }
+      },
+    });
+    return this.toAwcResponse(row);
+  }
+
+  async update(id: number, dto: UpdateLocationDto) {
+    if (dto.projectId) {
+      await this.assertProjectExists(dto.projectId);
+    }
+
+    const awc = await this.prisma.awc.findUnique({
+      where: { id },
+      select: { id: true, status: true },
+    });
+    if (!awc) throw new NotFoundException('AWC not found');
+
+    const normalizedCode = dto.locationCode?.trim().toUpperCase();
+    if (normalizedCode) {
+      const existing = await this.prisma.awc.findFirst({
+        where: {
+          locationCode: normalizedCode,
+          NOT: { id },
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        throw new ConflictException('AWC code already exists');
+      }
+    }
+
+    return this.toAwcResponse(
+      await this.prisma.awc.update({
         where: { id },
-        data: { status },
-        include: { projects: { select: { id: true, name: true } } },
+        data: {
+          ...dto,
+          locationCode: normalizedCode ? normalizedCode : undefined,
+        },
+        include: { 
+          project: { select: { id: true, name: true } },
+          state: { select: { name: true } },
+          district: { select: { name: true } }
+        },
       }),
     );
   }
 
-  findAll(projectId?: number) {
-    return this.prisma.location
-      .findMany({
-        where: projectId ? { projects: { some: { id: projectId } } } : {},
-        include: { projects: { select: { id: true, name: true } } },
-        orderBy: { createdAt: 'desc' },
-      })
-      .then((rows) => rows.map((r) => this.toLocationResponse(r)));
-  }
-
-  findOne(id: number) {
-    return this.prisma.location
-      .findUnique({
+  async updateStatus(id: number, status: string) {
+    return this.toAwcResponse(
+      await this.prisma.awc.update({
         where: { id },
-        include: { projects: { select: { id: true, name: true } } },
-      })
-      .then((row) => (row ? this.toLocationResponse(row) : row));
+        data: { status },
+        include: { project: { select: { id: true, name: true } } },
+      }),
+    );
   }
 
-  update(id: number, dto: UpdateLocationDto) {
-    const shouldSetProjects = Array.isArray(dto.projectIds);
-    const projectIds = shouldSetProjects ? dto.projectIds ?? [] : this.normalizeProjectIds(dto);
-
-    return this.assertProjectsExist(projectIds).then(async () => {
-      const isProjectAssignment = shouldSetProjects || dto.projectId != null;
-      if (isProjectAssignment) {
-        const location = await this.prisma.location.findUnique({
-          where: { id },
-          select: { id: true, status: true },
-        });
-        if (!location) throw new NotFoundException('Location not found');
-        if ((location.status ?? '').toString().toUpperCase() !== 'ACTIVE') {
-          throw new BadRequestException('Location is deactivated');
-        }
-      }
-
-      const {
-        projectId: _projectId,
-        projectIds: _projectIds,
-        locationCode,
-        ...rest
-      } = dto;
-
-      const normalizedLocationCode = locationCode
-        ? locationCode.trim().toUpperCase()
-        : undefined;
-
-      if (normalizedLocationCode) {
-        const existing = await this.prisma.location.findFirst({
-          where: {
-            locationCode: normalizedLocationCode,
-            NOT: { id },
-          },
-          select: { id: true },
-        });
-        if (existing) {
-          throw new ConflictException('Location code already exists');
-        }
-      }
-
-      if (shouldSetProjects) {
-        return this.toLocationResponse(
-          await this.prisma.location.update({
-            where: { id },
-            data: {
-              ...rest,
-              ...(normalizedLocationCode
-                ? { locationCode: normalizedLocationCode }
-                : {}),
-              projects: {
-                set: projectIds.map((pid) => ({ id: pid })),
-              },
-            },
-            include: { projects: { select: { id: true, name: true } } },
-          }),
-        );
-      }
-
-      if (dto.projectId != null) {
-        const alreadyLinked = await this.prisma.location.count({
-          where: { id, projects: { some: { id: dto.projectId } } },
-        });
-
-        return this.toLocationResponse(
-          await this.prisma.location.update({
-            where: { id },
-            data: {
-              ...rest,
-              ...(normalizedLocationCode
-                ? { locationCode: normalizedLocationCode }
-                : {}),
-              ...(alreadyLinked
-                ? {}
-                : {
-                    projects: {
-                      connect: { id: dto.projectId },
-                    },
-                  }),
-            },
-            include: { projects: { select: { id: true, name: true } } },
-          }),
-        );
-      }
-
-      return this.toLocationResponse(
-        await this.prisma.location.update({
-          where: { id },
-          data: {
-            ...rest,
-            ...(normalizedLocationCode ? { locationCode: normalizedLocationCode } : {}),
-          },
-          include: { projects: { select: { id: true, name: true } } },
-        }),
-      );
-    });
-  }
-
-  disable(id: number) {
-    return this.prisma.location
-      .update({
+  async disable(id: number) {
+    return this.toAwcResponse(
+      await this.prisma.awc.update({
         where: { id },
         data: { status: 'INACTIVE' },
-        include: { projects: { select: { id: true, name: true } } },
-      })
-      .then((row) => this.toLocationResponse(row));
+        include: { project: { select: { id: true, name: true } } },
+      }),
+    );
   }
 
   async getStates() {
@@ -318,14 +229,14 @@ export class LocationsService {
     });
   }
 
-  private handleLocationPrismaError(error: unknown): never {
+  private handleAwcPrismaError(error: unknown): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2025') {
-        throw new NotFoundException('Location not found');
+        throw new NotFoundException('AWC not found');
       }
 
       if (error.code === 'P2002') {
-        throw new ConflictException('Location code already exists');
+        throw new ConflictException('AWC code already exists');
       }
     }
 
