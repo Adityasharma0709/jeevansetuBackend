@@ -4,8 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
 
-const LOCATION_CODE_PREFIX = 'LC';
-const LOCATION_CODE_MIN_DIGITS = 2; // LC01 => minimum total length 4
+const LOCATION_CODE_PREFIX = 'AWC';
+const LOCATION_CODE_MIN_DIGITS = 1;
 const LOCATION_CODE_MAX_RETRIES = 5;
 
 @Injectable()
