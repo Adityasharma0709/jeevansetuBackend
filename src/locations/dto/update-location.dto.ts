@@ -31,6 +31,10 @@ export class UpdateLocationDto {
 
   @IsOptional()
   @IsString()
+  awcName?: string;
+
+  @IsOptional()
+  @IsString()
   state?: string;
 
   @IsOptional()

@@ -7,6 +7,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+/**
+ * =========================
+ * STATE & DISTRICTS
+ * =========================
+ */
+model State {
+  id        Int        @id
+  name      String
+  locationCode String? @unique @db.VarChar(8)
+  districts District[]
+}
+
+model District {
+  id      Int    @id @default(autoincrement())
+  name    String
+  stateId Int
+  state   State  @relation(fields: [stateId], references: [id], onDelete: Cascade)
+}
+
+
 /**
  * =========================
  * USER & RBAC
@@ -87,6 +108,7 @@ model Project {
 model Location {
   id           Int    @id @default(autoincrement())
   locationCode String
+  awcName      String?
 
   state    String
   district String?

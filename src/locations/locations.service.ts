@@ -305,6 +305,19 @@ export class LocationsService {
       .then((row) => this.toLocationResponse(row));
   }
 
+  async getStates() {
+    return this.prisma.state.findMany({
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async getDistricts(stateId: number) {
+    return this.prisma.district.findMany({
+      where: { stateId },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   private handleLocationPrismaError(error: unknown): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2025') {

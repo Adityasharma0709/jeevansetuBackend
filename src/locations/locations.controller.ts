@@ -16,6 +16,16 @@ import { UpdateLocationDto } from './dto/update-location.dto';
 export class LocationsController {
   constructor(private readonly locationsService: LocationsService) {}
 
+  @Get('states')
+  getStates() {
+    return this.locationsService.getStates();
+  }
+
+  @Get('districts/:stateId')
+  getDistricts(@Param('stateId') stateId: string) {
+    return this.locationsService.getDistricts(+stateId);
+  }
+
   // =========================
   // CREATE LOCATION
   // =========================

@@ -26,12 +26,17 @@ export class CreateLocationDto {
   })
   locationCode?: string;
 
+  @IsOptional()
+  @IsString()
+  awcName?: string;
+
   @IsString()
   state: string;
 
   @IsOptional()
   @IsString()
   district?: string;
+
   @IsOptional()
   @IsString()
   block?: string;
