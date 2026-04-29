@@ -609,6 +609,10 @@ export class UsersService {
   }
 
   async assignProjectLocation(dto: AssignProjectDto, loggedUser: any) {
+    const targetUserId = Number(dto.userId);
+    const projectId = Number(dto.projectId);
+    const locationId = dto.locationId ? Number(dto.locationId) : null;
+
     // 1. RBAC Check
     if (!loggedUser.roles?.includes('SUPER_ADMIN')) {
       const loggedUserId = loggedUser.userId || loggedUser.id;
@@ -617,15 +621,13 @@ export class UsersService {
       const isAssigned = await this.prisma.userProjectLocation.findFirst({
         where: isAdmin
           ? {
-              // Admins get project-wide access once assigned to the project
               userId: loggedUserId,
-              projectId: dto.projectId,
+              projectId: projectId,
             }
           : {
-              // Managers are scoped to project + location
               userId: loggedUserId,
-              projectId: dto.projectId,
-              awcId: dto.locationId,
+              projectId: projectId,
+              awcId: locationId,
             },
       });
 
@@ -638,9 +640,8 @@ export class UsersService {
       }
 
       if (loggedUser.roles?.includes('MANAGER')) {
-        // MANAGER can only assign to OUTREACH role
         const targetUser = await this.prisma.user.findUnique({
-          where: { id: dto.userId },
+          where: { id: targetUserId },
           include: { roles: { include: { role: true } } },
         });
 
@@ -658,7 +659,7 @@ export class UsersService {
     }
 
     const targetUser = await this.prisma.user.findUnique({
-      where: { id: dto.userId },
+      where: { id: targetUserId },
       include: { roles: { include: { role: true } } },
     });
 
@@ -669,8 +670,12 @@ export class UsersService {
     const targetRoleNames = targetUser.roles?.map((r) => r.role.name) ?? [];
     const isTargetAdmin = targetRoleNames.includes('ADMIN');
 
+    if (!isTargetAdmin && !locationId) {
+      throw new BadRequestException('Location (AWC) is required for Managers and Outreach workers');
+    }
+
     const project = await this.prisma.project.findUnique({
-      where: { id: dto.projectId },
+      where: { id: projectId },
       select: { id: true, status: true },
     });
     if (!project) {
@@ -678,44 +683,40 @@ export class UsersService {
     }
     this.assertIsActive(project.status, 'Project');
 
-    const awc = await this.prisma.awc.findUnique({
-      where: { id: dto.locationId },
-      select: { id: true, status: true },
-    });
-    if (!awc) {
-      throw new NotFoundException('AWC not found');
+    if (locationId) {
+      const awc = await this.prisma.awc.findUnique({
+        where: { id: locationId },
+        select: { id: true, status: true },
+      });
+      if (!awc) {
+        throw new NotFoundException('AWC not found');
+      }
+      this.assertIsActive(awc.status, 'AWC');
+      await this.ensureLocationLinkedToProject(projectId, locationId);
     }
-    this.assertIsActive(awc.status, 'AWC');
-
-    await this.ensureLocationLinkedToProject(dto.projectId, dto.locationId);
 
     // 2. Check duplicate
     const exists = await this.prisma.userProjectLocation.findFirst({
-      where: isTargetAdmin
-        ? {
-            userId: dto.userId,
-            projectId: dto.projectId,
-          }
-        : {
-            userId: dto.userId,
-            projectId: dto.projectId,
-            awcId: dto.locationId,
-          },
+      where: {
+        userId: targetUserId,
+        projectId: projectId,
+        awcId: locationId,
+      },
     });
 
     if (exists) {
       throw new ConflictException(
-        isTargetAdmin
-          ? 'User already assigned to this project'
-          : 'User already assigned to this project & location',
+        locationId
+          ? 'User already assigned to this project & location'
+          : 'User already assigned to this project',
       );
     }
 
     return this.prisma.userProjectLocation.create({
       data: {
-        userId: dto.userId,
-        projectId: dto.projectId,
-        awcId: dto.locationId,
+        userId: targetUserId,
+        projectId: projectId,
+        awcId: locationId,
       },
     });
   }
