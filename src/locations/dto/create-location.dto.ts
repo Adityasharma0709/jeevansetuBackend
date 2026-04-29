@@ -4,6 +4,7 @@ export class CreateLocationDto {
   @IsInt()
   projectId: number;
 
+  @IsOptional()
   @IsString()
   locationCode: string;
 
