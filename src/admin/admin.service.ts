@@ -821,6 +821,11 @@ export class AdminService {
     });
   }
 
+  async getStates() {
+    return this.prisma.state.findMany({
+      orderBy: { name: 'asc' },
+    });
+  }
 }
 
 

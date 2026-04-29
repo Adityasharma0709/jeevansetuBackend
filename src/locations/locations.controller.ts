@@ -26,6 +26,11 @@ export class LocationsController {
     return this.locationsService.getDistricts(+stateId);
   }
 
+  @Post('bulk-all-india')
+  assignAllStates(@Body('projectId') projectId: number) {
+    return this.locationsService.assignAllStatesToProject(projectId);
+  }
+
   // =========================
   // CREATE LOCATION
   // =========================

@@ -26,6 +26,12 @@ import { UpdateSessionDto } from './dto/update-session.dto';
 export class AdminController {
   constructor(private readonly adminService: AdminService) { }
 
+  @Get('states')
+  getStates() {
+    return this.adminService.getStates();
+  }
+
+
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Get('dashboard/admin')
