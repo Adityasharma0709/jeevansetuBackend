@@ -404,9 +404,11 @@ export class ManagerService {
     });
 
     const seen = new Set<number>();
-    return (assignments || [])
+    const validAwcs = (assignments || [])
       .map(a => a.awc)
-      .filter(Boolean)
+      .filter((awc): awc is NonNullable<typeof awc> => awc !== null);
+
+    return validAwcs
       .filter(l => l.status?.toUpperCase() === 'ACTIVE')
       .filter(l => {
         if (seen.has(l.id)) return false;
@@ -477,13 +479,15 @@ export class ManagerService {
 
     if (assignments.length === 0) return [];
 
-    const orConditions = assignments.map(a => ({
-      projectId: a.projectId,
-      awcId: a.awcId
-    }));
+    const orConditions = assignments.map(a => {
+      if (a.awcId === null) {
+        return { projectId: a.projectId };
+      }
+      return { projectId: a.projectId, awcId: a.awcId };
+    });
 
     return this.prisma.beneficiary.findMany({
-      where: { OR: orConditions },
+      where: { OR: orConditions as Prisma.BeneficiaryWhereInput[] },
       include: {
         project: true,
         awc: true,
