@@ -7,6 +7,7 @@ import {
   Patch,
   Put,
   Query,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { LocationsService } from './locations.service';
 import { CreateLocationDto } from './dto/create-location.dto';
@@ -26,9 +27,19 @@ export class LocationsController {
     return this.locationsService.getDistricts(+stateId);
   }
 
+  @Get('project/:projectId/states')
+  getProjectStates(@Param('projectId', ParseIntPipe) projectId: number) {
+    return this.locationsService.getProjectStates(projectId);
+  }
+
   @Post('bulk-all-india')
-  assignAllStates(@Body('projectId') projectId: number) {
+  assignAllStates(@Body('projectId', ParseIntPipe) projectId: number) {
     return this.locationsService.assignAllStatesToProject(projectId);
+  }
+
+  @Post('project-states')
+  assignStates(@Body() dto: { projectId: number; stateIds: number[] }) {
+    return this.locationsService.assignStatesToProject(dto.projectId, dto.stateIds);
   }
 
   // =========================

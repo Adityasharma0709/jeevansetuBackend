@@ -216,65 +216,50 @@ export class LocationsService {
     );
   }
 
+  async assignStatesToProject(projectId: number, stateIds: number[]) {
+    await this.assertProjectExists(projectId);
+
+    return this.prisma.$transaction(async (tx) => {
+      // Clear existing if any (optional, or just add new ones)
+      // For now, let's just add ones that don't exist
+      const existing = await tx.projectState.findMany({
+        where: { projectId },
+        select: { stateId: true },
+      });
+      const existingIds = new Set(existing.map((e) => e.stateId));
+      
+      const toAdd = stateIds.filter(id => !existingIds.has(id));
+      
+      if (toAdd.length === 0) return { message: 'All selected states already assigned' };
+
+      const created = await tx.projectState.createMany({
+        data: toAdd.map(stateId => ({ projectId, stateId })),
+      });
+
+      return {
+        count: created.count,
+        message: `Successfully mapped ${created.count} states to project`,
+      };
+    });
+  }
+
   async assignAllStatesToProject(projectId: number) {
     await this.assertProjectExists(projectId);
 
     const states = await this.prisma.state.findMany({
-      orderBy: { name: 'asc' },
+      select: { id: true },
     });
 
-    const existingLocations = await this.prisma.awc.findMany({
+    return this.assignStatesToProject(projectId, states.map(s => s.id));
+  }
+
+  async getProjectStates(projectId: number) {
+    const mappings = await this.prisma.projectState.findMany({
       where: { projectId },
-      select: { stateId: true },
+      include: { state: true },
+      orderBy: { state: { name: 'asc' } },
     });
-
-    const assignedStateIds = new Set(existingLocations.map((l) => l.stateId));
-    const statesToAssign = states.filter((s) => !assignedStateIds.has(s.id));
-
-    if (statesToAssign.length === 0) {
-      return { message: 'All states already assigned' };
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const prefix = LOCATION_CODE_PREFIX;
-      const prefixPattern = `^${prefix}`;
-      const numericPattern = `^${prefix}[0-9]+$`;
-
-      const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
-        SELECT MAX(
-          CAST(
-            regexp_replace(UPPER("locationCode"), ${prefixPattern}, '')
-            AS INTEGER
-          )
-        ) AS max
-        FROM "Awc"
-        WHERE UPPER("locationCode") ~ ${numericPattern}
-      `;
-
-      let nextNumber = (rows[0]?.max ?? 0) + 1;
-
-      const created: any[] = [];
-      for (const state of statesToAssign) {
-        const numeric = String(nextNumber).padStart(LOCATION_CODE_MIN_DIGITS, '0');
-        const locationCode = `${prefix}${numeric}`;
-        
-        const awc = await tx.awc.create({
-          data: {
-            projectId,
-            stateId: state.id,
-            locationCode,
-            status: 'ACTIVE',
-          },
-        });
-        created.push(awc);
-        nextNumber++;
-      }
-
-      return {
-        count: created.length,
-        message: `Successfully assigned ${created.length} states`,
-      };
-    });
+    return mappings.map(m => m.state);
   }
 
   async getStates() {

@@ -19,6 +19,7 @@ model State {
   locationCode String? @unique @db.VarChar(8)
   districts District[]
   awcs      Awc[]
+  projectStates ProjectState[]
 }
 
 model District {
@@ -99,6 +100,7 @@ model Project {
 
   awcs        Awc[]
   assignments UserProjectLocation[]
+  projectStates ProjectState[]
 
   beneficiaries Beneficiary[] // ✅ ADD THIS
   activities    Activity[]    @relation("ProjectActivities") // 👈 ADD THIS
@@ -136,13 +138,23 @@ model UserProjectLocation {
   id        Int @id @default(autoincrement())
   userId    Int
   projectId Int
-  awcId     Int
+  awcId     Int?
 
   user    User    @relation(fields: [userId], references: [id])
   project Project @relation(fields: [projectId], references: [id])
-  awc     Awc     @relation(fields: [awcId], references: [id])
+  awc     Awc?    @relation(fields: [awcId], references: [id])
 
   @@unique([userId, projectId, awcId])
+}
+
+model ProjectState {
+  id        Int      @id @default(autoincrement())
+  projectId Int
+  stateId   Int
+  project   Project  @relation(fields: [projectId], references: [id])
+  state     State    @relation(fields: [stateId], references: [id])
+
+  @@unique([projectId, stateId])
 }
 
 /**
