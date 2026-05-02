@@ -28,7 +28,7 @@ export class OutreachService {
       where: {
         userId,
         projectId: beneficiary.projectId,
-        awcId: beneficiary.awcId,
+
       },
       select: { id: true },
     });
@@ -44,7 +44,6 @@ export class OutreachService {
       where: {
         userId: user.userId,
         projectId: dto.projectId,
-        awcId: dto.locationId
       }
     });
 
@@ -367,7 +366,7 @@ export class OutreachService {
     });
 
     const assignedLocations = await this.prisma.userProjectLocation.count({
-      where: { userId, awcId: { not: undefined } }
+      where: { userId }
     });
 
     return {
@@ -595,17 +594,11 @@ export class OutreachService {
 
   async getAssignedLocations(projectId: number, userId: number) {
     const assignments = await this.prisma.userProjectLocation.findMany({
-      where: {
-        userId,
-        projectId
-      },
-      include: {
-        awc: true
-      }
+      where: { userId, projectId },
+      include: { state: true }
     });
 
-    // Extract and return just the locations
-    return assignments.map(a => a.awc);
+    return assignments.map(a => a.state).filter(Boolean);
   }
 
   // ── Family Members ─────────────────────────────────────────────────────────

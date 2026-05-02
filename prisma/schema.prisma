@@ -149,7 +149,6 @@ model Awc {
   village  Village?  @relation(fields: [villageId], references: [id])
 
   beneficiaries Beneficiary[]
-  assignments   UserProjectLocation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -159,15 +158,13 @@ model UserProjectLocation {
   id        Int @id @default(autoincrement())
   userId    Int
   projectId Int
-  awcId     Int?
   stateId   Int?
 
   user    User    @relation(fields: [userId], references: [id])
   project Project @relation(fields: [projectId], references: [id])
-  awc     Awc?    @relation(fields: [awcId], references: [id])
   state   State?  @relation(fields: [stateId], references: [id])
 
-  @@unique([userId, projectId, awcId, stateId])
+  @@unique([userId, projectId, stateId])
 }
 
 model ProjectState {

@@ -663,6 +663,12 @@ export class AdminService {
       const role = await this.prisma.role.findUnique({ where: { name: 'OUTREACH' } });
       if (!role) throw new NotFoundException('OUTREACH role not found');
 
+      const numericProjectId = Number(projectId);
+      const managerAssignment = await this.prisma.userProjectLocation.findFirst({
+        where: { userId: request.requestedById, projectId: numericProjectId }
+      });
+      const stateId = managerAssignment?.stateId ?? null;
+
       for (let attempt = 0; attempt < OUTREACH_CODE_MAX_RETRIES; attempt++) {
         try {
           const worker = await this.prisma.$transaction(async (tx) => {
@@ -687,32 +693,14 @@ export class AdminService {
               },
             });
 
-            if (projectId && locationId) {
-              const numericProjectId = Number(projectId);
-              const numericLocationId = Number(locationId);
-              const linked = await tx.project.count({
-                where: {
-                  id: numericProjectId,
-                  awcs: { some: { id: numericLocationId } },
-                },
-              });
-
-              if (linked === 0) {
-                await tx.project.update({
-                  where: { id: numericProjectId },
-                  data: { awcs: { connect: { id: numericLocationId } } },
-                });
-              }
-
+            if (numericProjectId) {
               await tx.userProjectLocation.create({
                 data: {
                   userId: created.id,
                   projectId: numericProjectId,
-                  awcId: numericLocationId,
+                  stateId: stateId
                 },
               });
-            } else if (projectId || locationId) {
-              throw new BadRequestException('For worker assignment, provide both projectId and locationId');
             }
 
             return created;

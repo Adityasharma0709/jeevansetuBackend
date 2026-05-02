@@ -115,7 +115,7 @@ export class ProjectsService {
       where: { userId },
       include: {
         project: true,
-        awc: true,
+        state: true,
       },
       orderBy: { project: { createdAt: 'desc' } },
     });
@@ -144,8 +144,8 @@ export class ProjectsService {
           awcs: [],
         });
       }
-      if (a.awc) {
-        projectMap.get(a.projectId).awcs.push(a.awc);
+      if (a.state) {
+        projectMap.get(a.projectId).awcs.push(a.state);
       }
     }
 

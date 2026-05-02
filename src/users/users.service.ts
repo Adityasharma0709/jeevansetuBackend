@@ -385,7 +385,6 @@ export class UsersService {
       where: {
         userId: dto.userId,
         projectId: dto.projectId,
-        awcId: dto.locationId,
       },
     });
 
@@ -397,7 +396,6 @@ export class UsersService {
       data: {
         userId: dto.userId,
         projectId: dto.projectId,
-        awcId: dto.locationId,
       },
     });
   }
@@ -409,25 +407,24 @@ export class UsersService {
     }
 
     const projectId = Number(dto.projectId);
-    const locationId = Number(dto.locationId);
+    const stateId = Number(dto.stateId);
     const hasProject = Number.isFinite(projectId) && projectId > 0;
-    const hasLocation = Number.isFinite(locationId) && locationId > 0;
+    const hasState = Number.isFinite(stateId) && stateId > 0;
 
-    if (hasProject !== hasLocation) {
-      throw new BadRequestException('Select both project and location');
+    if (hasProject !== hasState) {
+      throw new BadRequestException('Select both project and state');
     }
 
-    if (hasProject && hasLocation) {
+    if (hasProject && hasState) {
       const allowed = await this.prisma.userProjectLocation.findFirst({
         where: {
           userId: adminId,
           projectId,
-          awcId: locationId,
         },
       });
 
       if (!allowed) {
-        throw new ForbiddenException('You are not assigned to this project/location');
+        throw new ForbiddenException('You are not assigned to this project');
       }
 
       const project = await this.prisma.project.findUnique({
@@ -437,12 +434,8 @@ export class UsersService {
       if (!project) throw new NotFoundException('Project not found');
       this.assertIsActive(project.status, 'Project');
 
-      const awc = await this.prisma.awc.findUnique({
-        where: { id: locationId },
-        select: { id: true, status: true },
-      });
-      if (!awc) throw new NotFoundException('AWC not found');
-      this.assertIsActive(awc.status, 'AWC');
+      const state = await this.prisma.state.findUnique({ where: { id: stateId } });
+      if (!state) throw new NotFoundException('State not found');
     }
 
     const email = (dto.email ?? '').trim();
@@ -486,13 +479,16 @@ export class UsersService {
             },
           });
 
-          if (hasProject && hasLocation) {
-            await this.ensureLocationLinkedToProject(projectId, locationId, tx);
+          if (hasProject && hasState) {
+            const linkedState = await tx.projectState.findFirst({ where: { projectId, stateId } });
+            if (!linkedState) {
+              await tx.projectState.create({ data: { projectId, stateId } });
+            }
             await tx.userProjectLocation.create({
               data: {
                 userId: user.id,
                 projectId,
-                awcId: locationId,
+                stateId,
               },
             });
           }
@@ -611,114 +607,63 @@ export class UsersService {
   async assignProjectLocation(dto: AssignProjectDto, loggedUser: any) {
     const targetUserId = Number(dto.userId);
     const projectId = Number(dto.projectId);
-    const locationId = dto.locationId ? Number(dto.locationId) : null;
     const stateId = dto.stateId ? Number(dto.stateId) : null;
-
-    // 1. RBAC Check
-    if (!loggedUser.roles?.includes('SUPER_ADMIN')) {
-      const loggedUserId = loggedUser.userId || loggedUser.id;
-      const isAdmin = loggedUser.roles?.includes('ADMIN');
-
-      const isAssigned = await this.prisma.userProjectLocation.findFirst({
-        where: isAdmin
-          ? {
-              userId: loggedUserId,
-              projectId: projectId,
-            }
-          : {
-              userId: loggedUserId,
-              projectId: projectId,
-              awcId: locationId,
-            },
-      });
-
-      if (!isAssigned) {
-        throw new ForbiddenException(
-          isAdmin
-            ? 'You are not assigned to this project'
-            : 'You are not assigned to this project & location',
-        );
-      }
-
-      if (loggedUser.roles?.includes('MANAGER')) {
-        const targetUser = await this.prisma.user.findUnique({
-          where: { id: targetUserId },
-          include: { roles: { include: { role: true } } },
-        });
-
-        if (!targetUser) throw new NotFoundException('Target user not found');
-
-        const isOutreach = targetUser.roles.some(
-          (ur) => ur.role.name === 'OUTREACH',
-        );
-        if (!isOutreach) {
-          throw new ForbiddenException(
-            'Managers can only assign projects to Outreach workers',
-          );
-        }
-      }
-    }
 
     const targetUser = await this.prisma.user.findUnique({
       where: { id: targetUserId },
       include: { roles: { include: { role: true } } },
     });
 
-    if (!targetUser) {
-      throw new NotFoundException('Target user not found');
-    }
+    if (!targetUser) throw new NotFoundException('Target user not found');
 
     const targetRoleNames = targetUser.roles?.map((r) => r.role.name) ?? [];
-    const isTargetAdmin = targetRoleNames.includes('ADMIN');
+    const isTargetManager = targetRoleNames.includes('MANAGER');
+    const isTargetOutreach = targetRoleNames.includes('OUTREACH');
 
-    if (!isTargetAdmin && !locationId) {
-      throw new BadRequestException('Location (AWC) is required for Managers and Outreach workers');
+    if ((isTargetManager || isTargetOutreach) && !stateId) {
+      throw new BadRequestException('State is required for this user role');
+    }
+
+    // RBAC Check
+    if (!loggedUser.roles?.includes('SUPER_ADMIN')) {
+      const loggedUserId = loggedUser.userId || loggedUser.id;
+      const isManager = loggedUser.roles?.includes('MANAGER');
+
+      const isAssigned = await this.prisma.userProjectLocation.findFirst({
+        where: { userId: loggedUserId, projectId: projectId },
+      });
+
+      if (!isAssigned) throw new ForbiddenException('You are not assigned to this project');
+
+      if (isManager && !isTargetOutreach) {
+        throw new ForbiddenException('Managers can only assign projects to Outreach workers');
+      }
     }
 
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       select: { id: true, status: true },
     });
-    if (!project) {
-      throw new NotFoundException('Project not found');
-    }
+    if (!project) throw new NotFoundException('Project not found');
     this.assertIsActive(project.status, 'Project');
 
-    if (locationId) {
-      const awc = await this.prisma.awc.findUnique({
-        where: { id: locationId },
-        select: { id: true, status: true },
-      });
-      if (!awc) {
-        throw new NotFoundException('AWC not found');
+    if (stateId) {
+      const state = await this.prisma.state.findUnique({ where: { id: stateId } });
+      if (!state) throw new NotFoundException('State not found');
+      const linkedState = await this.prisma.projectState.findFirst({ where: { projectId, stateId } });
+      if (!linkedState) {
+        await this.prisma.projectState.create({ data: { projectId, stateId } });
       }
-      this.assertIsActive(awc.status, 'AWC');
-      await this.ensureLocationLinkedToProject(projectId, locationId);
     }
 
-    // 2. Check duplicate
     const exists = await this.prisma.userProjectLocation.findFirst({
-      where: {
-        userId: targetUserId,
-        projectId: projectId,
-        awcId: locationId,
-      },
+      where: { userId: targetUserId, projectId: projectId, stateId: stateId },
     });
 
-    if (exists) {
-      throw new ConflictException(
-        locationId
-          ? 'User already assigned to this project & location'
-          : 'User already assigned to this project',
-      );
-    }
+    if (exists) throw new ConflictException('User already assigned to this project & state');
 
     return this.prisma.userProjectLocation.create({
-      data: {
-        userId: targetUserId,
-        projectId: projectId,
-        awcId: locationId,
-      },
+      data: { userId: targetUserId, projectId: projectId, stateId: stateId },
     });
   }
 
