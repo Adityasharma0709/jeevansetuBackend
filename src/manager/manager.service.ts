@@ -407,9 +407,9 @@ export class ManagerService {
       });
   }
 
-  async tagWorkerProjectLocation(managerId: number, workerId: number, projectId: number, locationId: number) {
+  async tagWorkerProjectLocation(managerId: number, workerId: number, projectId: number, stateId: number) {
     const managerAssigned = await this.prisma.userProjectLocation.findFirst({
-      where: { userId: managerId, projectId, stateId: locationId },
+      where: { userId: managerId, projectId, stateId },
       select: { id: true },
     });
     if (!managerAssigned) throw new ForbiddenException('You are not assigned to this project/location');
@@ -425,24 +425,13 @@ export class ManagerService {
     if (!worker) throw new NotFoundException('Worker not found');
 
     const already = await this.prisma.userProjectLocation.findFirst({
-      where: { userId: workerId, projectId, stateId: locationId },
+      where: { userId: workerId, projectId, stateId },
       select: { id: true },
     });
     if (already) return { message: 'Already tagged' };
 
-    const linked = await this.prisma.project.count({
-      where: { id: projectId, awcs: { some: { id: locationId } } },
-    });
-
-    if (linked === 0) {
-      await this.prisma.project.update({
-        where: { id: projectId },
-        data: { awcs: { connect: { id: locationId } } },
-      });
-    }
-
     await this.prisma.userProjectLocation.create({
-      data: { userId: workerId, projectId, stateId: locationId }
+      data: { userId: workerId, projectId, stateId }
     });
 
     return { message: 'Tagged successfully' };
