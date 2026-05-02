@@ -27,6 +27,16 @@ export class LocationsController {
     return this.locationsService.getDistricts(+stateId);
   }
 
+  @Get('blocks/:districtId')
+  getBlocks(@Param('districtId') districtId: string) {
+    return this.locationsService.getBlocks(+districtId);
+  }
+
+  @Get('villages/:blockId')
+  getVillages(@Param('blockId') blockId: string) {
+    return this.locationsService.getVillages(+blockId);
+  }
+
   @Get('project/:projectId/states')
   getProjectStates(@Param('projectId', ParseIntPipe) projectId: number) {
     return this.locationsService.getProjectStates(projectId);

@@ -33,8 +33,45 @@ export class LocationsService {
       ...awc,
       stateName: awc.state?.name,
       districtName: awc.district?.name,
+      block: awc.block?.name,
+      village: awc.village?.name,
     };
   }
+
+  private async resolveBlockAndVillageIds(
+    tx: Prisma.TransactionClient,
+    districtId?: number,
+    blockName?: string,
+    villageName?: string,
+  ) {
+    let blockId: number | undefined = undefined;
+    let villageId: number | undefined = undefined;
+
+    if (blockName && districtId) {
+      const name = blockName.trim();
+      let block = await tx.block.findFirst({
+        where: { name: { equals: name, mode: 'insensitive' }, districtId },
+      });
+      if (!block) {
+        block = await tx.block.create({ data: { name, districtId } });
+      }
+      blockId = block.id;
+    }
+
+    if (villageName && blockId) {
+      const name = villageName.trim();
+      let village = await tx.village.findFirst({
+        where: { name: { equals: name, mode: 'insensitive' }, blockId },
+      });
+      if (!village) {
+        village = await tx.village.create({ data: { name, blockId } });
+      }
+      villageId = village.id;
+    }
+
+    return { blockId, villageId };
+  }
+
 
   private async generateNextLocationCode(
     tx: Prisma.TransactionClient,
@@ -65,69 +102,82 @@ export class LocationsService {
     const providedCode = dto.locationCode?.trim();
     const normalizedCode = providedCode ? providedCode.toUpperCase() : undefined;
 
-    if (normalizedCode) {
-      const existing = await this.prisma.awc.findFirst({
-        where: { locationCode: normalizedCode },
-        select: { id: true },
-      });
-      if (existing) {
-        throw new ConflictException('AWC code already exists');
+    return this.prisma.$transaction(async (tx) => {
+      const { blockId, villageId } = await this.resolveBlockAndVillageIds(
+        tx,
+        dto.districtId,
+        dto.block,
+        dto.village,
+      );
+
+      const { block, village, ...restDto } = dto;
+      const awcData = { ...restDto, blockId, villageId };
+
+      if (normalizedCode) {
+        const existing = await tx.awc.findFirst({
+          where: { locationCode: normalizedCode },
+          select: { id: true },
+        });
+        if (existing) {
+          throw new ConflictException('AWC code already exists');
+        }
+
+        return this.toAwcResponse(
+          await tx.awc.create({
+            data: {
+              ...awcData,
+              locationCode: normalizedCode,
+            },
+            include: { 
+              project: { select: { id: true, name: true } },
+              state: { select: { name: true } },
+              district: { select: { name: true } },
+              block: { select: { name: true } },
+              village: { select: { name: true } }
+            },
+          }),
+        );
       }
 
-      return this.toAwcResponse(
-        await this.prisma.awc.create({
-          data: {
-            ...dto,
-            locationCode: normalizedCode,
-          },
-          include: { 
-            project: { select: { id: true, name: true } },
-            state: { select: { name: true } },
-            district: { select: { name: true } }
-          },
-        }),
-      );
-    }
-
-    for (let attempt = 0; attempt < LOCATION_CODE_MAX_RETRIES; attempt++) {
-      try {
-        return this.toAwcResponse(
-          await this.prisma.$transaction(async (tx) => {
-            const locationCode = await this.generateNextLocationCode(tx);
-            return tx.awc.create({
+      for (let attempt = 0; attempt < LOCATION_CODE_MAX_RETRIES; attempt++) {
+        try {
+          const locationCode = await this.generateNextLocationCode(tx);
+          return this.toAwcResponse(
+            await tx.awc.create({
               data: {
-                ...dto,
+                ...awcData,
                 locationCode,
               },
               include: { 
                 project: { select: { id: true, name: true } },
                 state: { select: { name: true } },
-                district: { select: { name: true } }
+                district: { select: { name: true } },
+                block: { select: { name: true } },
+                village: { select: { name: true } }
               },
-            });
-          }),
-        );
-      } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError) {
-          if (error.code === 'P2002') {
-            const target = error.meta?.target;
-            const isLocationCodeConflict = Array.isArray(target)
-              ? target.includes('locationCode')
-              : typeof target === 'string'
+            }),
+          );
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError) {
+            if (error.code === 'P2002') {
+              const target = error.meta?.target;
+              const isLocationCodeConflict = Array.isArray(target)
                 ? target.includes('locationCode')
-                : false;
+                : typeof target === 'string'
+                  ? target.includes('locationCode')
+                  : false;
 
-            if (isLocationCodeConflict) {
-              continue;
+              if (isLocationCodeConflict) {
+                continue;
+              }
             }
           }
+          this.handleAwcPrismaError(error);
         }
-
-        this.handleAwcPrismaError(error);
       }
-    }
 
-    throw new ConflictException('Could not generate a unique AWC code');
+      throw new ConflictException('Could not generate a unique AWC code');
+    });
   }
 
   async findAll(projectId?: number) {
@@ -136,7 +186,9 @@ export class LocationsService {
       include: { 
         project: { select: { id: true, name: true } },
         state: { select: { name: true } },
-        district: { select: { name: true } }
+        district: { select: { name: true } },
+        block: { select: { name: true } },
+        village: { select: { name: true } }
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -149,7 +201,9 @@ export class LocationsService {
       include: { 
         project: { select: { id: true, name: true } },
         state: { select: { name: true } },
-        district: { select: { name: true } }
+        district: { select: { name: true } },
+        block: { select: { name: true } },
+        village: { select: { name: true } }
       },
     });
     return this.toAwcResponse(row);
@@ -162,7 +216,7 @@ export class LocationsService {
 
     const awc = await this.prisma.awc.findUnique({
       where: { id },
-      select: { id: true, status: true },
+      select: { id: true, status: true, districtId: true },
     });
     if (!awc) throw new NotFoundException('AWC not found');
 
@@ -180,20 +234,39 @@ export class LocationsService {
       }
     }
 
-    return this.toAwcResponse(
-      await this.prisma.awc.update({
-        where: { id },
-        data: {
-          ...dto,
-          locationCode: normalizedCode ? normalizedCode : undefined,
-        },
-        include: { 
-          project: { select: { id: true, name: true } },
-          state: { select: { name: true } },
-          district: { select: { name: true } }
-        },
-      }),
-    );
+    return this.prisma.$transaction(async (tx) => {
+      const districtId = dto.districtId !== undefined ? dto.districtId : awc.districtId;
+      const { blockId, villageId } = await this.resolveBlockAndVillageIds(
+        tx,
+        districtId || undefined,
+        dto.block,
+        dto.village,
+      );
+
+      const { block, village, ...restDto } = dto;
+      
+      const updateData: any = {
+        ...restDto,
+        locationCode: normalizedCode ? normalizedCode : undefined,
+      };
+
+      if (dto.block !== undefined) updateData.blockId = blockId;
+      if (dto.village !== undefined) updateData.villageId = villageId;
+
+      return this.toAwcResponse(
+        await tx.awc.update({
+          where: { id },
+          data: updateData,
+          include: { 
+            project: { select: { id: true, name: true } },
+            state: { select: { name: true } },
+            district: { select: { name: true } },
+            block: { select: { name: true } },
+            village: { select: { name: true } }
+          },
+        }),
+      );
+    });
   }
 
   async updateStatus(id: number, status: string) {
@@ -271,6 +344,21 @@ export class LocationsService {
   async getDistricts(stateId: number) {
     return this.prisma.district.findMany({
       where: { stateId },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  
+  async getBlocks(districtId: number) {
+    return this.prisma.block.findMany({
+      where: { districtId },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async getVillages(blockId: number) {
+    return this.prisma.village.findMany({
+      where: { blockId },
       orderBy: { name: 'asc' },
     });
   }
