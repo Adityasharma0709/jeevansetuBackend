@@ -10,4 +10,8 @@ export class AssignProjectDto {
   @IsOptional()
   @IsInt()
   locationId?: number;
+
+  @IsOptional()
+  @IsInt()
+  stateId?: number;
 }

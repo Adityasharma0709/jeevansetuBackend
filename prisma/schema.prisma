@@ -20,6 +20,7 @@ model State {
   districts District[]
   awcs      Awc[]
   projectStates ProjectState[]
+  userProjectLocations UserProjectLocation[]
 }
 
 model District {
@@ -159,12 +160,14 @@ model UserProjectLocation {
   userId    Int
   projectId Int
   awcId     Int?
+  stateId   Int?
 
   user    User    @relation(fields: [userId], references: [id])
   project Project @relation(fields: [projectId], references: [id])
   awc     Awc?    @relation(fields: [awcId], references: [id])
+  state   State?  @relation(fields: [stateId], references: [id])
 
-  @@unique([userId, projectId, awcId])
+  @@unique([userId, projectId, awcId, stateId])
 }
 
 model ProjectState {
