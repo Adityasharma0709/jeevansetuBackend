@@ -363,6 +363,17 @@ export class LocationsService {
     });
   }
 
+  async getVillagesByBlockName(districtId: number, blockName: string) {
+    const block = await this.prisma.block.findFirst({
+      where: { districtId, name: { equals: blockName.trim(), mode: 'insensitive' } }
+    });
+    if (!block) return [];
+    return this.prisma.village.findMany({
+      where: { blockId: block.id },
+      orderBy: { name: 'asc' }
+    });
+  }
+
   private handleAwcPrismaError(error: unknown): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2025') {
