@@ -48,7 +48,7 @@ export class LocationsService {
     let villageId: number | undefined = undefined;
 
     if (blockName && districtId) {
-      const name = blockName.trim();
+      const name = blockName.trim().toUpperCase();
       let block = await tx.block.findFirst({
         where: { name: { equals: name, mode: 'insensitive' }, districtId },
       });
@@ -59,7 +59,7 @@ export class LocationsService {
     }
 
     if (villageName && blockId) {
-      const name = villageName.trim();
+      const name = villageName.trim().toUpperCase();
       let village = await tx.village.findFirst({
         where: { name: { equals: name, mode: 'insensitive' }, blockId },
       });
