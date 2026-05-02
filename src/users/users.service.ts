@@ -613,7 +613,6 @@ export class UsersService {
     const projectId = Number(dto.projectId);
     const locationId = dto.locationId ? Number(dto.locationId) : null;
     const stateId = dto.stateId ? Number(dto.stateId) : null;
-    const stateId = dto.stateId ? Number(dto.stateId) : null;
 
     // 1. RBAC Check
     if (!loggedUser.roles?.includes('SUPER_ADMIN')) {
