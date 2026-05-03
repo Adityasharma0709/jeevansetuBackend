@@ -594,13 +594,14 @@ export class OutreachService {
   }
 
   async getAssignedLocations(projectId: number, userId: number) {
-    // 1. Get states assigned to the user for this project
+    // 1. Get assignments to find which states are assigned to the user
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId, projectId },
-      select: { stateId: true }
+      include: { state: true }
     });
 
-    const assignedStateIds = assignments.map(a => a.stateId).filter((id): id is number => id !== null);
+    const assignedStates = assignments.map(a => a.state).filter((s): s is any => s !== null);
+    const assignedStateIds = assignedStates.map(s => s.id);
 
     const where: any = {
       projectId,
@@ -608,14 +609,12 @@ export class OutreachService {
     };
 
     // If specific states are assigned, filter by them.
-    // If the user is assigned to the project but no specific stateId is present in any assignment, 
-    // it means they have access to the entire project's locations.
     if (assignedStateIds.length > 0) {
       where.stateId = { in: assignedStateIds };
     }
 
     // 2. Fetch all AWCs in the project (filtered by states if necessary), including full hierarchy
-    return this.prisma.awc.findMany({
+    const awcs = await this.prisma.awc.findMany({
       where,
       include: {
         state: true,
@@ -631,6 +630,11 @@ export class OutreachService {
         { awcName: 'asc' }
       ]
     });
+
+    return {
+      states: assignedStates,
+      awcs: awcs
+    };
   }
 
   // ── Family Members ─────────────────────────────────────────────────────────
