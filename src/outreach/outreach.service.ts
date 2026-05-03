@@ -359,15 +359,22 @@ export class OutreachService {
     const existingData = (report.reportData as any) || {};
     const newData = dto.reportData || {};
 
+    const dataToUpdate: any = {
+      reportData: {
+        ...existingData,
+        ...newData,
+      }
+    };
+
+    if (dto.sessionDate) dataToUpdate.date = new Date(dto.sessionDate);
+    if (dto.activityId) dataToUpdate.activityId = dto.activityId;
+    if (dto.sessionId) dataToUpdate.sessionId = dto.sessionId;
+    if (dto.beneficiaryId) dataToUpdate.beneficiaryId = dto.beneficiaryId;
+    if (dto.childId !== undefined) dataToUpdate.childId = dto.childId || null;
+
     return this.prisma.activityReport.update({
       where: { id },
-      data: {
-        reportData: {
-          ...existingData,
-          ...newData,
-          sessionDate: dto.sessionDate || existingData.sessionDate
-        }
-      }
+      data: dataToUpdate
     });
   }
 
