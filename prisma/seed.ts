@@ -62,6 +62,39 @@ async function main() {
   });
 
   console.log("✅ SUPER_ADMIN role assigned");
+
+  /* ================= STATES & DISTRICTS ================= */
+  const fs = require('fs');
+  const path = require('path');
+  const geoPath = path.join(__dirname, '../../india_states_districts.json');
+
+  if (fs.existsSync(geoPath)) {
+    console.log("📍 Seeding States and Districts...");
+    const geoData = JSON.parse(fs.readFileSync(geoPath, 'utf8'));
+
+    for (const stateData of geoData) {
+      const state = await prisma.state.upsert({
+        where: { id: stateData.id },
+        update: { name: stateData.name },
+        create: {
+          id: stateData.id,
+          name: stateData.name,
+        },
+      });
+
+      for (const districtName of stateData.districts) {
+        await prisma.district.create({
+          data: {
+            name: districtName,
+            stateId: state.id,
+          },
+        });
+      }
+    }
+    console.log(`✅ ${geoData.length} States seeded with districts`);
+  } else {
+    console.log("⚠️ geo-data.json not found, skipping states seeding");
+  }
 }
 
 main()

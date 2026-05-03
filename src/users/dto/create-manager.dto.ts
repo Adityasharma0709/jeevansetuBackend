@@ -29,4 +29,8 @@ export class CreateManagerDto {
   @IsOptional()
   @IsInt()
   locationId?: number;
+
+  @IsOptional()
+  @IsInt()
+  stateId?: number;
 }

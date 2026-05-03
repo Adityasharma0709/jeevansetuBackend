@@ -58,7 +58,7 @@ export class ManagerService {
     };
 
     // Safely assign all valid properties
-    ['projectId', 'locationId', 'womanAgeAtMarriage', 'husbandAgeAtMarriage', 'monthlyIncome'].forEach(assignNumber);
+    ['projectId', 'awcId', 'womanAgeAtMarriage', 'husbandAgeAtMarriage', 'monthlyIncome'].forEach(assignNumber);
     ['mobileNumber', 'name', 'gender', 'guardianName', 'maritalStatus', 'dateOfMarriage', 'qualification', 'religion', 'caste', 'economicStatus', 'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'].forEach(assignString);
     assignDate('dateOfBirth');
 
@@ -125,10 +125,10 @@ export class ManagerService {
 
   async createWorker(dto: CreateWorkerDto, managerId: number) {
     const assigned = await this.prisma.userProjectLocation.findFirst({
-      where: { userId: managerId, projectId: dto.projectId, locationId: dto.locationId }
+      where: { userId: managerId, projectId: dto.projectId }
     });
 
-    if (!assigned) throw new ForbiddenException('You are not assigned to this project/location');
+    if (!assigned) throw new ForbiddenException('You are not assigned to this project');
 
     const exists = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (exists) throw new ConflictException('Email already exists');
@@ -158,19 +158,12 @@ export class ManagerService {
             data: { userId: user.id, roleId: role.id }
           });
 
-          const linked = await tx.project.count({
-            where: { id: dto.projectId, locations: { some: { id: dto.locationId } } },
-          });
-
-          if (linked === 0) {
-            await tx.project.update({
-              where: { id: dto.projectId },
-              data: { locations: { connect: { id: dto.locationId } } },
-            });
-          }
-
           await tx.userProjectLocation.create({
-            data: { userId: user.id, projectId: dto.projectId, locationId: dto.locationId }
+            data: { 
+              userId: user.id, 
+              projectId: dto.projectId, 
+              stateId: assigned?.stateId ?? null 
+            }
           });
 
           return user;
@@ -194,7 +187,7 @@ export class ManagerService {
   async updateWorker(id: number, dto: UpdateWorkerDto, managerId: number) {
     if (dto.projectId && dto.locationId) {
       const assigned = await this.prisma.userProjectLocation.findFirst({
-        where: { userId: managerId, projectId: dto.projectId, locationId: dto.locationId }
+        where: { userId: managerId, projectId: dto.projectId }
       });
       if (!assigned) throw new ForbiddenException('Not assigned area');
     }
@@ -387,9 +380,9 @@ export class ManagerService {
         id: true, name: true, email: true, mobileNumber: true, usercode: true, status: true,
         projectAssignments: {
           select: {
-            projectId: true, locationId: true,
+            projectId: true, stateId: true,
             project: { select: { id: true, name: true } },
-            location: { select: { id: true, locationCode: true, state: true, district: true, block: true, village: true, status: true } },
+            state: { select: { id: true, name: true, locationCode: true } },
           }
         }
       },
@@ -400,24 +393,23 @@ export class ManagerService {
   async getAssignedLocations(managerId: number, projectId: number) {
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId: managerId, projectId },
-      select: { location: { select: { id: true, locationCode: true, state: true, district: true, block: true, village: true, status: true } } },
+      select: { state: { select: { id: true, name: true, locationCode: true } } },
     });
 
     const seen = new Set<number>();
     return (assignments || [])
-      .map(a => a.location)
-      .filter(Boolean)
-      .filter(l => l.status?.toUpperCase() === 'ACTIVE')
-      .filter(l => {
-        if (seen.has(l.id)) return false;
-        seen.add(l.id);
+      .map(a => a.state)
+      .filter((s): s is NonNullable<typeof s> => s !== null)
+      .filter(s => {
+        if (seen.has(s.id)) return false;
+        seen.add(s.id);
         return true;
       });
   }
 
-  async tagWorkerProjectLocation(managerId: number, workerId: number, projectId: number, locationId: number) {
+  async tagWorkerProjectLocation(managerId: number, workerId: number, projectId: number, stateId: number) {
     const managerAssigned = await this.prisma.userProjectLocation.findFirst({
-      where: { userId: managerId, projectId, locationId },
+      where: { userId: managerId, projectId, stateId },
       select: { id: true },
     });
     if (!managerAssigned) throw new ForbiddenException('You are not assigned to this project/location');
@@ -433,24 +425,13 @@ export class ManagerService {
     if (!worker) throw new NotFoundException('Worker not found');
 
     const already = await this.prisma.userProjectLocation.findFirst({
-      where: { userId: workerId, projectId, locationId },
+      where: { userId: workerId, projectId, stateId },
       select: { id: true },
     });
     if (already) return { message: 'Already tagged' };
 
-    const linked = await this.prisma.project.count({
-      where: { id: projectId, locations: { some: { id: locationId } } },
-    });
-
-    if (linked === 0) {
-      await this.prisma.project.update({
-        where: { id: projectId },
-        data: { locations: { connect: { id: locationId } } },
-      });
-    }
-
     await this.prisma.userProjectLocation.create({
-      data: { userId: workerId, projectId, locationId }
+      data: { userId: workerId, projectId, stateId }
     });
 
     return { message: 'Tagged successfully' };
@@ -472,21 +453,18 @@ export class ManagerService {
   async getBeneficiaries(managerId: number) {
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId: managerId },
-      select: { projectId: true, locationId: true }
+      select: { projectId: true, stateId: true }
     });
 
     if (assignments.length === 0) return [];
 
-    const orConditions = assignments.map(a => ({
-      projectId: a.projectId,
-      locationId: a.locationId
-    }));
+    const projectIds = [...new Set(assignments.map(a => a.projectId))];
 
     return this.prisma.beneficiary.findMany({
-      where: { OR: orConditions },
+      where: { projectId: { in: projectIds } },
       include: {
         project: true,
-        location: true,
+        awc: true,
         createdBy: { select: { name: true, email: true, mobileNumber: true } }
       },
       orderBy: { createdAt: 'desc' }

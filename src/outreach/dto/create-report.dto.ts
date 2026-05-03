@@ -1,8 +1,12 @@
-import { IsInt, IsNotEmpty } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional } from 'class-validator';
 
 export class CreateReportDto {
   @IsInt()
   beneficiaryId: number;
+
+  @IsInt()
+  @IsOptional()
+  childId?: number;
 
   @IsInt()
   activityId: number;

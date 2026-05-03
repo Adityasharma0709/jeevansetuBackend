@@ -92,7 +92,7 @@ export class ManagerController {
       Number(req.user.userId),
       id,
       body?.projectId,
-      body?.locationId
+      body?.stateId || body?.locationId
     );
   }
 

@@ -26,6 +26,11 @@ export class CreateWorkerDto {
   @IsInt()
   projectId: number;
 
+  @IsOptional()
   @IsInt()
-  locationId: number;
+  locationId?: number;
+
+  @IsOptional()
+  @IsInt()
+  stateId?: number;
 }

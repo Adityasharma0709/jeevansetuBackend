@@ -11,6 +11,7 @@ import { CreateReportDto } from './dto/create-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
 import { RequestBeneficiaryUpdateDto } from './dto/request-beneficiary-update.dto';
+import { AddFamilyMemberDto } from './dto/add-family-member.dto';
 
 @Injectable()
 export class OutreachService {
@@ -22,12 +23,12 @@ export class OutreachService {
     }
   }
 
-  private async ensureOutreachAssignedToBeneficiary(userId: number, beneficiary: { projectId: number; locationId: number }) {
+  private async ensureOutreachAssignedToBeneficiary(userId: number, beneficiary: { projectId: number; awcId: number }) {
     const assigned = await this.prisma.userProjectLocation.findFirst({
       where: {
         userId,
         projectId: beneficiary.projectId,
-        locationId: beneficiary.locationId,
+
       },
       select: { id: true },
     });
@@ -37,23 +38,30 @@ export class OutreachService {
     }
   }
   async createBeneficiary(dto: CreateBeneficiaryDto, user: any) {
+    // 1. Get AWC and check its state
+    const awc = await this.prisma.awc.findUnique({
+      where: { id: dto.locationId },
+      select: { id: true, stateId: true, status: true },
+    });
+    if (!awc) throw new NotFoundException('AWC not found');
+    this.assertIsActive(awc.status, 'AWC');
 
-    // 1. Check outreach assignment
+    // 2. Check outreach assignment for this project and state
     const assigned = await this.prisma.userProjectLocation.findFirst({
       where: {
         userId: user.userId,
         projectId: dto.projectId,
-        locationId: dto.locationId
+        stateId: awc.stateId
       }
     });
 
     if (!assigned) {
       throw new ForbiddenException(
-        'You are not assigned to this project/location'
+        'You are not assigned to this project or the state of this location'
       );
     }
 
-    // 2. Get project code
+    // 3. Get project code   
     const project = await this.prisma.project.findUnique({
       where: { id: dto.projectId },
       select: { id: true, projectCode: true, status: true },
@@ -64,14 +72,7 @@ export class OutreachService {
     }
     this.assertIsActive(project.status, 'Project');
 
-    const location = await this.prisma.location.findUnique({
-      where: { id: dto.locationId },
-      select: { id: true, status: true },
-    });
-    if (!location) throw new NotFoundException('Location not found');
-    this.assertIsActive(location.status, 'Location');
-
-    // 3. Count existing beneficiaries in project
+    // 4. Count existing beneficiaries in project
     const count = await this.prisma.beneficiary.count({
       where: { projectId: dto.projectId }
     });
@@ -87,7 +88,7 @@ export class OutreachService {
       data: {
         uid,
         projectId: dto.projectId,
-        locationId: dto.locationId,
+        awcId: dto.locationId,
         state: dto.state,
         district: dto.district,
         block: dto.block,
@@ -262,25 +263,41 @@ export class OutreachService {
 
     const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
     if (!session) throw new NotFoundException('Session not found');
-    if (session.activityId !== dto.activityId) {
-      throw new BadRequestException('Session does not belong to the selected activity');
-    }
 
-    const exists = await this.prisma.activityReport.findFirst({
-      where: { beneficiaryId: dto.beneficiaryId, activityId: dto.activityId, sessionId }
+    const reportDate = dto.sessionDate ? new Date(dto.sessionDate) : new Date();
+
+    // Check for duplicate report on the same date
+    const startOfDay = new Date(reportDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(reportDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const existingReport = await this.prisma.activityReport.findFirst({
+      where: {
+        beneficiaryId: dto.beneficiaryId,
+        childId: dto.childId || null,
+        activityId: dto.activityId,
+        sessionId,
+        date: {
+          gte: startOfDay,
+          lte: endOfDay,
+        }
+      }
     });
-    if (exists) throw new ConflictException('Report already submitted');
+
+    if (existingReport) {
+      throw new ConflictException('A report for this activity and session has already been submitted for this beneficiary on this date.');
+    }
 
     return this.prisma.activityReport.create({
       data: {
         beneficiaryId: dto.beneficiaryId,
+        childId: dto.childId || null,
         activityId: dto.activityId,
         sessionId,
         reportedById: user.userId,
-        reportData: {
-          ...dto.reportData,
-          sessionDate: dto.sessionDate
-        }
+        date: reportDate,
+        reportData: dto.reportData
       }
     });
   }
@@ -290,6 +307,7 @@ export class OutreachService {
       where: { id },
       include: {
         beneficiary: true,
+        child: true,
         activity: true,
         session: true
       }
@@ -365,6 +383,7 @@ export class OutreachService {
       where: { reportedById: userId },
       include: {
         beneficiary: { select: { name: true, uid: true, mobileNumber: true } },
+        child: { select: { name: true, uid: true } },
         activity: { select: { name: true } },
         session: { select: { name: true } }
       },
@@ -375,10 +394,10 @@ export class OutreachService {
   async getDebugInfo() {
     const users = await this.prisma.user.findMany();
     const projects = await this.prisma.project.findMany();
-    const locations = await this.prisma.location.findMany();
+    const awcs = await this.prisma.awc.findMany();
     const assignments = await this.prisma.userProjectLocation.findMany();
 
-    return { users, projects, locations, assignments };
+    return { users, projects, awcs, assignments };
   }
   async getBeneficiaryList(user: any, search?: string) {
     const roles = user.roles?.map(r => r.role?.name || r.name) || [];
@@ -409,6 +428,8 @@ export class OutreachService {
         { name: { contains: search, mode: 'insensitive' } },
         { uid: { contains: search, mode: 'insensitive' } },
         { mobileNumber: { contains: search, mode: 'insensitive' } },
+        { children: { some: { name: { contains: search, mode: 'insensitive' } } } },
+        { children: { some: { uid: { contains: search, mode: 'insensitive' } } } },
       ];
     }
 
@@ -416,7 +437,8 @@ export class OutreachService {
       where,
       include: {
         project: true,
-        location: true,
+        awc: true,
+        children: true,
         createdBy: {
           select: { name: true, email: true }
         }
@@ -432,7 +454,7 @@ export class OutreachService {
 
     const beneficiary = await this.prisma.beneficiary.findUnique({
       where: { id: Number(beneficiaryId) },
-      select: { id: true, projectId: true, locationId: true },
+      select: { id: true, projectId: true, awcId: true },
     });
     if (!beneficiary) throw new NotFoundException('Beneficiary not found');
 
@@ -465,7 +487,7 @@ export class OutreachService {
 
     const beneficiary = await this.prisma.beneficiary.findUnique({
       where: { id: Number(beneficiaryId) },
-      select: { id: true, projectId: true, locationId: true },
+      select: { id: true, projectId: true, awcId: true },
     });
     if (!beneficiary) throw new NotFoundException('Beneficiary not found');
 
@@ -539,25 +561,19 @@ export class OutreachService {
     });
   }
 
-  async getSessions(activityId: number, beneficiaryId?: number) {
-    const sessions = await this.prisma.session.findMany({
+  async getSessions(activityId: number) {
+    return this.prisma.session.findMany({
       where: { activityId, status: 'ACTIVE' },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    if (beneficiaryId) {
-      const alreadyReported = await this.prisma.activityReport.findMany({
-        where: {
-          beneficiaryId,
-          activityId
+      include: {
+        creator: {
+          select: { id: true, name: true, email: true },
         },
-        select: { sessionId: true }
-      });
-      const reportedIds = new Set(alreadyReported.map(r => r.sessionId));
-      return sessions.filter(s => !reportedIds.has(s.id));
-    }
-
-    return sessions;
+        activity: {
+          select: { id: true, name: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async getBeneficiary(id: number) {
@@ -565,7 +581,7 @@ export class OutreachService {
       where: { id },
       include: {
         project: true,
-        location: true,
+        awc: true,
         children: true,
         groups: { include: { group: true } },
         activities: { include: { activity: true, session: true } }
@@ -578,18 +594,138 @@ export class OutreachService {
   }
 
   async getAssignedLocations(projectId: number, userId: number) {
+    // 1. Get assignments to find which states are assigned to the user
     const assignments = await this.prisma.userProjectLocation.findMany({
-      where: {
-        userId,
-        projectId
-      },
-      include: {
-        location: true
-      }
+      where: { userId, projectId },
+      include: { state: true }
     });
 
-    // Extract and return just the locations
-    return assignments.map(a => a.location);
+    const assignedStateIds = assignments.map(a => a.stateId).filter((id): id is number => id !== null);
+    const hasFullProjectAccess = assignments.some(a => a.stateId === null);
+
+    let finalAssignedStates: any[] = [];
+    if (hasFullProjectAccess || assignments.length === 0) {
+      // If user has full access or no specific state restriction, get all states assigned to this project
+      const projectStates = await this.prisma.projectState.findMany({
+        where: { projectId },
+        include: { state: true }
+      });
+      finalAssignedStates = projectStates.map(ps => ps.state);
+    } else {
+      finalAssignedStates = assignments.map(a => a.state).filter(Boolean);
+    }
+
+    const finalAssignedStateIds = finalAssignedStates.map(s => s.id);
+
+    const where: any = {
+      projectId,
+      status: 'ACTIVE'
+    };
+
+    // If specific states are assigned, filter by them.
+    if (finalAssignedStateIds.length > 0) {
+      where.stateId = { in: finalAssignedStateIds };
+    }
+
+    // 2. Fetch all AWCs in the project (filtered by states if necessary), including full hierarchy
+    const awcs = await this.prisma.awc.findMany({
+      where,
+      include: {
+        state: true,
+        district: true,
+        block: true,
+        village: true
+      },
+      orderBy: [
+        { state: { name: 'asc' } },
+        { district: { name: 'asc' } },
+        { block: { name: 'asc' } },
+        { village: { name: 'asc' } },
+        { awcName: 'asc' }
+      ]
+    });
+
+    return {
+      states: finalAssignedStates,
+      awcs: awcs
+    };
+  }
+
+  // ── Family Members ─────────────────────────────────────────────────────────
+
+  async addFamilyMember(beneficiaryId: number, dto: AddFamilyMemberDto, user: any) {
+    const userId = Number(user?.userId);
+    if (!Number.isFinite(userId)) throw new BadRequestException('Invalid user');
+
+    // 1. Verify beneficiary exists
+    const beneficiary = await this.prisma.beneficiary.findUnique({
+      where: { id: beneficiaryId },
+      select: { id: true, uid: true, projectId: true, awcId: true },
+    });
+    if (!beneficiary) throw new NotFoundException('Beneficiary not found');
+
+    // 2. Verify outreach user is assigned to this beneficiary
+    await this.ensureOutreachAssignedToBeneficiary(userId, beneficiary);
+
+    // 3. Age-based field validation
+    const dob = new Date(dto.dateOfBirth);
+    const today = new Date();
+    let ageYears = today.getFullYear() - dob.getFullYear();
+    const m = today.getMonth() - dob.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+      ageYears--;
+    }
+
+    if (ageYears <= 14) {
+      if (!dto.schoolingStatus) {
+        throw new BadRequestException(`schoolingStatus is required for children (Age: ${ageYears})`);
+      }
+    } else {
+      if (!dto.employmentStatus) {
+        throw new BadRequestException(`employmentStatus is required for family members (Age: ${ageYears})`);
+      }
+    }
+
+    if (ageYears > 6) {
+      if (!dto.qualification) {
+        throw new BadRequestException(`qualification is required for family members (Age: ${ageYears})`);
+      }
+    }
+
+    // 4. Generate family member UID: <beneficiaryUid>+f<NN>
+    const existingCount = await this.prisma.beneficiaryChild.count({
+      where: { beneficiaryId },
+    });
+    const suffix = String(existingCount + 1).padStart(2, '0');
+    const memberUid = `${beneficiary.uid}F${suffix}`;
+
+    // 5. Create family member record
+    return this.prisma.beneficiaryChild.create({
+      data: {
+        uid: memberUid,
+        beneficiaryId,
+        name: dto.name,
+        relationship: dto.relationship,
+        dateOfBirth: new Date(dto.dateOfBirth),
+        gender: dto.gender,
+        schoolingStatus: (ageYears <= 14 ? (dto.schoolingStatus ?? null) : null) as any,
+        employmentStatus: (ageYears > 14 ? (dto.employmentStatus ?? null) : null) as any,
+        qualification: (ageYears > 6 ? (dto.qualification ?? null) : null) as any,
+      },
+    });
+  }
+
+  async getFamilyMembers(beneficiaryId: number) {
+    const beneficiary = await this.prisma.beneficiary.findUnique({
+      where: { id: beneficiaryId },
+      select: { id: true },
+    });
+    if (!beneficiary) throw new NotFoundException('Beneficiary not found');
+
+    return this.prisma.beneficiaryChild.findMany({
+      where: { beneficiaryId },
+      orderBy: { id: 'asc' },
+    });
   }
 }
 

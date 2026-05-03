@@ -1,37 +1,24 @@
-import { Transform } from 'class-transformer';
-import {
-  IsArray,
-  IsInt,
-  IsOptional,
-  IsString,
-  Matches,
-  ArrayUnique,
-} from 'class-validator';
+import { IsInt, IsOptional, IsString, IsIn } from 'class-validator';
 
 export class CreateLocationDto {
+  @IsInt()
+  projectId: number;
+
+  @IsOptional()
+  @IsString()
+  locationCode: string;
+
+  @IsOptional()
+  @IsString()
+  awcName?: string;
+
+  @IsInt()
+  stateId: number;
+
   @IsOptional()
   @IsInt()
-  projectId?: number;
+  districtId?: number;
 
-  @IsOptional()
-  @IsArray()
-  @ArrayUnique()
-  @IsInt({ each: true })
-  projectIds?: number[];
-
-  @IsOptional()
-  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? undefined : value))
-  @Matches(/^LC[0-9]{2,}$/i, {
-    message: 'Location code must be like LC01 (minimum length 4)',
-  })
-  locationCode?: string;
-
-  @IsString()
-  state: string;
-
-  @IsOptional()
-  @IsString()
-  district?: string;
   @IsOptional()
   @IsString()
   block?: string;

@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
@@ -42,14 +43,14 @@ export class UsersService {
     tx: Prisma.TransactionClient = this.prisma,
   ) {
     const linked = await tx.project.count({
-      where: { id: projectId, locations: { some: { id: locationId } } },
+      where: { id: projectId, awcs: { some: { id: locationId } } },
     });
 
     if (linked > 0) return;
 
     await tx.project.update({
       where: { id: projectId },
-      data: { locations: { connect: { id: locationId } } },
+      data: { awcs: { connect: { id: locationId } } },
     });
   }
 
@@ -241,8 +242,6 @@ export class UsersService {
     });
   }
 
-
-
   async removeAdminFromProject(id: number, projectId: number) {
     const admin = await this.getAdminById(id);
     if (!admin) {
@@ -374,10 +373,10 @@ export class UsersService {
     if (!project) throw new NotFoundException('Project not found');
 
     // check location exists
-    const location = await this.prisma.location.findUnique({
+    const awc = await this.prisma.awc.findUnique({
       where: { id: dto.locationId },
     });
-    if (!location) throw new NotFoundException('Location not found');
+    if (!awc) throw new NotFoundException('AWC not found');
 
     await this.ensureLocationLinkedToProject(dto.projectId, dto.locationId);
 
@@ -386,7 +385,6 @@ export class UsersService {
       where: {
         userId: dto.userId,
         projectId: dto.projectId,
-        locationId: dto.locationId,
       },
     });
 
@@ -395,36 +393,38 @@ export class UsersService {
     }
 
     return this.prisma.userProjectLocation.create({
-      data: dto,
+      data: {
+        userId: dto.userId,
+        projectId: dto.projectId,
+      },
     });
   }
 
   async createManager(dto: CreateManagerDto, adminUser: any) {
     const adminId = adminUser?.userId ?? adminUser?.id;
     if (!adminId) {
-      throw new ForbiddenException('Admin identity not found in token');
+      throw new UnauthorizedException('Admin identity not found in token');
     }
 
     const projectId = Number(dto.projectId);
-    const locationId = Number(dto.locationId);
+    const stateId = Number(dto.stateId);
     const hasProject = Number.isFinite(projectId) && projectId > 0;
-    const hasLocation = Number.isFinite(locationId) && locationId > 0;
+    const hasState = Number.isFinite(stateId) && stateId > 0;
 
-    if (hasProject !== hasLocation) {
-      throw new BadRequestException('Select both project and location');
+    if (hasProject !== hasState) {
+      throw new BadRequestException('Select both project and state');
     }
 
-    if (hasProject && hasLocation) {
+    if (hasProject && hasState) {
       const allowed = await this.prisma.userProjectLocation.findFirst({
         where: {
           userId: adminId,
           projectId,
-          locationId,
         },
       });
 
       if (!allowed) {
-        throw new ForbiddenException('You are not assigned to this project/location');
+        throw new ForbiddenException('You are not assigned to this project');
       }
 
       const project = await this.prisma.project.findUnique({
@@ -434,12 +434,8 @@ export class UsersService {
       if (!project) throw new NotFoundException('Project not found');
       this.assertIsActive(project.status, 'Project');
 
-      const location = await this.prisma.location.findUnique({
-        where: { id: locationId },
-        select: { id: true, status: true },
-      });
-      if (!location) throw new NotFoundException('Location not found');
-      this.assertIsActive(location.status, 'Location');
+      const state = await this.prisma.state.findUnique({ where: { id: stateId } });
+      if (!state) throw new NotFoundException('State not found');
     }
 
     const email = (dto.email ?? '').trim();
@@ -483,13 +479,16 @@ export class UsersService {
             },
           });
 
-          if (hasProject && hasLocation) {
-            await this.ensureLocationLinkedToProject(projectId, locationId, tx);
+          if (hasProject && hasState) {
+            const linkedState = await tx.projectState.findFirst({ where: { projectId, stateId } });
+            if (!linkedState) {
+              await tx.projectState.create({ data: { projectId, stateId } });
+            }
             await tx.userProjectLocation.create({
               data: {
                 userId: user.id,
                 projectId,
-                locationId,
+                stateId,
               },
             });
           }
@@ -547,12 +546,12 @@ export class UsersService {
       throw new BadRequestException('User is not a Manager');
     }
 
-    // 🔥 CASE 1: MANAGER updating self
+    // MANAGER updating self
     if (loggedUser.roles?.includes('MANAGER') && (loggedUser.userId || loggedUser.id) !== managerId) {
       throw new ForbiddenException('You can update only your own profile');
     }
 
-    // 🔥 CASE 2: ADMIN updating manager
+    // ADMIN updating manager
     if (loggedUser.roles?.includes('ADMIN')) {
       const loggedUserId = loggedUser.userId || loggedUser.id;
 
@@ -606,121 +605,71 @@ export class UsersService {
   }
 
   async assignProjectLocation(dto: AssignProjectDto, loggedUser: any) {
-    // 1. RBAC Check
-    if (!loggedUser.roles?.includes('SUPER_ADMIN')) {
-      const loggedUserId = loggedUser.userId || loggedUser.id;
-      const isAdmin = loggedUser.roles?.includes('ADMIN');
-
-      const isAssigned = await this.prisma.userProjectLocation.findFirst({
-        where: isAdmin
-          ? {
-              // Admins get project-wide access once assigned to the project
-              userId: loggedUserId,
-              projectId: dto.projectId,
-            }
-          : {
-              // Managers are scoped to project + location
-              userId: loggedUserId,
-              projectId: dto.projectId,
-              locationId: dto.locationId,
-            },
-      });
-
-      if (!isAssigned) {
-        throw new ForbiddenException(
-          isAdmin
-            ? 'You are not assigned to this project'
-            : 'You are not assigned to this project & location',
-        );
-      }
-
-      if (loggedUser.roles?.includes('MANAGER')) {
-        // MANAGER can only assign to OUTREACH role
-        const targetUser = await this.prisma.user.findUnique({
-          where: { id: dto.userId },
-          include: { roles: { include: { role: true } } },
-        });
-
-        if (!targetUser) throw new NotFoundException('Target user not found');
-
-        const isOutreach = targetUser.roles.some(
-          (ur) => ur.role.name === 'OUTREACH',
-        );
-        if (!isOutreach) {
-          throw new ForbiddenException(
-            'Managers can only assign projects to Outreach workers',
-          );
-        }
-      }
-    }
+    const targetUserId = Number(dto.userId);
+    const projectId = Number(dto.projectId);
+    const stateId = dto.stateId ? Number(dto.stateId) : null;
 
     const targetUser = await this.prisma.user.findUnique({
-      where: { id: dto.userId },
+      where: { id: targetUserId },
       include: { roles: { include: { role: true } } },
     });
 
-    if (!targetUser) {
-      throw new NotFoundException('Target user not found');
-    }
+    if (!targetUser) throw new NotFoundException('Target user not found');
 
     const targetRoleNames = targetUser.roles?.map((r) => r.role.name) ?? [];
-    const isTargetAdmin = targetRoleNames.includes('ADMIN');
+    const isTargetManager = targetRoleNames.includes('MANAGER');
+    const isTargetOutreach = targetRoleNames.includes('OUTREACH');
+
+    if ((isTargetManager || isTargetOutreach) && !stateId) {
+      throw new BadRequestException('State is required for this user role');
+    }
+
+    // RBAC Check
+    if (!loggedUser.roles?.includes('SUPER_ADMIN')) {
+      const loggedUserId = loggedUser.userId || loggedUser.id;
+      const isManager = loggedUser.roles?.includes('MANAGER');
+
+      const isAssigned = await this.prisma.userProjectLocation.findFirst({
+        where: { userId: loggedUserId, projectId: projectId },
+      });
+
+      if (!isAssigned) throw new ForbiddenException('You are not assigned to this project');
+
+      if (isManager && !isTargetOutreach) {
+        throw new ForbiddenException('Managers can only assign projects to Outreach workers');
+      }
+    }
 
     const project = await this.prisma.project.findUnique({
-      where: { id: dto.projectId },
+      where: { id: projectId },
       select: { id: true, status: true },
     });
-    if (!project) {
-      throw new NotFoundException('Project not found');
-    }
+    if (!project) throw new NotFoundException('Project not found');
     this.assertIsActive(project.status, 'Project');
 
-    const location = await this.prisma.location.findUnique({
-      where: { id: dto.locationId },
-      select: { id: true, status: true },
-    });
-    if (!location) {
-      throw new NotFoundException('Location not found');
+    if (stateId) {
+      const state = await this.prisma.state.findUnique({ where: { id: stateId } });
+      if (!state) throw new NotFoundException('State not found');
+      const linkedState = await this.prisma.projectState.findFirst({ where: { projectId, stateId } });
+      if (!linkedState) {
+        await this.prisma.projectState.create({ data: { projectId, stateId } });
+      }
     }
-    this.assertIsActive(location.status, 'Location');
 
-    await this.ensureLocationLinkedToProject(dto.projectId, dto.locationId);
-
-    // 2. Check duplicate
     const exists = await this.prisma.userProjectLocation.findFirst({
-      where: isTargetAdmin
-        ? {
-            userId: dto.userId,
-            projectId: dto.projectId,
-          }
-        : {
-            userId: dto.userId,
-            projectId: dto.projectId,
-            locationId: dto.locationId,
-          },
+      where: { userId: targetUserId, projectId: projectId, stateId: stateId },
     });
 
-    if (exists) {
-      throw new ConflictException(
-        isTargetAdmin
-          ? 'User already assigned to this project'
-          : 'User already assigned to this project & location',
-      );
-    }
+    if (exists) throw new ConflictException('User already assigned to this project & state');
 
     return this.prisma.userProjectLocation.create({
-      data: {
-        userId: dto.userId,
-        projectId: dto.projectId,
-        locationId: dto.locationId,
-      },
+      data: { userId: targetUserId, projectId: projectId, stateId: stateId },
     });
   }
-  //super-admin dashboard
-  async superAdminDashboard() {
 
+  async superAdminDashboard() {
     const totalProjects = await this.prisma.project.count();
-    const totalLocations = await this.prisma.location.count();
+    const totalLocations = await this.prisma.awc.count();
 
     const beneficiariesPerProject =
       await this.prisma.project.findMany({
@@ -804,7 +753,7 @@ export class UsersService {
     delete dto.email;
     delete dto.status;
     delete dto.roles;
-    delete dto.mobile; // mobile field doesn't exist in User model
+    delete dto.mobile;
 
     return this.prisma.user.update({
       where: { id: userId },
@@ -821,5 +770,3 @@ export class UsersService {
     });
   }
 }
-
-

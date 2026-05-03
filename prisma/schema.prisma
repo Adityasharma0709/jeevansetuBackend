@@ -7,6 +7,49 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+/**
+ * =========================
+ * STATE & DISTRICTS
+ * =========================
+ */
+model State {
+  id        Int        @id
+  name      String
+  locationCode String? @unique @db.VarChar(8)
+  districts District[]
+  awcs      Awc[]
+  projectStates ProjectState[]
+  userProjectLocations UserProjectLocation[]
+}
+
+model District {
+  id      Int    @id @default(autoincrement())
+  name    String
+  stateId Int
+  state   State  @relation(fields: [stateId], references: [id], onDelete: Cascade)
+  awcs    Awc[]
+  blocks  Block[]
+}
+
+model Block {
+  id         Int      @id @default(autoincrement())
+  name       String
+  districtId Int
+  district   District @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  villages   Village[]
+  awcs       Awc[]
+}
+
+model Village {
+  id      Int    @id @default(autoincrement())
+  name    String
+  blockId Int
+  block   Block  @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  awcs    Awc[]
+}
+
+
 /**
  * =========================
  * USER & RBAC
@@ -74,8 +117,9 @@ model Project {
   description String?
   status      String  @default("ACTIVE")
 
-  locations   Location[]
+  awcs        Awc[]
   assignments UserProjectLocation[]
+  projectStates ProjectState[]
 
   beneficiaries Beneficiary[] // ✅ ADD THIS
   activities    Activity[]    @relation("ProjectActivities") // 👈 ADD THIS
@@ -84,37 +128,53 @@ model Project {
   updatedAt DateTime @updatedAt
 }
 
-model Location {
+model Awc {
   id           Int    @id @default(autoincrement())
-  locationCode String
+  locationCode String @unique
+  awcName      String?
 
-  state    String
-  district String?
-  block    String?
-  village  String?
+  stateId    Int
+  districtId Int?
+  blockId    Int?
+  villageId  Int?
 
   status String @default("ACTIVE")
 
-  projects Project[]
+  projectId Int
+  project   Project @relation(fields: [projectId], references: [id])
+
+  state    State     @relation(fields: [stateId], references: [id])
+  district District? @relation(fields: [districtId], references: [id])
+  block    Block?    @relation(fields: [blockId], references: [id])
+  village  Village?  @relation(fields: [villageId], references: [id])
 
   beneficiaries Beneficiary[]
-  assignments   UserProjectLocation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model UserProjectLocation {
-  id         Int @id @default(autoincrement())
-  userId     Int
-  projectId  Int
-  locationId Int
+  id        Int @id @default(autoincrement())
+  userId    Int
+  projectId Int
+  stateId   Int?
 
-  user     User     @relation(fields: [userId], references: [id])
-  project  Project  @relation(fields: [projectId], references: [id])
-  location Location @relation(fields: [locationId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+  state   State?  @relation(fields: [stateId], references: [id])
 
-  @@unique([userId, projectId, locationId])
+  @@unique([userId, projectId, stateId])
+}
+
+model ProjectState {
+  id        Int      @id @default(autoincrement())
+  projectId Int
+  stateId   Int
+  project   Project  @relation(fields: [projectId], references: [id])
+  state     State    @relation(fields: [stateId], references: [id])
+
+  @@unique([projectId, stateId])
 }
 
 /**
@@ -151,7 +211,7 @@ model Beneficiary {
   uid String @unique
 
   projectId   Int
-  locationId  Int
+  awcId       Int
   createdById Int
 
   state    String?
@@ -183,7 +243,7 @@ model Beneficiary {
   updatedAt DateTime @updatedAt
 
   project   Project  @relation(fields: [projectId], references: [id])
-  location  Location @relation(fields: [locationId], references: [id])
+  awc       Awc      @relation(fields: [awcId], references: [id])
   createdBy User     @relation(fields: [createdById], references: [id])
 
   children   BeneficiaryChild[]
@@ -206,15 +266,20 @@ model GroupMember {
 }
 
 model BeneficiaryChild {
-  id            Int @id @default(autoincrement())
+  id            Int    @id @default(autoincrement())
   beneficiaryId Int
+  uid           String @unique
 
-  name            String
-  dateOfBirth     DateTime
-  gender          String
-  schoolingStatus String
+  name             String
+  relationship     String
+  dateOfBirth      DateTime
+  gender           String
+  schoolingStatus  String?
+  employmentStatus String?
+  qualification    String?
 
   beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
+  reports     ActivityReport[]
 }
 
 /**
@@ -306,19 +371,20 @@ model BeneficiaryActivity {
 model ActivityReport {
   id            Int @id @default(autoincrement())
   beneficiaryId Int
+  childId       Int?
   activityId    Int
   sessionId     Int
   reportedById  Int
 
   reportData Json
+  date       DateTime @default(now())
   createdAt  DateTime @default(now())
 
   beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
+  child       BeneficiaryChild? @relation(fields: [childId], references: [id])
   activity    Activity    @relation(fields: [activityId], references: [id])
   session     Session     @relation(fields: [sessionId], references: [id])
   reportedBy  User        @relation(fields: [reportedById], references: [id])
-
-  @@unique([beneficiaryId, activityId, sessionId])
 }
 
 /**

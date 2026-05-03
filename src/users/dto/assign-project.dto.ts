@@ -1,4 +1,4 @@
-import { IsInt } from 'class-validator';
+import { IsInt, IsOptional } from 'class-validator';
 
 export class AssignProjectDto {
   @IsInt()
@@ -7,6 +7,11 @@ export class AssignProjectDto {
   @IsInt()
   projectId: number;
 
+  @IsOptional()
   @IsInt()
-  locationId: number;
+  locationId?: number;
+
+  @IsOptional()
+  @IsInt()
+  stateId?: number;
 }

@@ -19,6 +19,7 @@ import { CreateRequestDto } from './dto/create-request.dto';
 import { CreateReportDto } from './dto/create-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
 import { RequestBeneficiaryUpdateDto } from './dto/request-beneficiary-update.dto';
+import { AddFamilyMemberDto } from './dto/add-family-member.dto';
 
 @Controller('outreach')
 export class OutreachController {
@@ -154,8 +155,8 @@ export class OutreachController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Get('activity/:id/sessions')
-  getSessions(@Param('id') id: string, @Query('beneficiaryId') beneficiaryId?: string) {
-    return this.outreachService.getSessions(+id, beneficiaryId ? +beneficiaryId : undefined);
+  getSessions(@Param('id') id: string) {
+    return this.outreachService.getSessions(+id);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -163,5 +164,24 @@ export class OutreachController {
   @Get('assigned-locations/:projectId')
   getAssignedLocations(@Param('projectId') projectId: string, @Req() req) {
     return this.outreachService.getAssignedLocations(+projectId, req.user.userId);
+  }
+
+  // Family Members
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Post('beneficiary/:id/family-member')
+  addFamilyMember(
+    @Param('id') id: string,
+    @Body() dto: AddFamilyMemberDto,
+    @Req() req,
+  ) {
+    return this.outreachService.addFamilyMember(+id, dto, req.user);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN')
+  @Get('beneficiary/:id/family-members')
+  getFamilyMembers(@Param('id') id: string) {
+    return this.outreachService.getFamilyMembers(+id);
   }
 }
