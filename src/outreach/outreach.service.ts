@@ -38,22 +38,30 @@ export class OutreachService {
     }
   }
   async createBeneficiary(dto: CreateBeneficiaryDto, user: any) {
+    // 1. Get AWC and check its state
+    const awc = await this.prisma.awc.findUnique({
+      where: { id: dto.locationId },
+      select: { id: true, stateId: true, status: true },
+    });
+    if (!awc) throw new NotFoundException('AWC not found');
+    this.assertIsActive(awc.status, 'AWC');
 
-    // 1. Check outreach assignment
+    // 2. Check outreach assignment for this project and state
     const assigned = await this.prisma.userProjectLocation.findFirst({
       where: {
         userId: user.userId,
         projectId: dto.projectId,
+        stateId: awc.stateId
       }
     });
 
     if (!assigned) {
       throw new ForbiddenException(
-        'You are not assigned to this project/location'
+        'You are not assigned to this project or the state of this location'
       );
     }
 
-    // 2. Get project code
+    // 3. Get project code
     const project = await this.prisma.project.findUnique({
       where: { id: dto.projectId },
       select: { id: true, projectCode: true, status: true },
@@ -64,14 +72,7 @@ export class OutreachService {
     }
     this.assertIsActive(project.status, 'Project');
 
-    const awc = await this.prisma.awc.findUnique({
-      where: { id: dto.locationId },
-      select: { id: true, status: true },
-    });
-    if (!awc) throw new NotFoundException('AWC not found');
-    this.assertIsActive(awc.status, 'AWC');
-
-    // 3. Count existing beneficiaries in project
+    // 4. Count existing beneficiaries in project
     const count = await this.prisma.beneficiary.count({
       where: { projectId: dto.projectId }
     });
@@ -593,12 +594,39 @@ export class OutreachService {
   }
 
   async getAssignedLocations(projectId: number, userId: number) {
+    // 1. Get states assigned to the user for this project
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId, projectId },
-      include: { state: true }
+      select: { stateId: true }
     });
 
-    return assignments.map(a => a.state).filter(Boolean);
+    const assignedStateIds = assignments.map(a => a.stateId).filter((id): id is number => id !== null);
+
+    if (assignedStateIds.length === 0) {
+      return [];
+    }
+
+    // 2. Fetch all AWCs in the project that belong to those states, including full hierarchy
+    return this.prisma.awc.findMany({
+      where: {
+        projectId,
+        stateId: { in: assignedStateIds },
+        status: 'ACTIVE'
+      },
+      include: {
+        state: true,
+        district: true,
+        block: true,
+        village: true
+      },
+      orderBy: [
+        { state: { name: 'asc' } },
+        { district: { name: 'asc' } },
+        { block: { name: 'asc' } },
+        { village: { name: 'asc' } },
+        { awcName: 'asc' }
+      ]
+    });
   }
 
   // ── Family Members ─────────────────────────────────────────────────────────
