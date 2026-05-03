@@ -18,15 +18,16 @@ export enum MaritalStatus {
 }
 
 export enum EconomicStatus {
-  APL = 'APL',
-  BPL = 'BPL',
+  AAY = 'AAY',
+  PHH = 'PHH',
+  Others='Others'
 }
 
 export enum EmploymentStatus {
-  EMPLOYED = 'Employed',
-  UNEMPLOYED = 'Unemployed',
+  WORKING = 'WORKING',
+  NOT_WORKING = 'Not-Working',
+  DAILY_WAGE_EARNER = 'Daily-Wage-Earner',
   SELF_EMPLOYED = 'Self-Employed',
-  STUDENT = 'Student',
 }
 
 // These fields allow "Other" to be replaced by custom free-text from the user
