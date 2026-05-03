@@ -10,14 +10,20 @@ import {
   EmploymentStatus,
   Gender,
   MaritalStatus,
+  BeneficiaryType,
 } from '../enums/beneficiary.enum';
 
 export class CreateBeneficiaryDto {
+  @IsOptional()
+  @IsEnum(BeneficiaryType)
+  beneficiaryType?: BeneficiaryType;
+
   @IsNumber()
   projectId: number;
 
+  @IsOptional()
   @IsNumber()
-  locationId: number;
+  locationId?: number;
 
   @IsOptional()
   @IsString()
@@ -44,8 +50,9 @@ export class CreateBeneficiaryDto {
   @IsEnum(Gender, { message: 'gender must be Male, Female, or Other' })
   gender: Gender;
 
+  @IsOptional()
   @IsString()
-  guardianName: string;
+  guardianName?: string;
 
   @IsDateString()
   dateOfBirth: string;
@@ -68,26 +75,33 @@ export class CreateBeneficiaryDto {
   @IsNumber()
   husbandAgeAtMarriage?: number;
 
+  @IsOptional()
   @IsString()
-  qualification: string;
+  qualification?: string;
 
+  @IsOptional()
   @IsString()
-  religion: string;
+  religion?: string;
 
+  @IsOptional()
   @IsString()
-  caste: string;
+  caste?: string;
 
+  @IsOptional()
   @IsNumber()
-  monthlyIncome: number;
+  monthlyIncome?: number;
 
+  @IsOptional()
   @IsEnum(EconomicStatus, { message: 'economicStatus must be APL or BPL' })
-  economicStatus: EconomicStatus;
+  economicStatus?: EconomicStatus;
 
+  @IsOptional()
   @IsString()
-  primaryIncomeSource: string;
+  primaryIncomeSource?: string;
 
+  @IsOptional()
   @IsEnum(EmploymentStatus, {
     message: 'employmentStatus must be Employed, Unemployed, Self-Employed, or Student',
   })
-  employmentStatus: EmploymentStatus;
+  employmentStatus?: EmploymentStatus;
 }

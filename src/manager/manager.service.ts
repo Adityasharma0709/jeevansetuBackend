@@ -59,7 +59,7 @@ export class ManagerService {
 
     // Safely assign all valid properties
     ['projectId', 'awcId', 'womanAgeAtMarriage', 'husbandAgeAtMarriage', 'monthlyIncome'].forEach(assignNumber);
-    ['mobileNumber', 'name', 'gender', 'guardianName', 'maritalStatus', 'dateOfMarriage', 'qualification', 'religion', 'caste', 'economicStatus', 'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'].forEach(assignString);
+    ['typeof', 'mobileNumber', 'name', 'gender', 'guardianName', 'maritalStatus', 'dateOfMarriage', 'qualification', 'religion', 'caste', 'economicStatus', 'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'].forEach(assignString);
     assignDate('dateOfBirth');
 
     return data;
@@ -299,7 +299,7 @@ export class ManagerService {
 
     // Compare applicable fields
     const fields = [
-      'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
+      'typeof', 'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
       'maritalStatus', 'dateOfMarriage', 'womanAgeAtMarriage', 'husbandAgeAtMarriage',
       'qualification', 'religion', 'caste', 'monthlyIncome', 'economicStatus',
       'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'

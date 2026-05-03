@@ -11,12 +11,18 @@ import {
   EmploymentStatus,
   Gender,
   MaritalStatus,
+  BeneficiaryType,
 } from '../enums/beneficiary.enum';
 
 const emptyToUndefined = ({ value }) =>
   value === '' || value === null ? undefined : value;
 
 export class UpdateBeneficiaryDto {
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsEnum(BeneficiaryType)
+  beneficiaryType?: BeneficiaryType;
+
   @IsOptional()
   @Transform(emptyToUndefined)
   @IsNumber()

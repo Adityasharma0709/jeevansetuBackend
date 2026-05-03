@@ -1,3 +1,9 @@
+export enum BeneficiaryType {
+  PRIORITY = 'Priority',
+  STAKEHOLDER = 'Stakeholder',
+  GENERAL = 'General',
+}
+
 export enum Gender {
   MALE = 'Male',
   FEMALE = 'Female',
@@ -52,7 +58,6 @@ export enum Caste {
   OBC = 'OBC',
   SC = 'SC',
   ST = 'ST',
-  NT = 'NT',
   OTHER = 'Other',
 }
 

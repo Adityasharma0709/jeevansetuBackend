@@ -23,7 +23,7 @@ export class OutreachService {
     }
   }
 
-  private async ensureOutreachAssignedToBeneficiary(userId: number, beneficiary: { projectId: number; awcId: number }) {
+  private async ensureOutreachAssignedToBeneficiary(userId: number, beneficiary: { projectId: number; awcId?: number | null }) {
     const assigned = await this.prisma.userProjectLocation.findFirst({
       where: {
         userId,
@@ -38,27 +38,47 @@ export class OutreachService {
     }
   }
   async createBeneficiary(dto: CreateBeneficiaryDto, user: any) {
-    // 1. Get AWC and check its state
-    const awc = await this.prisma.awc.findUnique({
-      where: { id: dto.locationId },
-      select: { id: true, stateId: true, status: true },
-    });
-    if (!awc) throw new NotFoundException('AWC not found');
-    this.assertIsActive(awc.status, 'AWC');
-
-    // 2. Check outreach assignment for this project and state
-    const assigned = await this.prisma.userProjectLocation.findFirst({
-      where: {
-        userId: user.userId,
-        projectId: dto.projectId,
-        stateId: awc.stateId
+    if (dto.beneficiaryType === 'Priority') {
+      if (!dto.locationId) {
+        throw new BadRequestException('locationId is required for Priority beneficiaries');
       }
-    });
+      
+      // 1. Get AWC and check its state
+      const awc = await this.prisma.awc.findUnique({
+        where: { id: dto.locationId },
+        select: { id: true, stateId: true, status: true },
+      });
+      if (!awc) throw new NotFoundException('AWC not found');
+      this.assertIsActive(awc.status, 'AWC');
 
-    if (!assigned) {
-      throw new ForbiddenException(
-        'You are not assigned to this project or the state of this location'
-      );
+      // 2. Check outreach assignment for this project and state
+      const assigned = await this.prisma.userProjectLocation.findFirst({
+        where: {
+          userId: user.userId,
+          projectId: dto.projectId,
+          stateId: awc.stateId
+        }
+      });
+
+      if (!assigned) {
+        throw new ForbiddenException(
+          'You are not assigned to this project or the state of this location'
+        );
+      }
+    } else {
+      // For Stakeholder and General, just verify project assignment
+      const assigned = await this.prisma.userProjectLocation.findFirst({
+        where: {
+          userId: user.userId,
+          projectId: dto.projectId,
+        }
+      });
+
+      if (!assigned) {
+        throw new ForbiddenException(
+          'You are not assigned to this project'
+        );
+      }
     }
 
     // 3. Get project code   
@@ -87,8 +107,9 @@ export class OutreachService {
     return this.prisma.beneficiary.create({
       data: {
         uid,
+        typeof: dto.beneficiaryType || 'Priority',
         projectId: dto.projectId,
-        awcId: dto.locationId,
+        awcId: dto.locationId || null,
         state: dto.state,
         district: dto.district,
         block: dto.block,
@@ -168,7 +189,7 @@ export class OutreachService {
     
     // Compare applicable fields
     const fields = [
-      'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
+      'typeof', 'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
       'maritalStatus', 'dateOfMarriage', 'womanAgeAtMarriage', 'husbandAgeAtMarriage',
       'qualification', 'religion', 'caste', 'monthlyIncome', 'economicStatus',
       'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'

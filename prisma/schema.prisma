@@ -210,8 +210,10 @@ model Beneficiary {
   id  Int    @id @default(autoincrement())
   uid String @unique
 
+  typeof String? @db.VarChar(32)
+
   projectId   Int
-  awcId       Int
+  awcId       Int?
   createdById Int
 
   state    String?
@@ -222,7 +224,7 @@ model Beneficiary {
   mobileNumber String
   name         String
   gender       String
-  guardianName String
+  guardianName String?
   dateOfBirth  DateTime
 
   maritalStatus        String?
@@ -230,20 +232,20 @@ model Beneficiary {
   womanAgeAtMarriage   Int?
   husbandAgeAtMarriage Int?
 
-  qualification String
-  religion      String
-  caste         String
+  qualification String?
+  religion      String?
+  caste         String?
 
-  monthlyIncome       Float
-  economicStatus      String
-  primaryIncomeSource String
-  employmentStatus    String
+  monthlyIncome       Float?
+  economicStatus      String?
+  primaryIncomeSource String?
+  employmentStatus    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   project   Project  @relation(fields: [projectId], references: [id])
-  awc       Awc      @relation(fields: [awcId], references: [id])
+  awc       Awc?      @relation(fields: [awcId], references: [id])
   createdBy User     @relation(fields: [createdById], references: [id])
 
   children   BeneficiaryChild[]
