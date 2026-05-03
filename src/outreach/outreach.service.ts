@@ -600,8 +600,22 @@ export class OutreachService {
       include: { state: true }
     });
 
-    const assignedStates = assignments.map(a => a.state).filter((s): s is any => s !== null);
-    const assignedStateIds = assignedStates.map(s => s.id);
+    const assignedStateIds = assignments.map(a => a.stateId).filter((id): id is number => id !== null);
+    const hasFullProjectAccess = assignments.some(a => a.stateId === null);
+
+    let finalAssignedStates: any[] = [];
+    if (hasFullProjectAccess || assignments.length === 0) {
+      // If user has full access or no specific state restriction, get all states assigned to this project
+      const projectStates = await this.prisma.projectState.findMany({
+        where: { projectId },
+        include: { state: true }
+      });
+      finalAssignedStates = projectStates.map(ps => ps.state);
+    } else {
+      finalAssignedStates = assignments.map(a => a.state).filter(Boolean);
+    }
+
+    const finalAssignedStateIds = finalAssignedStates.map(s => s.id);
 
     const where: any = {
       projectId,
@@ -609,8 +623,8 @@ export class OutreachService {
     };
 
     // If specific states are assigned, filter by them.
-    if (assignedStateIds.length > 0) {
-      where.stateId = { in: assignedStateIds };
+    if (finalAssignedStateIds.length > 0) {
+      where.stateId = { in: finalAssignedStateIds };
     }
 
     // 2. Fetch all AWCs in the project (filtered by states if necessary), including full hierarchy
@@ -632,7 +646,7 @@ export class OutreachService {
     });
 
     return {
-      states: assignedStates,
+      states: finalAssignedStates,
       awcs: awcs
     };
   }
