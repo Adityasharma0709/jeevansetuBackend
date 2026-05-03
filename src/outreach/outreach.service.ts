@@ -602,17 +602,21 @@ export class OutreachService {
 
     const assignedStateIds = assignments.map(a => a.stateId).filter((id): id is number => id !== null);
 
-    if (assignedStateIds.length === 0) {
-      return [];
+    const where: any = {
+      projectId,
+      status: 'ACTIVE'
+    };
+
+    // If specific states are assigned, filter by them.
+    // If the user is assigned to the project but no specific stateId is present in any assignment, 
+    // it means they have access to the entire project's locations.
+    if (assignedStateIds.length > 0) {
+      where.stateId = { in: assignedStateIds };
     }
 
-    // 2. Fetch all AWCs in the project that belong to those states, including full hierarchy
+    // 2. Fetch all AWCs in the project (filtered by states if necessary), including full hierarchy
     return this.prisma.awc.findMany({
-      where: {
-        projectId,
-        stateId: { in: assignedStateIds },
-        status: 'ACTIVE'
-      },
+      where,
       include: {
         state: true,
         district: true,
