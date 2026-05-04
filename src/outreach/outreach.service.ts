@@ -704,11 +704,11 @@ export class OutreachService {
       ageYears--;
     }
 
-    if (ageYears <= 14) {
+    if (ageYears >= 3 && ageYears <= 14) {
       if (!dto.schoolingStatus) {
         throw new BadRequestException(`schoolingStatus is required for children (Age: ${ageYears})`);
       }
-    } else {
+    } else if (ageYears > 14) {
       if (!dto.employmentStatus) {
         throw new BadRequestException(`employmentStatus is required for family members (Age: ${ageYears})`);
       }
