@@ -23,8 +23,9 @@ export class CreateWorkerDto {
   @MinLength(6)
   password: string;
 
+  @IsOptional()
   @IsInt()
-  projectId: number;
+  projectId?: number;
 
   @IsOptional()
   @IsInt()

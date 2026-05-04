@@ -664,10 +664,15 @@ export class AdminService {
       if (!role) throw new NotFoundException('OUTREACH role not found');
 
       const numericProjectId = Number(projectId);
-      const managerAssignment = await this.prisma.userProjectLocation.findFirst({
-        where: { userId: request.requestedById, projectId: numericProjectId }
-      });
-      const stateId = managerAssignment?.stateId ?? null;
+      const isValidProjectId = Number.isFinite(numericProjectId) && numericProjectId > 0;
+
+      let stateId: number | null = null;
+      if (isValidProjectId) {
+        const managerAssignment = await this.prisma.userProjectLocation.findFirst({
+          where: { userId: request.requestedById, projectId: numericProjectId }
+        });
+        stateId = managerAssignment?.stateId ?? null;
+      }
 
       for (let attempt = 0; attempt < OUTREACH_CODE_MAX_RETRIES; attempt++) {
         try {
@@ -735,7 +740,7 @@ export class AdminService {
       }
     }
 
-    if (requestType === 'MODIFY_WORKER')    if (requestType === 'MODIFY_WORKER') {
+    if (requestType === 'MODIFY_WORKER') {
       const { workerId, name, email, mobile, mobileNumber, usercode } = payload || {};
       if (!workerId) throw new BadRequestException('Invalid MODIFY_WORKER payload');
 
@@ -764,7 +769,7 @@ export class AdminService {
       }
     }
 
-    if (requestType === 'DEACTIVATE_WORKER')    if (requestType === 'DEACTIVATE_WORKER') {
+    if (requestType === 'DEACTIVATE_WORKER') {
       const { workerId } = payload || {};
       if (!workerId) throw new BadRequestException('Invalid DEACTIVATE_WORKER payload');
       await this.prisma.user.update({
