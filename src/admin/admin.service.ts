@@ -483,7 +483,6 @@ export class AdminService {
     return this.prisma.session.create({
       data: {
         name: dto.name,
-        sessionDate: dto.sessionDate ? new Date(dto.sessionDate) : new Date(),
         activityId: dto.activityId,
         createdById: user.userId   // ðŸ‘ˆ from JWT
       }

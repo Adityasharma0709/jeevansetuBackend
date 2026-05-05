@@ -1,5 +1,5 @@
 // src/admin/dto/create-session.dto.ts
-import { IsInt, IsOptional, IsString } from 'class-validator';
+import { IsInt, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateSessionDto {
@@ -9,8 +9,4 @@ export class CreateSessionDto {
 
   @IsString()
   name: string;
-
-  @IsOptional()
-  @Type(() => Date)
-  sessionDate?: Date;
 }
