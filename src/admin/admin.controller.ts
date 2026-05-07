@@ -35,8 +35,8 @@ export class AdminController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Get('dashboard/admin')
-  getAdminDashboard() {
-    return this.adminService.adminDashboard();
+  getAdminDashboard(@Req() req) {
+    return this.adminService.adminDashboard(req.user);
   }
 
 
@@ -71,15 +71,15 @@ export class AdminController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN', 'OUTREACH')
   @Get('activities/active')
-  getActiveActivities() {
-    return this.adminService.getActiveActivities();
+  getActiveActivities(@Req() req) {
+    return this.adminService.getActiveActivities(req.user);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Get('activities')
-  getAllActivities() {
-    return this.adminService.getAllActivities();
+  getAllActivities(@Req() req) {
+    return this.adminService.getAllActivities(req.user);
   }
 
   //tag
@@ -101,8 +101,8 @@ export class AdminController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Get('groups')
-  getAllGroups() {
-    return this.adminService.getAllGroups();
+  getAllGroups(@Req() req) {
+    return this.adminService.getAllGroups(req.user);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -164,15 +164,15 @@ export class AdminController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN', 'OUTREACH')
   @Get('activity/:id/sessions')
-  getSessionsByActivity(@Param('id') id: string) {
-    return this.adminService.getSessionsByActivity(+id);
+  getSessionsByActivity(@Param('id') id: string, @Req() req) {
+    return this.adminService.getSessionsByActivity(+id, req.user);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Get('sessions')
-  getAllSessions() {
-    return this.adminService.getAllSessions();
+  getAllSessions(@Req() req) {
+    return this.adminService.getAllSessions(req.user);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)

@@ -100,14 +100,21 @@ export class AdminService {
     return request;
   }
 
-  async adminDashboard() {
+  async adminDashboard(user: any) {
+    const adminId = user.userId;
+    const isSuperAdmin = user.roles?.includes('SUPER_ADMIN');
 
-    const groups = await this.prisma.beneficiaryGroup.count();
-    const activities = await this.prisma.activity.count();
-    const sessions = await this.prisma.session.count();
+    const where = isSuperAdmin ? {} : { createdById: adminId };
+
+    const groups = await this.prisma.beneficiaryGroup.count({ where });
+    const activities = await this.prisma.activity.count({ where });
+    const sessions = await this.prisma.session.count({ where });
 
     const reportStats = await this.prisma.activityReport.groupBy({
       by: ['activityId'],
+      where: isSuperAdmin ? {} : {
+        activity: { createdById: adminId }
+      },
       _count: true
     });
 
@@ -158,8 +165,10 @@ export class AdminService {
 
     return createdGroup;
   }
-  async getAllGroups() {
+  async getAllGroups(user: any) {
+    const where = user.roles?.includes('SUPER_ADMIN') ? {} : { createdById: user.userId };
     return this.prisma.beneficiaryGroup.findMany({
+      where,
       include: {
         activities: {
           include: {
@@ -365,9 +374,16 @@ export class AdminService {
       data: { status: 'ACTIVE' }
     });
   }
-  async getActiveActivities() {
+  async getActiveActivities(user: any) {
+    const isSuperAdmin = user.roles?.includes('SUPER_ADMIN');
+    const isOutreach = user.roles?.includes('OUTREACH');
+    
+    // Outreach and Super Admin see all active activities
+    const filterByCreator = !isSuperAdmin && !isOutreach;
+
     return this.prisma.activity.findMany({
       where: {
+        ...(filterByCreator ? { createdById: user.userId } : {}),
         status: 'ACTIVE',
         OR: [
           { projectId: null },
@@ -394,14 +410,20 @@ export class AdminService {
     });
   }
 
-  async getAllActivities() {
+  async getAllActivities(user: any) {
+    const where: any = {
+      OR: [
+        { projectId: null },
+        { project: { status: { equals: 'ACTIVE', mode: 'insensitive' } } },
+      ],
+    };
+
+    if (!user.roles?.includes('SUPER_ADMIN')) {
+      where.createdById = user.userId;
+    }
+
     return this.prisma.activity.findMany({
-      where: {
-        OR: [
-          { projectId: null },
-          { project: { status: { equals: 'ACTIVE', mode: 'insensitive' } } },
-        ],
-      },
+      where,
       include: {
         creator: {
           select: {
@@ -549,11 +571,17 @@ export class AdminService {
     });
   }
 
-  async getSessionsByActivity(activityId: number) {
+  async getSessionsByActivity(activityId: number, user: any) {
     await this.ensureActivityIsActive(activityId);
+    
+    const isSuperAdmin = user.roles?.includes('SUPER_ADMIN');
+    const isOutreach = user.roles?.includes('OUTREACH');
+    const filterByCreator = !isSuperAdmin && !isOutreach;
+
     return this.prisma.session.findMany({
       where: {
         activityId,
+        ...(filterByCreator ? { createdById: user.userId } : {}),
         status: 'ACTIVE'
       },
       include: {
@@ -568,8 +596,10 @@ export class AdminService {
     });
   }
 
-  async getAllSessions() {
+  async getAllSessions(user: any) {
+    const where = user.roles?.includes('SUPER_ADMIN') ? {} : { createdById: user.userId };
     return this.prisma.session.findMany({
+      where,
       include: {
         activity: {
           select: { name: true }
