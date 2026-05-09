@@ -148,8 +148,8 @@ export class OutreachController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Get('activities')
-  getActivities() {
-    return this.outreachService.getActivities();
+  getActivities(@Req() req) {
+    return this.outreachService.getActivities(req.user);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)

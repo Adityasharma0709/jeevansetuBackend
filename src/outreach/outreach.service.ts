@@ -574,9 +574,19 @@ export class OutreachService {
     });
   }
 
-  async getActivities() {
+  async getActivities(user: any) {
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: { userId: user.userId },
+      select: { projectId: true }
+    });
+
+    const projectIds = [...new Set(assignments.map(a => a.projectId))];
+
     return this.prisma.activity.findMany({
-      where: { status: 'ACTIVE' },
+      where: {
+        status: 'ACTIVE',
+        projectId: { in: projectIds }
+      },
       include: {
         creator: {
           select: { id: true, name: true, email: true },
