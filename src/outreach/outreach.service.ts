@@ -434,21 +434,8 @@ export class OutreachService {
     let where: any = {};
 
     if (!isSuperAdmin) {
-      const assignments = await this.prisma.userProjectLocation.findMany({
-        where: { userId: user.userId }
-      });
-
-      if (assignments.length === 0) {
-        return [];
-      }
-
-      // Filter by projects assigned to the user
-      const projectIds = assignments.map(a => a.projectId);
-      where.projectId = { in: projectIds };
-
-      // Optionally filter by location as well if the requirement is strict
-      // const locationIds = assignments.map(a => a.locationId);
-      // where.locationId = { in: locationIds };
+      // Outreach workers only see beneficiaries they personally registered
+      where.createdById = user.userId;
     }
 
     if (search) {
