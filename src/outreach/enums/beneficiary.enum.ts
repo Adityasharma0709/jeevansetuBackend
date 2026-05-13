@@ -24,7 +24,7 @@ export enum EconomicStatus {
 }
 
 export enum EmploymentStatus {
-  WORKING = 'WORKING',
+  WORKING = 'Working',
   NOT_WORKING = 'Not-Working',
   DAILY_WAGE_EARNER = 'Daily-Wage-Earner',
   SELF_EMPLOYED = 'Self-Employed',

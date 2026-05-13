@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import {
   EconomicStatus,
   EmploymentStatus,
@@ -12,6 +13,16 @@ import {
   MaritalStatus,
   BeneficiaryType,
 } from '../enums/beneficiary.enum';
+
+/** Converts DD/MM/YYYY → YYYY-MM-DD so that new Date(value) works in service. */
+function parseDDMMYYYY(value: any): string {
+  if (typeof value !== 'string') return value;
+  const ddmmyyyy = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim());
+  if (ddmmyyyy) {
+    return `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`;
+  }
+  return value; // already ISO or other format — leave untouched
+}
 
 export class CreateBeneficiaryDto {
   @IsOptional()
@@ -54,6 +65,7 @@ export class CreateBeneficiaryDto {
   @IsString()
   guardianName?: string;
 
+  @Transform(({ value }) => parseDDMMYYYY(value))
   @IsDateString()
   dateOfBirth: string;
 
@@ -64,6 +76,7 @@ export class CreateBeneficiaryDto {
   maritalStatus?: MaritalStatus;
 
   @IsOptional()
+  @Transform(({ value }) => parseDDMMYYYY(value))
   @IsString()
   dateOfMarriage?: string;
 
@@ -92,7 +105,7 @@ export class CreateBeneficiaryDto {
   monthlyIncome?: number;
 
   @IsOptional()
-  @IsEnum(EconomicStatus, { message: 'economicStatus must be APL or BPL' })
+  @IsEnum(EconomicStatus, { message: 'economicStatus must be AAY, PHH, or Others' })
   economicStatus?: EconomicStatus;
 
   @IsOptional()
@@ -101,7 +114,7 @@ export class CreateBeneficiaryDto {
 
   @IsOptional()
   @IsEnum(EmploymentStatus, {
-    message: 'employmentStatus must be Employed, Unemployed, Self-Employed, or Student',
+    message: 'employmentStatus must be Working, Not-Working, Daily-Wage-Earner, or Self-Employed',
   })
   employmentStatus?: EmploymentStatus;
 }
