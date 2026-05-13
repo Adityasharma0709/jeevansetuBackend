@@ -20,6 +20,7 @@ import { CreateReportDto } from './dto/create-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
 import { RequestBeneficiaryUpdateDto } from './dto/request-beneficiary-update.dto';
 import { AddFamilyMemberDto } from './dto/add-family-member.dto';
+import { UpdateFamilyMemberDto } from './dto/update-family-member.dto';
 
 @Controller('outreach')
 export class OutreachController {
@@ -183,5 +184,16 @@ export class OutreachController {
   @Get('beneficiary/:id/family-members')
   getFamilyMembers(@Param('id') id: string) {
     return this.outreachService.getFamilyMembers(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Patch('family-member/:id')
+  updateFamilyMember(
+    @Param('id') id: string,
+    @Body() dto: UpdateFamilyMemberDto,
+    @Req() req,
+  ) {
+    return this.outreachService.updateFamilyMember(+id, dto, req.user);
   }
 }

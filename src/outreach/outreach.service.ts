@@ -752,5 +752,44 @@ export class OutreachService {
       orderBy: { id: 'asc' },
     });
   }
-}
 
+  async updateFamilyMember(memberId: number, dto: any, user: any) {
+    const userId = Number(user?.userId);
+    if (!Number.isFinite(userId)) throw new BadRequestException('Invalid user');
+
+    const member = await this.prisma.beneficiaryChild.findUnique({
+      where: { id: memberId },
+      include: { beneficiary: { select: { id: true, createdById: true } } },
+    });
+    if (!member) throw new NotFoundException('Family member not found');
+    if (member.beneficiary.createdById !== userId) {
+      throw new ForbiddenException('You can only edit family members of beneficiaries you created');
+    }
+
+    const rawDob = dto.dateOfBirth ? new Date(dto.dateOfBirth) : member.dateOfBirth;
+    const today = new Date();
+    let ageYears = today.getFullYear() - rawDob.getFullYear();
+    const m = today.getMonth() - rawDob.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < rawDob.getDate())) ageYears--;
+
+    const data: any = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.relationship !== undefined) data.relationship = dto.relationship;
+    if (dto.gender !== undefined) data.gender = dto.gender;
+    if (dto.dateOfBirth !== undefined) data.dateOfBirth = rawDob;
+
+    if (ageYears >= 3 && ageYears <= 14) {
+      data.schoolingStatus = dto.schoolingStatus ?? member.schoolingStatus ?? null;
+      data.employmentStatus = null;
+    } else if (ageYears > 14) {
+      data.employmentStatus = dto.employmentStatus ?? member.employmentStatus ?? null;
+      data.schoolingStatus = null;
+    } else {
+      data.schoolingStatus = null;
+      data.employmentStatus = null;
+    }
+    data.qualification = ageYears > 6 ? (dto.qualification ?? member.qualification ?? null) : null;
+
+    return this.prisma.beneficiaryChild.update({ where: { id: memberId }, data });
+  }
+}
