@@ -273,9 +273,13 @@ export class ManagerService {
     });
   }
 
-  async getBeneficiaryRequests() {
+  async getBeneficiaryRequests(managerId: number) {
     const requests = await this.prisma.approvalRequest.findMany({
-      where: { requestType: 'UPDATE_BENEFICIARY', status: 'PENDING' },
+      where: { 
+        requestType: 'UPDATE_BENEFICIARY', 
+        status: 'PENDING',
+        targetAdminId: managerId 
+      },
       include: {
         requestedBy: { select: { id: true, name: true, email: true, status: true, createdAt: true } }
       }
