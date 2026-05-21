@@ -713,6 +713,22 @@ export class UsersService {
       whereClause.createdByAdminId = loggedUser.userId || loggedUser.id;
     }
 
+    // Scoping for ADMIN viewing OUTREACH
+    if (roleName === 'OUTREACH' && loggedUser?.roles?.includes('ADMIN') && !loggedUser?.roles?.includes('SUPER_ADMIN')) {
+      const loggedUserId = loggedUser.userId || loggedUser.id;
+      const adminProjects = await this.prisma.userProjectLocation.findMany({
+        where: { userId: loggedUserId },
+        select: { projectId: true },
+      });
+      const projectIds = adminProjects.map(p => p.projectId);
+
+      whereClause.projectAssignments = {
+        some: {
+          projectId: { in: projectIds }
+        }
+      };
+    }
+
     return this.prisma.user.findMany({
       where: whereClause,
       select: {
@@ -782,6 +798,27 @@ export class UsersService {
       where: { id: outreachId, roles: { some: { role: { name: 'OUTREACH' } } } }
     });
     if (!outreach) throw new NotFoundException('Outreach worker not found');
+
+    // ADMIN can only reassign outreach workers in their assigned projects
+    if (loggedUser?.roles?.includes('ADMIN') && !loggedUser?.roles?.includes('SUPER_ADMIN')) {
+      const loggedUserId = loggedUser.userId || loggedUser.id;
+      const adminProjects = await this.prisma.userProjectLocation.findMany({
+        where: { userId: loggedUserId },
+        select: { projectId: true },
+      });
+      const adminProjectIds = adminProjects.map(p => p.projectId);
+
+      const outreachInAdminProject = await this.prisma.userProjectLocation.findFirst({
+        where: {
+          userId: outreachId,
+          projectId: { in: adminProjectIds },
+        },
+      });
+
+      if (!outreachInAdminProject) {
+        throw new ForbiddenException('You are not authorized to reassign this outreach worker');
+      }
+    }
     
     const manager = await this.prisma.user.findFirst({
       where: { id: managerId, roles: { some: { role: { name: 'MANAGER' } } } }
