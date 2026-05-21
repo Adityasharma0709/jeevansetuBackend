@@ -722,6 +722,13 @@ export class UsersService {
         usercode: true,
         mobileNumber: true,
         createdByAdminId: true,
+        createdByAdmin: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          }
+        },
         status: true,
         createdAt: true,
         roles: {
@@ -766,6 +773,36 @@ export class UsersService {
         status: true,
         createdAt: true,
         updatedAt: true,
+      }
+    });
+  }
+
+  async assignOutreachManager(outreachId: number, managerId: number, loggedUser: any) {
+    const outreach = await this.prisma.user.findFirst({
+      where: { id: outreachId, roles: { some: { role: { name: 'OUTREACH' } } } }
+    });
+    if (!outreach) throw new NotFoundException('Outreach worker not found');
+    
+    const manager = await this.prisma.user.findFirst({
+      where: { id: managerId, roles: { some: { role: { name: 'MANAGER' } } } }
+    });
+    if (!manager) throw new NotFoundException('Manager not found');
+
+    return this.prisma.user.update({
+      where: { id: outreachId },
+      data: { createdByAdminId: managerId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        createdByAdminId: true,
+        createdByAdmin: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          }
+        }
       }
     });
   }
