@@ -199,4 +199,15 @@ export class UsersController {
     return this.usersService.superAdminDashboard();
   }
 
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  @Patch('outreach/:id/assign-manager')
+  assignOutreachManager(
+    @Param('id') outreachId: string,
+    @Body('managerId') managerId: number,
+    @Req() req
+  ) {
+    return this.usersService.assignOutreachManager(+outreachId, +managerId, req.user);
+  }
+
 }
