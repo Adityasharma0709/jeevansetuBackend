@@ -223,6 +223,18 @@ export class UsersController {
   // ANALYST ENDPOINTS
   // =========================
 
+  // ⚠ Static routes MUST come before dynamic :id routes
+  // =========================
+  // ANALYST DASHBOARD (static — keep above analyst/:id routes)
+  // =========================
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ANALYST')
+  @Get('analyst/dashboard/reports')
+  getAnalystDashboardReports(@Req() req) {
+    return this.usersService.getAnalystDashboardReports(req.user.userId);
+  }
+
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('SUPER_ADMIN')
   @Post('create-analyst')
@@ -259,17 +271,6 @@ export class UsersController {
     @Body('status') status: string,
   ) {
     return this.usersService.updateAnalystStatus(+id, status);
-  }
-
-  // =========================
-  // ANALYST DASHBOARD
-  // =========================
-
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ANALYST')
-  @Get('analyst/dashboard/reports')
-  getAnalystDashboardReports(@Req() req) {
-    return this.usersService.getAnalystDashboardReports(req.user.userId);
   }
 
 }
