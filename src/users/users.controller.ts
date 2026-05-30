@@ -68,6 +68,13 @@ export class UsersController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Delete('analyst/:id/project/:projectId')
+  removeAnalystFromProject(@Param('id') id: string, @Param('projectId') projectId: string) {
+    return this.usersService.removeAnalystFromProject(+id, +projectId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('SUPER_ADMIN', 'ADMIN')
   @Delete('manager/:id/project/:projectId')
   removeManagerFromProject(@Param('id') id: string, @Param('projectId') projectId: string) {
