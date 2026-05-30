@@ -24,13 +24,20 @@ import { UpdateSessionDto } from './dto/update-session.dto';
 
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) { }
+  constructor(private readonly adminService: AdminService) {}
+
+  // =========================
+  // STATES
+  // =========================
 
   @Get('states')
   getStates() {
     return this.adminService.getStates();
   }
 
+  // =========================
+  // DASHBOARD
+  // =========================
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
@@ -39,14 +46,17 @@ export class AdminController {
     return this.adminService.adminDashboard(req.user);
   }
 
+  // =========================
+  // ACTIVITIES
+  // =========================
 
-  //activities
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Post('activities')
   createActivity(@Body() dto: CreateActivityDto, @Req() req) {
     return this.adminService.createActivity(dto, req.user);
   }
+
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Put('activity/:id')
@@ -82,7 +92,10 @@ export class AdminController {
     return this.adminService.getAllActivities(req.user);
   }
 
-  //tag
+  // =========================
+  // TAG GROUP WITH ACTIVITY
+  // =========================
+
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Post('tag-group-activity')
@@ -90,14 +103,17 @@ export class AdminController {
     return this.adminService.tagGroupWithActivity(dto, req.user);
   }
 
-  //group
-  //groups
+  // =========================
+  // GROUPS
+  // =========================
+
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Post('groups')
   createGroup(@Body() dto: CreateGroupDto, @Req() req) {
     return this.adminService.createGroup(dto, req.user);
   }
+
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Get('groups')
@@ -126,24 +142,21 @@ export class AdminController {
     return this.adminService.activateGroup(+id);
   }
 
-  //session
+  // =========================
+  // SESSIONS
+  // =========================
+
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Post('session')
-  createSession(
-    @Body() dto: CreateSessionDto,
-    @Req() req
-  ) {
+  createSession(@Body() dto: CreateSessionDto, @Req() req) {
     return this.adminService.createSession(dto, req.user);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Put('session/:id')
-  updateSession(
-    @Param('id') id: string,
-    @Body() dto: UpdateSessionDto
-  ) {
+  updateSession(@Param('id') id: string, @Body() dto: UpdateSessionDto) {
     return this.adminService.updateSession(+id, dto);
   }
 
@@ -175,6 +188,10 @@ export class AdminController {
     return this.adminService.getAllSessions(req.user);
   }
 
+  // =========================
+  // BENEFICIARY REQUESTS
+  // =========================
+
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Get('beneficiary-requests')
@@ -186,7 +203,10 @@ export class AdminController {
   @Roles('ADMIN')
   @Patch('beneficiary-requests/:id/approve')
   approveManagerBeneficiaryRequest(@Param('id') id: string, @Req() req) {
-    return this.adminService.approveManagerBeneficiaryRequest(+id, req.user.userId);
+    return this.adminService.approveManagerBeneficiaryRequest(
+      +id,
+      req.user.userId,
+    );
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -197,10 +217,18 @@ export class AdminController {
     @Body('reason') reason: string,
     @Req() req,
   ) {
-    return this.adminService.rejectManagerBeneficiaryRequest(+id, req.user.userId, reason);
+    return this.adminService.rejectManagerBeneficiaryRequest(
+      +id,
+      req.user.userId,
+      reason,
+    );
   }
 
-  // Pending Requests (Profile / Worker Updates)
+  // =========================
+  // PROFILE REQUESTS
+  // (Pending profile / worker updates)
+  // =========================
+
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Get('profile-requests')
@@ -212,7 +240,10 @@ export class AdminController {
   @Roles('ADMIN')
   @Patch('profile-requests/:id/approve')
   approveProfileRequest(@Param('id') id: string, @Req() req) {
-    return this.adminService.approveManagerBeneficiaryRequest(+id, req.user.userId);
+    return this.adminService.approveManagerBeneficiaryRequest(
+      +id,
+      req.user.userId,
+    );
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -223,7 +254,10 @@ export class AdminController {
     @Body('reason') reason: string,
     @Req() req,
   ) {
-    return this.adminService.rejectManagerBeneficiaryRequest(+id, req.user.userId, reason);
+    return this.adminService.rejectManagerBeneficiaryRequest(
+      +id,
+      req.user.userId,
+      reason,
+    );
   }
-
 }

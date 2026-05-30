@@ -17,7 +17,7 @@ async function main() {
 
   /* ================= ROLES ================= */
 
-  const roles = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'OUTREACH'];
+  const roles = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'OUTREACH', 'ANALYST'];
 
   for (const role of roles) {
     await prisma.role.upsert({
