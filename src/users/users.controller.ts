@@ -261,4 +261,15 @@ export class UsersController {
     return this.usersService.updateAnalystStatus(+id, status);
   }
 
+  // =========================
+  // ANALYST DASHBOARD
+  // =========================
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ANALYST')
+  @Get('analyst/dashboard/reports')
+  getAnalystDashboardReports(@Req() req) {
+    return this.usersService.getAnalystDashboardReports(req.user.userId);
+  }
+
 }

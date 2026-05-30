@@ -1048,4 +1048,61 @@ export class UsersService {
       }
     });
   }
+
+  async getAnalystDashboardReports(userId: number) {
+    // 1. Get projects assigned to this analyst
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: { userId },
+      select: { projectId: true },
+    });
+
+    if (!assignments.length) {
+      return [];
+    }
+
+    const projectIds = [...new Set(assignments.map((a) => a.projectId))];
+
+    // 2. Fetch all activity reports for beneficiaries in those projects
+    const reports = await this.prisma.activityReport.findMany({
+      where: {
+        beneficiary: {
+          projectId: { in: projectIds },
+        },
+      },
+      orderBy: { date: 'desc' },
+      include: {
+        beneficiary: {
+          include: {
+            awc: {
+              include: {
+                state: true,
+                district: true,
+                block: true,
+                village: true,
+              },
+            },
+          },
+        },
+        activity: { select: { id: true, name: true } },
+        session: { select: { id: true, name: true } },
+        reportedBy: { select: { id: true, name: true } },
+      },
+    });
+
+    return reports.map((r) => ({
+      reportId: r.id,
+      beneficiaryId: r.beneficiary.uid,
+      beneficiaryName: r.beneficiary.name,
+      state: r.beneficiary.awc?.state?.name ?? r.beneficiary.state ?? '-',
+      district: r.beneficiary.awc?.district?.name ?? r.beneficiary.district ?? '-',
+      block: r.beneficiary.awc?.block?.name ?? r.beneficiary.block ?? '-',
+      village: r.beneficiary.awc?.village?.name ?? r.beneficiary.village ?? '-',
+      awcCenter: r.beneficiary.awc?.awcName ?? r.beneficiary.awc?.locationCode ?? '-',
+      activity: r.activity.name,
+      session: r.session.name,
+      reportData: r.reportData,
+      reportingDate: r.date,
+      reportedBy: r.reportedBy.name,
+    }));
+  }
 }
