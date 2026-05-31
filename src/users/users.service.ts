@@ -1100,6 +1100,7 @@ export class UsersService {
       womanAgeAtMarriage: r.beneficiary.womanAgeAtMarriage ?? null,
       husbandAgeAtMarriage: r.beneficiary.husbandAgeAtMarriage ?? null,
       maritalStatus: r.beneficiary.maritalStatus ?? null,
+      gender: r.beneficiary.gender ?? null,
       // Location
       state: r.beneficiary.awc?.state?.name ?? r.beneficiary.state ?? '-',
       district: r.beneficiary.awc?.district?.name ?? r.beneficiary.district ?? '-',
