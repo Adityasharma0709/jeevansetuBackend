@@ -1093,11 +1093,20 @@ export class UsersService {
       reportId: r.id,
       beneficiaryId: r.beneficiary.uid,
       beneficiaryName: r.beneficiary.name,
+      // Beneficiary detail fields
+      dateOfBirth: r.beneficiary.dateOfBirth ?? null,
+      guardianName: r.beneficiary.guardianName ?? null,
+      dateOfMarriage: r.beneficiary.dateOfMarriage ?? null,
+      womanAgeAtMarriage: r.beneficiary.womanAgeAtMarriage ?? null,
+      husbandAgeAtMarriage: r.beneficiary.husbandAgeAtMarriage ?? null,
+      maritalStatus: r.beneficiary.maritalStatus ?? null,
+      // Location
       state: r.beneficiary.awc?.state?.name ?? r.beneficiary.state ?? '-',
       district: r.beneficiary.awc?.district?.name ?? r.beneficiary.district ?? '-',
       block: r.beneficiary.awc?.block?.name ?? r.beneficiary.block ?? '-',
       village: r.beneficiary.awc?.village?.name ?? r.beneficiary.village ?? '-',
       awcCenter: r.beneficiary.awc?.awcName ?? r.beneficiary.awc?.locationCode ?? '-',
+      // Activity & report
       activity: r.activity.name,
       session: r.session.name,
       reportData: r.reportData,
