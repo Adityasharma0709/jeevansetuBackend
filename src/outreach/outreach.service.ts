@@ -416,8 +416,29 @@ export class OutreachService {
     return this.prisma.activityReport.findMany({
       where: { reportedById: userId },
       include: {
-        beneficiary: { select: { name: true, uid: true, mobileNumber: true } },
-        child: { select: { name: true, uid: true } },
+        beneficiary: {
+          select: {
+            name: true,
+            uid: true,
+            mobileNumber: true,
+            dateOfBirth: true,
+            gender: true,
+            typeof: true,
+            groups: {
+              include: {
+                group: true
+              }
+            }
+          }
+        },
+        child: {
+          select: {
+            name: true,
+            uid: true,
+            dateOfBirth: true,
+            gender: true
+          }
+        },
         activity: { select: { name: true } },
         session: { select: { name: true } }
       },
