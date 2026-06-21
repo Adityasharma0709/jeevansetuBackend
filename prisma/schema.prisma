@@ -293,8 +293,6 @@ model BeneficiaryChild {
 model BeneficiaryGroup {
   id     Int    @id @default(autoincrement())
    name String @unique
-  minAge Int
-  maxAge Int
 status String @default("ACTIVE") 
   createdById Int
   creator     User @relation(fields: [createdById], references: [id])

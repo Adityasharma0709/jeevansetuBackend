@@ -5,5 +5,6 @@ import { OutreachController } from './outreach.controller';
 @Module({
   controllers: [OutreachController],
   providers: [OutreachService],
+  exports: [OutreachService],
 })
 export class OutreachModule {}

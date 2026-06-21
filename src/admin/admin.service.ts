@@ -9,14 +9,13 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { CreateGroupDto } from './dto/create-group.dto';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { TagGroupActivityDto } from './dto/tag-group-activity.dto';
-import { UpdateGroupDto } from './dto/update-group.dto';
 import { UpdateActivityDto } from './dto/update-activity.dto';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import * as bcrypt from 'bcrypt';
+import { OutreachService } from '../outreach/outreach.service';
 
 const OUTREACH_CODE_PREFIX = 'OW';
 const OUTREACH_CODE_MIN_DIGITS = 2;
@@ -24,7 +23,10 @@ const OUTREACH_CODE_MAX_RETRIES = 5;
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private outreachService: OutreachService,
+  ) { }
 
   private async generateNextOutreachUserCode(
     tx: Prisma.TransactionClient,
@@ -128,43 +130,6 @@ export class AdminService {
 
 
   //group
-  async createGroup(dto: CreateGroupDto, user: any) {
-    if (!user?.userId) {
-      throw new UnauthorizedException('User not found');
-    }
-
-    if (dto.activityId) {
-      await this.ensureActivityIsActive(dto.activityId);
-    }
-
-    const exists = await this.prisma.beneficiaryGroup.findFirst({
-      where: { name: dto.name },
-    });
-
-    if (exists) {
-      throw new ConflictException('Group already exists');
-    }
-
-    const createdGroup = await this.prisma.beneficiaryGroup.create({
-      data: {
-        name: dto.name,
-        minAge: dto.minAge,
-        maxAge: dto.maxAge,
-        createdById: user.userId, // ðŸ”¥ FIXED
-      },
-    });
-
-    if (dto.activityId) {
-      await this.prisma.groupActivity.create({
-        data: {
-          groupId: createdGroup.id,
-          activityId: dto.activityId,
-        },
-      });
-    }
-
-    return createdGroup;
-  }
   async getAllGroups(user: any) {
     const where = user.roles?.includes('SUPER_ADMIN') ? {} : { createdById: user.userId };
     return this.prisma.beneficiaryGroup.findMany({
@@ -189,82 +154,6 @@ export class AdminService {
     });
   }
 
-  async updateGroup(id: number, dto: UpdateGroupDto) {
-    const { activityId, ...updateData } = dto;
-
-    if (activityId) {
-      const existingGroup = await this.prisma.beneficiaryGroup.findUnique({
-        where: { id },
-        select: { id: true, status: true },
-      });
-      if (!existingGroup) throw new NotFoundException('Group not found');
-      if (existingGroup.status?.toUpperCase() !== 'ACTIVE') {
-        throw new BadRequestException('Group is deactivated');
-      }
-
-      await this.ensureActivityIsActive(activityId);
-    }
-
-    const group = await this.prisma.beneficiaryGroup.update({
-      where: { id },
-      data: updateData,
-    });
-
-    if (activityId) {
-      const exists = await this.prisma.groupActivity.findFirst({
-        where: { groupId: id, activityId },
-      });
-
-      if (!exists) {
-        await this.prisma.groupActivity.create({
-          data: {
-            groupId: id,
-            activityId,
-          },
-        });
-      }
-    }
-
-    return group;
-  }
-
-  async deactivateGroup(id: number) {
-    const group = await this.prisma.beneficiaryGroup.findUnique({
-      where: { id },
-    });
-
-    if (!group) {
-      throw new NotFoundException('Group not found');
-    }
-
-    if (group.status === 'INACTIVE') {
-      throw new BadRequestException('Group already inactive');
-    }
-
-    return this.prisma.beneficiaryGroup.update({
-      where: { id },
-      data: { status: 'INACTIVE' },
-    });
-  }
-
-  async activateGroup(id: number) {
-    const group = await this.prisma.beneficiaryGroup.findUnique({
-      where: { id },
-    });
-
-    if (!group) {
-      throw new NotFoundException('Group not found');
-    }
-
-    if (group.status === 'ACTIVE') {
-      throw new BadRequestException('Group already active');
-    }
-
-    return this.prisma.beneficiaryGroup.update({
-      where: { id },
-      data: { status: 'ACTIVE' },
-    });
-  }
   //activities
   async createActivity(dto: CreateActivityDto, user: any) {
     if (!user?.userId) {
@@ -674,6 +563,7 @@ export class AdminService {
         where: { id: Number(beneficiaryId) },
         data: changes,
       });
+      await this.outreachService.recalculateGroupsForBeneficiary(Number(beneficiaryId));
     }
 
     if (requestType === 'CREATE_WORKER') {
