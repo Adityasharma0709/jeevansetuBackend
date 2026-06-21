@@ -874,7 +874,11 @@ export class OutreachService {
     const latestPregnancyStatus = latestMainReportData.pregnancyStatus || '';
     const latestSamMamStatus = latestMainReportData.samMamStatus || '';
 
-    // Preserve non-system groups (like Stakeholders)
+    if (beneficiary.typeof === 'Stakeholder') {
+      groupNames.add('Stakeholders');
+    }
+
+    // Preserve non-system groups
     const existingGroupNames = beneficiary.groups.map(g => g.group.name);
     const systemGroupNames = [
       'Young Married Women',
@@ -889,7 +893,8 @@ export class OutreachService {
       'Other Beneficiaries - Females',
       'Other Beneficiaries - Males',
       'SAM Children [0-5 Years]',
-      'MAM Children [0-5 Years]'
+      'MAM Children [0-5 Years]',
+      'Stakeholders'
     ];
     for (const name of existingGroupNames) {
       if (!systemGroupNames.includes(name)) {
@@ -960,38 +965,7 @@ export class OutreachService {
       }
     }
 
-    // Evaluate children rules
-    for (const { child, latestReportData } of childrenWithReports) {
-      const childAge = this.calcAge(child.dateOfBirth);
-      const childGender = (child.gender || '').trim();
-      const childSamMamStatus = latestReportData.samMamStatus || '';
 
-      if (childGender === 'Female') {
-        if (childAge < 6) {
-          if (childSamMamStatus === 'SAM') {
-            groupNames.add('SAM Children [0-5 Years]');
-          } else if (childSamMamStatus === 'MAM') {
-            groupNames.add('MAM Children [0-5 Years]');
-          } else {
-            groupNames.add('Children below 6(3-6 Years) - Girls');
-          }
-        } else if (childAge >= 6 && childAge < 10) {
-          groupNames.add('Children above 6(6-9 Years) - Girls');
-        }
-      } else if (childGender === 'Male') {
-        if (childAge < 6) {
-          if (childSamMamStatus === 'SAM') {
-            groupNames.add('SAM Children [0-5 Years]');
-          } else if (childSamMamStatus === 'MAM') {
-            groupNames.add('MAM Children [0-5 Years]');
-          } else {
-            groupNames.add('Children below 6(3-6 Years) - Boys');
-          }
-        } else if (childAge >= 6 && childAge < 10) {
-          groupNames.add('Children above 6 (6-9 Years) - Boys');
-        }
-      }
-    }
 
     // Sync database
     await this.syncGroupsForBeneficiary(beneficiaryId, Array.from(groupNames));
