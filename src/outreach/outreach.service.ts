@@ -608,6 +608,12 @@ export class OutreachService {
   }
 
   async getBeneficiary(id: number) {
+    try {
+      await this.recalculateGroupsForBeneficiary(id);
+    } catch (e) {
+      console.error('Error recalculating groups for beneficiary:', e);
+    }
+
     const ben = await this.prisma.beneficiary.findUnique({
       where: { id },
       include: {
