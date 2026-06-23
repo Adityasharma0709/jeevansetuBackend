@@ -412,9 +412,147 @@ export class OutreachService {
     };
   }
 
-  async getMyReports(userId: number) {
+  async getDashboardStats(user: any, projectId?: number) {
+    const roles = user.roles?.map(r => r.role?.name || r.name) || [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
+    const isAnalyst = roles.includes('ANALYST');
+    const isAdmin = roles.includes('ADMIN');
+    const isManager = roles.includes('MANAGER');
+
+    let benWhere: any = {};
+    let repWhere: any = {};
+    let projWhere: any = {};
+
+    if (!isSuperAdmin) {
+      if (isAnalyst) {
+        if (!projectId) {
+          throw new BadRequestException('projectId is required for Analyst role');
+        }
+        benWhere.projectId = projectId;
+        repWhere.beneficiary = { projectId };
+        projWhere.id = projectId;
+      } else if (isAdmin) {
+        const assignments = await this.prisma.userProjectLocation.findMany({
+          where: { userId: user.userId },
+          select: { projectId: true }
+        });
+        const pIds = assignments.map(a => a.projectId);
+        benWhere.projectId = { in: pIds };
+        repWhere.beneficiary = { projectId: { in: pIds } };
+        projWhere.id = { in: pIds };
+      } else if (isManager) {
+        const managedUsers = await this.prisma.user.findMany({
+          where: { createdByAdminId: user.userId },
+          select: { id: true }
+        });
+        const managedIds = [...managedUsers.map(u => u.id), user.userId];
+        benWhere.createdById = { in: managedIds };
+        repWhere.reportedById = { in: managedIds };
+      } else {
+        benWhere.createdById = user.userId;
+        repWhere.reportedById = user.userId;
+      }
+    }
+
+    const totalBeneficiaries = await this.prisma.beneficiary.count({ where: benWhere });
+
+    let assignedProjects = 0;
+    if (isSuperAdmin) assignedProjects = await this.prisma.project.count();
+    else if (isAdmin || isAnalyst) assignedProjects = await this.prisma.project.count({ where: projWhere });
+    else assignedProjects = await this.prisma.userProjectLocation.count({ where: { userId: user.userId } });
+
+    const reports = await this.prisma.activityReport.findMany({
+      where: repWhere,
+      select: { reportData: true, beneficiary: { select: { dateOfBirth: true } } }
+    });
+
+    let activePregnantWomen = 0, activeLactatingMothers = 0, activeSamChildren = 0, activeMamChildren = 0;
+    let adolescentGirls = 0, infantsEbfPromotion = 0, infantsCfPromotion = 0, womenDueForDelivery30Days = 0;
+    let adults = 0, adolescents = 0, childrenUnder5 = 0, children6To10 = 0;
+
+    const today = new Date();
+    const next30Days = new Date(today);
+    next30Days.setDate(today.getDate() + 30);
+
+    for (const report of reports) {
+      const data: any = report.reportData || {};
+      const dob = report.beneficiary?.dateOfBirth ? new Date(report.beneficiary.dateOfBirth) : null;
+      let ageYears = 0, ageMonths = 0;
+      
+      if (dob) {
+        ageYears = today.getFullYear() - dob.getFullYear();
+        ageMonths = ageYears * 12 + (today.getMonth() - dob.getMonth());
+      }
+
+      if (data.pregnancyStatus === 'Currently Pregnant') {
+        activePregnantWomen++;
+        if (data.edd) {
+          const eddDate = new Date(data.edd);
+          if (eddDate >= today && eddDate <= next30Days) womenDueForDelivery30Days++;
+        }
+      }
+      if (data.pregnancyStatus === 'Baby Delivered') activeLactatingMothers++;
+      if (data.samMamStatus === 'SAM') activeSamChildren++;
+      if (data.samMamStatus === 'MAM') activeMamChildren++;
+      
+      if (ageYears >= 10 && ageYears <= 19 && data.gender === 'Female') adolescentGirls++;
+      if (ageMonths <= 6) infantsEbfPromotion++;
+      if (ageMonths > 6 && ageYears < 12) infantsCfPromotion++;
+
+      if (ageYears > 19) adults++;
+      else if (ageYears >= 10 && ageYears <= 19) adolescents++;
+      else if (ageYears < 5) childrenUnder5++;
+      else if (ageYears >= 6 && ageYears <= 10) children6To10++;
+    }
+
+    return {
+      totalBeneficiaries,
+      assignedProjects,
+      assignedLocations: 0,
+      outreachActions: {
+        activePregnantWomen, activeLactatingMothers, activeSamChildren, activeMamChildren,
+        adolescentGirls, infantsEbfPromotion, infantsCfPromotion, womenDueForDelivery30Days
+      },
+      episodesOfCare: { adults, adolescents, childrenUnder5, children6To10 },
+      activities: []
+    };
+  }
+
+  async getMyReports(user: any, projectId?: number) {
+    const roles = user.roles?.map(r => r.role?.name || r.name) || [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
+    const isAnalyst = roles.includes('ANALYST');
+    const isAdmin = roles.includes('ADMIN');
+    const isManager = roles.includes('MANAGER');
+
+    let where: any = {};
+
+    if (!isSuperAdmin) {
+      if (isAnalyst) {
+        if (!projectId) {
+          throw new BadRequestException('projectId is required for Analyst role');
+        }
+        where.beneficiary = { projectId };
+      } else if (isAdmin) {
+        const assignments = await this.prisma.userProjectLocation.findMany({
+          where: { userId: user.userId },
+          select: { projectId: true }
+        });
+        where.beneficiary = { projectId: { in: assignments.map(a => a.projectId) } };
+      } else if (isManager) {
+        const managedUsers = await this.prisma.user.findMany({
+          where: { createdByAdminId: user.userId },
+          select: { id: true }
+        });
+        const managedIds = managedUsers.map(u => u.id);
+        where.reportedById = { in: [...managedIds, user.userId] };
+      } else {
+        where.reportedById = user.userId;
+      }
+    }
+
     return this.prisma.activityReport.findMany({
-      where: { reportedById: userId },
+      where,
       include: {
         beneficiary: {
           select: {
@@ -454,15 +592,38 @@ export class OutreachService {
 
     return { users, projects, awcs, assignments };
   }
-  async getBeneficiaryList(user: any, search?: string) {
+  async getBeneficiaryList(user: any, search?: string, projectId?: number) {
     const roles = user.roles?.map(r => r.role?.name || r.name) || [];
     const isSuperAdmin = roles.includes('SUPER_ADMIN');
+    const isAnalyst = roles.includes('ANALYST');
+    const isAdmin = roles.includes('ADMIN');
+    const isManager = roles.includes('MANAGER');
 
     let where: any = {};
 
     if (!isSuperAdmin) {
-      // Outreach workers only see beneficiaries they personally registered
-      where.createdById = user.userId;
+      if (isAnalyst) {
+        if (!projectId) {
+          throw new BadRequestException('projectId is required for Analyst role');
+        }
+        where.projectId = projectId;
+      } else if (isAdmin) {
+        const assignments = await this.prisma.userProjectLocation.findMany({
+          where: { userId: user.userId },
+          select: { projectId: true }
+        });
+        where.projectId = { in: assignments.map(a => a.projectId) };
+      } else if (isManager) {
+        const managedUsers = await this.prisma.user.findMany({
+          where: { createdByAdminId: user.userId },
+          select: { id: true }
+        });
+        const managedIds = managedUsers.map(u => u.id);
+        where.createdById = { in: [...managedIds, user.userId] };
+      } else {
+        // Outreach workers only see beneficiaries they personally registered
+        where.createdById = user.userId;
+      }
     }
 
     if (search) {

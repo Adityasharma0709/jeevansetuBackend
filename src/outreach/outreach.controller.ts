@@ -99,10 +99,17 @@ export class OutreachController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('OUTREACH')
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN', 'ANALYST')
+  @Get('dashboard/stats')
+  getDashboardStats(@Req() req, @Query('projectId') projectId?: string) {
+    return this.outreachService.getDashboardStats(req.user, projectId ? +projectId : undefined);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN', 'ANALYST')
   @Get('my-reports')
-  getMyReports(@Req() req) {
-    return this.outreachService.getMyReports(req.user.userId);
+  getMyReports(@Req() req, @Query('projectId') projectId?: string) {
+    return this.outreachService.getMyReports(req.user, projectId ? +projectId : undefined);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -112,10 +119,10 @@ export class OutreachController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN')
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN', 'ANALYST')
   @Get('beneficiary-list')
-  beneficiaryList(@Req() req, @Query('search') search?: string) {
-    return this.outreachService.getBeneficiaryList(req.user, search);
+  beneficiaryList(@Req() req, @Query('search') search?: string, @Query('projectId') projectId?: string) {
+    return this.outreachService.getBeneficiaryList(req.user, search, projectId ? +projectId : undefined);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
