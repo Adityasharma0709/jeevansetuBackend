@@ -412,7 +412,7 @@ export class OutreachService {
     };
   }
 
-  async getDashboardStats(user: any, projectId?: number) {
+  async getDashboardStats(user: any, projectId?: number, activityId?: number, sessionId?: number) {
     const roles = user.roles?.map(r => r.role?.name || r.name) || [];
     const isSuperAdmin = roles.includes('SUPER_ADMIN');
     const isAnalyst = roles.includes('ANALYST');
@@ -454,6 +454,9 @@ export class OutreachService {
       }
     }
 
+    if (activityId) repWhere.activityId = activityId;
+    if (sessionId) repWhere.sessionId = sessionId;
+
     const totalBeneficiaries = await this.prisma.beneficiary.count({ where: benWhere });
 
     let assignedProjects = 0;
@@ -463,7 +466,12 @@ export class OutreachService {
 
     const reports = await this.prisma.activityReport.findMany({
       where: repWhere,
-      select: { reportData: true, beneficiary: { select: { dateOfBirth: true } } }
+      select: { 
+        reportData: true, 
+        beneficiary: { 
+          select: { dateOfBirth: true, gender: true, maritalStatus: true, typeof: true } 
+        } 
+      }
     });
 
     let activePregnantWomen = 0, activeLactatingMothers = 0, activeSamChildren = 0, activeMamChildren = 0;
@@ -505,6 +513,35 @@ export class OutreachService {
       else if (ageYears >= 6 && ageYears <= 10) children6To10++;
     }
 
+    let youngMarriedWomen = 0, pregnantWomen = 0, lactatingWomen = 0, mam0to5 = 0, sam0to5 = 0;
+    let childrenBelow6Girls = 0, childrenAbove6Girls = 0, childrenAbove6Boys = 0;
+    let adolescentGirls2 = 0, adolescentBoys = 0, stakeholders = 0, otherBeneficiaries = 0;
+
+    for (const report of reports) {
+      const data: any = report.reportData || {};
+      const dob = report.beneficiary?.dateOfBirth ? new Date(report.beneficiary.dateOfBirth) : null;
+      let ageYears = 0;
+      if (dob) {
+        ageYears = today.getFullYear() - dob.getFullYear();
+      }
+      const gender = report.beneficiary?.gender;
+      const maritalStatus = report.beneficiary?.maritalStatus;
+      const typeofBen = report.beneficiary?.typeof;
+
+      if (data.pregnancyStatus === 'Currently Pregnant') pregnantWomen++;
+      else if (data.pregnancyStatus === 'Baby Delivered') lactatingWomen++;
+      else if (data.samMamStatus === 'MAM' && ageYears <= 5) mam0to5++;
+      else if (data.samMamStatus === 'SAM' && ageYears <= 5) sam0to5++;
+      else if (gender === 'Female' && maritalStatus === 'Married' && ageYears <= 24) youngMarriedWomen++;
+      else if (gender === 'Female' && ageYears < 6) childrenBelow6Girls++;
+      else if (gender === 'Female' && ageYears >= 6 && ageYears <= 10) childrenAbove6Girls++;
+      else if (gender === 'Male' && ageYears >= 6 && ageYears <= 10) childrenAbove6Boys++;
+      else if (gender === 'Female' && ageYears >= 10 && ageYears <= 19) adolescentGirls2++;
+      else if (gender === 'Male' && ageYears >= 10 && ageYears <= 19) adolescentBoys++;
+      else if (typeofBen === 'Stakeholder') stakeholders++;
+      else otherBeneficiaries++;
+    }
+
     return {
       totalBeneficiaries,
       assignedProjects,
@@ -514,7 +551,20 @@ export class OutreachService {
         adolescentGirls, infantsEbfPromotion, infantsCfPromotion, womenDueForDelivery30Days
       },
       episodesOfCare: { adults, adolescents, childrenUnder5, children6To10 },
-      activities: []
+      activities: [
+        { label: 'YOUNG MARRIED WOMEN', count: youngMarriedWomen, countColor: 'text-gray-900' },
+        { label: 'PREGNANT WOMEN', count: pregnantWomen, countColor: 'text-gray-900' },
+        { label: 'MAM (0-5)', count: mam0to5, countColor: 'text-green-600' },
+        { label: 'CHILDREN BELOW 6 (0-5 YEARS) - GIRLS', count: childrenBelow6Girls, countColor: 'text-gray-900' },
+        { label: 'LACTATING WOMEN', count: lactatingWomen, countColor: 'text-gray-900' },
+        { label: 'ADOLESCENT GIRLS', count: adolescentGirls2, countColor: 'text-gray-900' },
+        { label: 'CHILDREN ABOVE 6 (6-10 YEARS) - GIRLS', count: childrenAbove6Girls, countColor: 'text-red-600' },
+        { label: 'STAKEHOLDERS', count: stakeholders, countColor: 'text-gray-900' },
+        { label: 'ADOLESCENT BOYS', count: adolescentBoys, countColor: 'text-gray-900' },
+        { label: 'SAM (0-5)', count: sam0to5, countColor: 'text-red-600' },
+        { label: 'CHILDREN ABOVE 6 (6-10 YEARS) - BOYS', count: childrenAbove6Boys, countColor: 'text-green-600' },
+        { label: 'OTHER BENEFICIARIES', count: otherBeneficiaries, countColor: 'text-gray-900' },
+      ]
     };
   }
 
