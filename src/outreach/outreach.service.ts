@@ -546,6 +546,7 @@ export class OutreachService {
       totalBeneficiaries,
       assignedProjects,
       assignedLocations: 0,
+      totalReports: reports.length,
       outreachActions: {
         activePregnantWomen, activeLactatingMothers, activeSamChildren, activeMamChildren,
         adolescentGirls, infantsEbfPromotion, infantsCfPromotion, womenDueForDelivery30Days
