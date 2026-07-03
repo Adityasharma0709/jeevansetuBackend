@@ -464,16 +464,6 @@ export class OutreachService {
     else if (isAdmin || isAnalyst) assignedProjects = await this.prisma.project.count({ where: projWhere });
     else assignedProjects = await this.prisma.userProjectLocation.count({ where: { userId: user.userId } });
 
-    const reports = await this.prisma.activityReport.findMany({
-      where: repWhere,
-      select: { 
-        reportData: true, 
-        beneficiary: { 
-          select: { dateOfBirth: true, gender: true, maritalStatus: true, typeof: true } 
-        } 
-      }
-    });
-
     let activePregnantWomen = 0, activeLactatingMothers = 0, activeSamChildren = 0, activeMamChildren = 0;
     let adolescentGirls = 0, infantsEbfPromotion = 0, infantsCfPromotion = 0, womenDueForDelivery30Days = 0;
     let adults = 0, adolescents = 0, childrenUnder5 = 0, children6To10 = 0;
@@ -482,71 +472,94 @@ export class OutreachService {
     const next30Days = new Date(today);
     next30Days.setDate(today.getDate() + 30);
 
-    for (const report of reports) {
-      const data: any = report.reportData || {};
-      const dob = report.beneficiary?.dateOfBirth ? new Date(report.beneficiary.dateOfBirth) : null;
-      let ageYears = 0, ageMonths = 0;
-      
-      if (dob) {
-        ageYears = today.getFullYear() - dob.getFullYear();
-        ageMonths = ageYears * 12 + (today.getMonth() - dob.getMonth());
-      }
-
-      if (data.pregnancyStatus === 'Currently Pregnant') {
-        activePregnantWomen++;
-        if (data.edd) {
-          const eddDate = new Date(data.edd);
-          if (eddDate >= today && eddDate <= next30Days) womenDueForDelivery30Days++;
-        }
-      }
-      if (data.pregnancyStatus === 'Baby Delivered') activeLactatingMothers++;
-      if (data.samMamStatus === 'SAM') activeSamChildren++;
-      if (data.samMamStatus === 'MAM') activeMamChildren++;
-      
-      if (ageYears >= 10 && ageYears <= 19 && data.gender === 'Female') adolescentGirls++;
-      if (ageMonths <= 6) infantsEbfPromotion++;
-      if (ageMonths > 6 && ageYears < 12) infantsCfPromotion++;
-
-      if (ageYears > 19) adults++;
-      else if (ageYears >= 10 && ageYears <= 19) adolescents++;
-      else if (ageYears < 5) childrenUnder5++;
-      else if (ageYears >= 6 && ageYears <= 10) children6To10++;
-    }
-
     let youngMarriedWomen = 0, pregnantWomen = 0, lactatingWomen = 0, mam0to5 = 0, sam0to5 = 0;
     let childrenBelow6Girls = 0, childrenAbove6Girls = 0, childrenAbove6Boys = 0;
     let adolescentGirls2 = 0, adolescentBoys = 0, stakeholders = 0, otherBeneficiaries = 0;
+    
+    let totalReports = 0;
+    const BATCH_SIZE = 10000;
+    let cursorObj: { id: number } | null = null;
 
-    for (const report of reports) {
-      const data: any = report.reportData || {};
-      const dob = report.beneficiary?.dateOfBirth ? new Date(report.beneficiary.dateOfBirth) : null;
-      let ageYears = 0;
-      if (dob) {
-        ageYears = today.getFullYear() - dob.getFullYear();
+    while (true) {
+      const batchParams: any = {
+        where: repWhere,
+        take: BATCH_SIZE,
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          reportData: true,
+          beneficiary: {
+            select: { dateOfBirth: true, gender: true, maritalStatus: true, typeof: true }
+          }
+        }
+      };
+
+      if (cursorObj) {
+        batchParams.cursor = { id: cursorObj.id };
+        batchParams.skip = 1;
       }
-      const gender = report.beneficiary?.gender;
-      const maritalStatus = report.beneficiary?.maritalStatus;
-      const typeofBen = report.beneficiary?.typeof;
 
-      if (data.pregnancyStatus === 'Currently Pregnant') pregnantWomen++;
-      else if (data.pregnancyStatus === 'Baby Delivered') lactatingWomen++;
-      else if (data.samMamStatus === 'MAM' && ageYears <= 5) mam0to5++;
-      else if (data.samMamStatus === 'SAM' && ageYears <= 5) sam0to5++;
-      else if (gender === 'Female' && maritalStatus === 'Married' && ageYears <= 24) youngMarriedWomen++;
-      else if (gender === 'Female' && ageYears < 6) childrenBelow6Girls++;
-      else if (gender === 'Female' && ageYears >= 6 && ageYears <= 10) childrenAbove6Girls++;
-      else if (gender === 'Male' && ageYears >= 6 && ageYears <= 10) childrenAbove6Boys++;
-      else if (gender === 'Female' && ageYears >= 10 && ageYears <= 19) adolescentGirls2++;
-      else if (gender === 'Male' && ageYears >= 10 && ageYears <= 19) adolescentBoys++;
-      else if (typeofBen === 'Stakeholder') stakeholders++;
-      else otherBeneficiaries++;
+      const reportsBatch = await this.prisma.activityReport.findMany(batchParams);
+      if (reportsBatch.length === 0) break;
+      
+      totalReports += reportsBatch.length;
+
+      for (const report of reportsBatch) {
+        const data: any = report.reportData || {};
+        const dob = report.beneficiary?.dateOfBirth ? new Date(report.beneficiary.dateOfBirth) : null;
+        let ageYears = 0, ageMonths = 0;
+        
+        if (dob) {
+          ageYears = today.getFullYear() - dob.getFullYear();
+          ageMonths = ageYears * 12 + (today.getMonth() - dob.getMonth());
+        }
+
+        if (data.pregnancyStatus === 'Currently Pregnant') {
+          activePregnantWomen++;
+          if (data.edd) {
+            const eddDate = new Date(data.edd);
+            if (eddDate >= today && eddDate <= next30Days) womenDueForDelivery30Days++;
+          }
+        }
+        if (data.pregnancyStatus === 'Baby Delivered') activeLactatingMothers++;
+        if (data.samMamStatus === 'SAM') activeSamChildren++;
+        if (data.samMamStatus === 'MAM') activeMamChildren++;
+        
+        if (ageYears >= 10 && ageYears <= 19 && data.gender === 'Female') adolescentGirls++;
+        if (ageMonths <= 6) infantsEbfPromotion++;
+        if (ageMonths > 6 && ageYears < 12) infantsCfPromotion++;
+
+        if (ageYears > 19) adults++;
+        else if (ageYears >= 10 && ageYears <= 19) adolescents++;
+        else if (ageYears < 5) childrenUnder5++;
+        else if (ageYears >= 6 && ageYears <= 10) children6To10++;
+
+        const gender = report.beneficiary?.gender;
+        const maritalStatus = report.beneficiary?.maritalStatus;
+        const typeofBen = report.beneficiary?.typeof;
+
+        if (data.pregnancyStatus === 'Currently Pregnant') pregnantWomen++;
+        else if (data.pregnancyStatus === 'Baby Delivered') lactatingWomen++;
+        else if (data.samMamStatus === 'MAM' && ageYears <= 5) mam0to5++;
+        else if (data.samMamStatus === 'SAM' && ageYears <= 5) sam0to5++;
+        else if (gender === 'Female' && maritalStatus === 'Married' && ageYears <= 24) youngMarriedWomen++;
+        else if (gender === 'Female' && ageYears < 6) childrenBelow6Girls++;
+        else if (gender === 'Female' && ageYears >= 6 && ageYears <= 10) childrenAbove6Girls++;
+        else if (gender === 'Male' && ageYears >= 6 && ageYears <= 10) childrenAbove6Boys++;
+        else if (gender === 'Female' && ageYears >= 10 && ageYears <= 19) adolescentGirls2++;
+        else if (gender === 'Male' && ageYears >= 10 && ageYears <= 19) adolescentBoys++;
+        else if (typeofBen === 'Stakeholder') stakeholders++;
+        else otherBeneficiaries++;
+      }
+
+      cursorObj = reportsBatch[reportsBatch.length - 1];
     }
 
     return {
       totalBeneficiaries,
       assignedProjects,
       assignedLocations: 0,
-      totalReports: reports.length,
+      totalReports,
       outreachActions: {
         activePregnantWomen, activeLactatingMothers, activeSamChildren, activeMamChildren,
         adolescentGirls, infantsEbfPromotion, infantsCfPromotion, womenDueForDelivery30Days
@@ -1074,24 +1087,7 @@ export class OutreachService {
 
     const latestMainReportData = (latestMainReport?.reportData as any) || {};
 
-    // For each child, fetch their latest report
-    const childrenWithReports = await Promise.all(
-      beneficiary.children.map(async (child) => {
-        const latestChildReport = await this.prisma.activityReport.findFirst({
-          where: {
-            beneficiaryId,
-            childId: child.id
-          },
-          orderBy: {
-            date: 'desc'
-          }
-        });
-        return {
-          child,
-          latestReportData: (latestChildReport?.reportData as any) || {}
-        };
-      })
-    );
+    // We no longer fetch all reports for children since the group logic does not use it.
 
     const groupNames = new Set<string>();
 
