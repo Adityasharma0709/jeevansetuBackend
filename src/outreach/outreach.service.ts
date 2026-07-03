@@ -499,7 +499,7 @@ export class OutreachService {
         batchParams.skip = 1;
       }
 
-      const reportsBatch = await this.prisma.activityReport.findMany(batchParams);
+      const reportsBatch = (await this.prisma.activityReport.findMany(batchParams)) as any[];
       if (reportsBatch.length === 0) break;
       
       totalReports += reportsBatch.length;
