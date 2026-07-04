@@ -478,13 +478,14 @@ export class OutreachService {
         SELECT 
           r.id,
           r."reportData",
-          b.gender,
+          COALESCE(c.gender, b.gender) AS gender,
           b."maritalStatus",
           b."typeof",
-          EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) AS age_years,
-          (EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, b."dateOfBirth")) AS age_months
+          EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
+          (EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months
         FROM "ActivityReport" r
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+        LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
         ${whereClause}
       )
       SELECT 
@@ -495,7 +496,7 @@ export class OutreachService {
         COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered') AS "activeLactatingMothers",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM') AS "activeSamChildren",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM') AS "activeMamChildren",
-        COUNT(*) FILTER (WHERE gender = 'Female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
         COUNT(*) FILTER (WHERE age_months <= 6) AS "infantsEbfPromotion",
         COUNT(*) FILTER (WHERE age_months > 6 AND age_years < 12) AS "infantsCfPromotion",
         COUNT(*) FILTER (
@@ -514,25 +515,25 @@ export class OutreachService {
         COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered') AS "lactatingWomen",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
-        COUNT(*) FILTER (WHERE gender = 'Female' AND "maritalStatus" = 'Married' AND age_years <= 24) AS "youngMarriedWomen",
-        COUNT(*) FILTER (WHERE gender = 'Female' AND age_years < 6) AS "childrenBelow6Girls",
-        COUNT(*) FILTER (WHERE gender = 'Female' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Girls",
-        COUNT(*) FILTER (WHERE gender = 'Male' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Boys",
-        COUNT(*) FILTER (WHERE gender = 'Female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
-        COUNT(*) FILTER (WHERE gender = 'Male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
-        COUNT(*) FILTER (WHERE "typeof" = 'Stakeholder') AS "stakeholders",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24) AS "youngMarriedWomen",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years < 6) AS "childrenBelow6Girls",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Girls",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Boys",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
+        COUNT(*) FILTER (WHERE LOWER(TRIM("typeof")) = 'stakeholder') AS "stakeholders",
         
         -- Catch all
         COUNT(*) FILTER (
           WHERE NOT ("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered')
           OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
-          OR (gender = 'Female' AND "maritalStatus" = 'Married' AND age_years <= 24)
-          OR (gender = 'Female' AND age_years < 6)
-          OR (gender = 'Female' AND age_years BETWEEN 6 AND 10)
-          OR (gender = 'Male' AND age_years BETWEEN 6 AND 10)
-          OR (gender = 'Female' AND age_years BETWEEN 10 AND 19)
-          OR (gender = 'Male' AND age_years BETWEEN 10 AND 19)
-          OR "typeof" = 'Stakeholder')
+          OR (LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years < 6)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 6 AND 10)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19)
+          OR LOWER(TRIM("typeof")) = 'stakeholder')
         ) AS "otherBeneficiaries"
       FROM ReportData;
     `;
