@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto';
 import { CreateReportDto } from './dto/create-report.dto';
@@ -420,16 +421,16 @@ export class OutreachService {
     const isManager = roles.includes('MANAGER');
 
     let benWhere: any = {};
-    let repWhere: any = {};
     let projWhere: any = {};
+    const conditions: Prisma.Sql[] = [];
 
     if (!isSuperAdmin) {
       if (isAnalyst) {
         if (!projectId) {
           throw new BadRequestException('projectId is required for Analyst role');
         }
+        conditions.push(Prisma.sql`b."projectId" = ${projectId}`);
         benWhere.projectId = projectId;
-        repWhere.beneficiary = { projectId };
         projWhere.id = projectId;
       } else if (isAdmin) {
         const assignments = await this.prisma.userProjectLocation.findMany({
@@ -438,8 +439,12 @@ export class OutreachService {
         });
         const pIds = assignments.map(a => a.projectId);
         benWhere.projectId = { in: pIds };
-        repWhere.beneficiary = { projectId: { in: pIds } };
         projWhere.id = { in: pIds };
+        if (pIds.length > 0) {
+          conditions.push(Prisma.sql`b."projectId" IN (${Prisma.join(pIds)})`);
+        } else {
+          conditions.push(Prisma.sql`1 = 0`); // Deny access
+        }
       } else if (isManager) {
         const managedUsers = await this.prisma.user.findMany({
           where: { createdByAdminId: user.userId },
@@ -447,15 +452,17 @@ export class OutreachService {
         });
         const managedIds = [...managedUsers.map(u => u.id), user.userId];
         benWhere.createdById = { in: managedIds };
-        repWhere.reportedById = { in: managedIds };
+        if (managedIds.length > 0) {
+          conditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(managedIds)})`);
+        }
       } else {
         benWhere.createdById = user.userId;
-        repWhere.reportedById = user.userId;
+        conditions.push(Prisma.sql`r."reportedById" = ${user.userId}`);
       }
     }
 
-    if (activityId) repWhere.activityId = activityId;
-    if (sessionId) repWhere.sessionId = sessionId;
+    if (activityId) conditions.push(Prisma.sql`r."activityId" = ${activityId}`);
+    if (sessionId) conditions.push(Prisma.sql`r."sessionId" = ${sessionId}`);
 
     const totalBeneficiaries = await this.prisma.beneficiary.count({ where: benWhere });
 
@@ -464,120 +471,109 @@ export class OutreachService {
     else if (isAdmin || isAnalyst) assignedProjects = await this.prisma.project.count({ where: projWhere });
     else assignedProjects = await this.prisma.userProjectLocation.count({ where: { userId: user.userId } });
 
-    let activePregnantWomen = 0, activeLactatingMothers = 0, activeSamChildren = 0, activeMamChildren = 0;
-    let adolescentGirls = 0, infantsEbfPromotion = 0, infantsCfPromotion = 0, womenDueForDelivery30Days = 0;
-    let adults = 0, adolescents = 0, childrenUnder5 = 0, children6To10 = 0;
+    const whereClause = conditions.length > 0 ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}` : Prisma.empty;
 
-    const today = new Date();
-    const next30Days = new Date(today);
-    next30Days.setDate(today.getDate() + 30);
+    const statsRaw: any[] = await this.prisma.$queryRaw`
+      WITH ReportData AS (
+        SELECT 
+          r.id,
+          r."reportData",
+          b.gender,
+          b."maritalStatus",
+          b."typeof",
+          EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) AS age_years,
+          (EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, b."dateOfBirth")) AS age_months
+        FROM "ActivityReport" r
+        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+        ${whereClause}
+      )
+      SELECT 
+        COUNT(*) AS "totalReports",
 
-    let youngMarriedWomen = 0, pregnantWomen = 0, lactatingWomen = 0, mam0to5 = 0, sam0to5 = 0;
-    let childrenBelow6Girls = 0, childrenAbove6Girls = 0, childrenAbove6Boys = 0;
-    let adolescentGirls2 = 0, adolescentBoys = 0, stakeholders = 0, otherBeneficiaries = 0;
-    
-    let totalReports = 0;
-    const BATCH_SIZE = 10000;
-    let cursorObj: { id: number } | null = null;
+        -- Outreach Actions
+        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant') AS "activePregnantWomen",
+        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered') AS "activeLactatingMothers",
+        COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM') AS "activeSamChildren",
+        COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM') AS "activeMamChildren",
+        COUNT(*) FILTER (WHERE gender = 'Female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
+        COUNT(*) FILTER (WHERE age_months <= 6) AS "infantsEbfPromotion",
+        COUNT(*) FILTER (WHERE age_months > 6 AND age_years < 12) AS "infantsCfPromotion",
+        COUNT(*) FILTER (
+          WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
+          AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+        ) AS "womenDueForDelivery30Days",
 
-    while (true) {
-      const batchParams: any = {
-        where: repWhere,
-        take: BATCH_SIZE,
-        orderBy: { id: 'asc' },
-        select: {
-          id: true,
-          reportData: true,
-          beneficiary: {
-            select: { dateOfBirth: true, gender: true, maritalStatus: true, typeof: true }
-          }
-        }
-      };
+        -- Episodes of Care
+        COUNT(*) FILTER (WHERE age_years > 19) AS "adults",
+        COUNT(*) FILTER (WHERE age_years BETWEEN 10 AND 19) AS "adolescents",
+        COUNT(*) FILTER (WHERE age_years < 5) AS "childrenUnder5",
+        COUNT(*) FILTER (WHERE age_years BETWEEN 6 AND 10) AS "children6To10",
 
-      if (cursorObj) {
-        batchParams.cursor = { id: cursorObj.id };
-        batchParams.skip = 1;
-      }
-
-      const reportsBatch = (await this.prisma.activityReport.findMany(batchParams)) as any[];
-      if (reportsBatch.length === 0) break;
-      
-      totalReports += reportsBatch.length;
-
-      for (const report of reportsBatch) {
-        const data: any = report.reportData || {};
-        const dob = report.beneficiary?.dateOfBirth ? new Date(report.beneficiary.dateOfBirth) : null;
-        let ageYears = 0, ageMonths = 0;
+        -- Activity Session Demographics
+        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant') AS "pregnantWomen",
+        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered') AS "lactatingWomen",
+        COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
+        COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
+        COUNT(*) FILTER (WHERE gender = 'Female' AND "maritalStatus" = 'Married' AND age_years <= 24) AS "youngMarriedWomen",
+        COUNT(*) FILTER (WHERE gender = 'Female' AND age_years < 6) AS "childrenBelow6Girls",
+        COUNT(*) FILTER (WHERE gender = 'Female' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Girls",
+        COUNT(*) FILTER (WHERE gender = 'Male' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Boys",
+        COUNT(*) FILTER (WHERE gender = 'Female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
+        COUNT(*) FILTER (WHERE gender = 'Male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
+        COUNT(*) FILTER (WHERE "typeof" = 'Stakeholder') AS "stakeholders",
         
-        if (dob) {
-          ageYears = today.getFullYear() - dob.getFullYear();
-          ageMonths = ageYears * 12 + (today.getMonth() - dob.getMonth());
-        }
+        -- Catch all
+        COUNT(*) FILTER (
+          WHERE NOT ("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered')
+          OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
+          OR (gender = 'Female' AND "maritalStatus" = 'Married' AND age_years <= 24)
+          OR (gender = 'Female' AND age_years < 6)
+          OR (gender = 'Female' AND age_years BETWEEN 6 AND 10)
+          OR (gender = 'Male' AND age_years BETWEEN 6 AND 10)
+          OR (gender = 'Female' AND age_years BETWEEN 10 AND 19)
+          OR (gender = 'Male' AND age_years BETWEEN 10 AND 19)
+          OR "typeof" = 'Stakeholder')
+        ) AS "otherBeneficiaries"
+      FROM ReportData;
+    `;
 
-        if (data.pregnancyStatus === 'Currently Pregnant') {
-          activePregnantWomen++;
-          if (data.edd) {
-            const eddDate = new Date(data.edd);
-            if (eddDate >= today && eddDate <= next30Days) womenDueForDelivery30Days++;
-          }
-        }
-        if (data.pregnancyStatus === 'Baby Delivered') activeLactatingMothers++;
-        if (data.samMamStatus === 'SAM') activeSamChildren++;
-        if (data.samMamStatus === 'MAM') activeMamChildren++;
-        
-        if (ageYears >= 10 && ageYears <= 19 && data.gender === 'Female') adolescentGirls++;
-        if (ageMonths <= 6) infantsEbfPromotion++;
-        if (ageMonths > 6 && ageYears < 12) infantsCfPromotion++;
-
-        if (ageYears > 19) adults++;
-        else if (ageYears >= 10 && ageYears <= 19) adolescents++;
-        else if (ageYears < 5) childrenUnder5++;
-        else if (ageYears >= 6 && ageYears <= 10) children6To10++;
-
-        const gender = report.beneficiary?.gender;
-        const maritalStatus = report.beneficiary?.maritalStatus;
-        const typeofBen = report.beneficiary?.typeof;
-
-        if (data.pregnancyStatus === 'Currently Pregnant') pregnantWomen++;
-        else if (data.pregnancyStatus === 'Baby Delivered') lactatingWomen++;
-        else if (data.samMamStatus === 'MAM' && ageYears <= 5) mam0to5++;
-        else if (data.samMamStatus === 'SAM' && ageYears <= 5) sam0to5++;
-        else if (gender === 'Female' && maritalStatus === 'Married' && ageYears <= 24) youngMarriedWomen++;
-        else if (gender === 'Female' && ageYears < 6) childrenBelow6Girls++;
-        else if (gender === 'Female' && ageYears >= 6 && ageYears <= 10) childrenAbove6Girls++;
-        else if (gender === 'Male' && ageYears >= 6 && ageYears <= 10) childrenAbove6Boys++;
-        else if (gender === 'Female' && ageYears >= 10 && ageYears <= 19) adolescentGirls2++;
-        else if (gender === 'Male' && ageYears >= 10 && ageYears <= 19) adolescentBoys++;
-        else if (typeofBen === 'Stakeholder') stakeholders++;
-        else otherBeneficiaries++;
-      }
-
-      cursorObj = reportsBatch[reportsBatch.length - 1];
-    }
+    const row = statsRaw[0] || {};
+    const toNumber = (val: any) => val ? Number(val) : 0;
 
     return {
       totalBeneficiaries,
       assignedProjects,
       assignedLocations: 0,
-      totalReports,
+      totalReports: toNumber(row.totalReports),
       outreachActions: {
-        activePregnantWomen, activeLactatingMothers, activeSamChildren, activeMamChildren,
-        adolescentGirls, infantsEbfPromotion, infantsCfPromotion, womenDueForDelivery30Days
+        activePregnantWomen: toNumber(row.activePregnantWomen),
+        activeLactatingMothers: toNumber(row.activeLactatingMothers),
+        activeSamChildren: toNumber(row.activeSamChildren),
+        activeMamChildren: toNumber(row.activeMamChildren),
+        adolescentGirls: toNumber(row.adolescentGirls),
+        infantsEbfPromotion: toNumber(row.infantsEbfPromotion),
+        infantsCfPromotion: toNumber(row.infantsCfPromotion),
+        womenDueForDelivery30Days: toNumber(row.womenDueForDelivery30Days)
       },
-      episodesOfCare: { adults, adolescents, childrenUnder5, children6To10 },
+      episodesOfCare: { 
+        adults: toNumber(row.adults), 
+        adolescents: toNumber(row.adolescents), 
+        childrenUnder5: toNumber(row.childrenUnder5), 
+        children6To10: toNumber(row.children6To10) 
+      },
       activities: [
-        { label: 'YOUNG MARRIED WOMEN', count: youngMarriedWomen, countColor: 'text-gray-900' },
-        { label: 'PREGNANT WOMEN', count: pregnantWomen, countColor: 'text-gray-900' },
-        { label: 'MAM (0-5)', count: mam0to5, countColor: 'text-green-600' },
-        { label: 'CHILDREN BELOW 6 (0-5 YEARS) - GIRLS', count: childrenBelow6Girls, countColor: 'text-gray-900' },
-        { label: 'LACTATING WOMEN', count: lactatingWomen, countColor: 'text-gray-900' },
-        { label: 'ADOLESCENT GIRLS', count: adolescentGirls2, countColor: 'text-gray-900' },
-        { label: 'CHILDREN ABOVE 6 (6-10 YEARS) - GIRLS', count: childrenAbove6Girls, countColor: 'text-red-600' },
-        { label: 'STAKEHOLDERS', count: stakeholders, countColor: 'text-gray-900' },
-        { label: 'ADOLESCENT BOYS', count: adolescentBoys, countColor: 'text-gray-900' },
-        { label: 'SAM (0-5)', count: sam0to5, countColor: 'text-red-600' },
-        { label: 'CHILDREN ABOVE 6 (6-10 YEARS) - BOYS', count: childrenAbove6Boys, countColor: 'text-green-600' },
-        { label: 'OTHER BENEFICIARIES', count: otherBeneficiaries, countColor: 'text-gray-900' },
+        { label: 'YOUNG MARRIED WOMEN', count: toNumber(row.youngMarriedWomen), countColor: 'text-gray-900' },
+        { label: 'PREGNANT WOMEN', count: toNumber(row.pregnantWomen), countColor: 'text-gray-900' },
+        { label: 'MAM (0-5)', count: toNumber(row.mam0to5), countColor: 'text-green-600' },
+        { label: 'CHILDREN BELOW 6 (0-5 YEARS) - GIRLS', count: toNumber(row.childrenBelow6Girls), countColor: 'text-gray-900' },
+        { label: 'LACTATING WOMEN', count: toNumber(row.lactatingWomen), countColor: 'text-gray-900' },
+        { label: 'ADOLESCENT GIRLS', count: toNumber(row.adolescentGirls2), countColor: 'text-gray-900' },
+        { label: 'CHILDREN ABOVE 6 (6-10 YEARS) - GIRLS', count: toNumber(row.childrenAbove6Girls), countColor: 'text-red-600' },
+        { label: 'STAKEHOLDERS', count: toNumber(row.stakeholders), countColor: 'text-gray-900' },
+        { label: 'ADOLESCENT BOYS', count: toNumber(row.adolescentBoys), countColor: 'text-gray-900' },
+        { label: 'SAM (0-5)', count: toNumber(row.sam0to5), countColor: 'text-red-600' },
+        { label: 'CHILDREN ABOVE 6 (6-10 YEARS) - BOYS', count: toNumber(row.childrenAbove6Boys), countColor: 'text-green-600' },
+        { label: 'OTHER BENEFICIARIES', count: toNumber(row.otherBeneficiaries), countColor: 'text-gray-900' },
       ]
     };
   }
