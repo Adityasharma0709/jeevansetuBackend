@@ -43,7 +43,7 @@ export class OutreachService {
       if (!dto.locationId) {
         throw new BadRequestException('locationId is required for Priority beneficiaries');
       }
-      
+
       // 1. Get AWC and check its state
       const awc = await this.prisma.awc.findUnique({
         where: { id: dto.locationId },
@@ -154,13 +154,13 @@ export class OutreachService {
     if (dto.type === 'UPDATE_PROFILE' && outreachUser) {
       const diff: Record<string, any> = {};
       const incoming = dto.data || {};
-      
+
       if (incoming.name && incoming.name !== outreachUser.name) diff.name = incoming.name;
       if (incoming.email && incoming.email !== outreachUser.email) diff.email = incoming.email;
-      
+
       const mobile = incoming.mobileNumber || incoming.mobile;
       if (mobile && mobile !== outreachUser.mobileNumber) diff.mobileNumber = mobile;
-      
+
       payload = diff;
       if (Object.keys(diff).length === 0) {
         throw new BadRequestException('No changes detected in profile update request');
@@ -189,7 +189,7 @@ export class OutreachService {
 
     const diff: Record<string, any> = {};
     const incoming = (dto?.changes as any) || {};
-    
+
     // Compare applicable fields
     const fields = [
       'typeof', 'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
@@ -313,7 +313,7 @@ export class OutreachService {
       throw new ConflictException('A report for this activity and session has already been submitted for this beneficiary on this date.');
     }
 
-    let report = await this.prisma.activityReport.create({
+    const report = await this.prisma.activityReport.create({
       data: {
         beneficiaryId: dto.beneficiaryId,
         childId: dto.childId || null,
@@ -325,50 +325,8 @@ export class OutreachService {
       }
     });
     await this.recalculateGroupsForBeneficiary(dto.beneficiaryId);
-
-    // Refresh the group on the report to reflect the newly calculated group
-    report = await this.refreshReportGroup(report.id, dto.beneficiaryId, dto.childId || null);
-
+    await this.updateReportGroupSnapshot(report.id, dto.beneficiaryId, dto.childId || null);
     return report;
-  }
-
-  private async refreshReportGroup(reportId: number, beneficiaryId: number, childId: number | null) {
-    const ben = await this.prisma.beneficiary.findUnique({
-      where: { id: beneficiaryId },
-      include: {
-        groups: { include: { group: true } },
-        children: {
-           where: childId ? { id: childId } : undefined,
-           include: { childGroups: { include: { group: true } } }
-        }
-      }
-    });
-
-    let currentGroupString = '';
-    if (ben) {
-      if (childId) {
-         const child = ben.children.find(c => c.id === childId);
-         if (child && child.childGroups) {
-           currentGroupString = child.childGroups.map(g => g.group?.name).filter(Boolean).join(', ');
-         }
-      } else {
-         if (ben.groups) {
-           currentGroupString = ben.groups.map(g => g.group?.name).filter(Boolean).join(', ');
-         }
-      }
-    }
-
-    if (currentGroupString) {
-      const existingReport = await this.prisma.activityReport.findUnique({ where: { id: reportId } });
-      if (existingReport) {
-        const updatedData = { ...(existingReport.reportData as any), group: currentGroupString };
-        return (await this.prisma.activityReport.update({
-          where: { id: reportId },
-          data: { reportData: updatedData }
-        })) as any;
-      }
-    }
-    return (await this.prisma.activityReport.findUnique({ where: { id: reportId } })) as any;
   }
 
   async getReport(id: number, user: any) {
@@ -383,7 +341,7 @@ export class OutreachService {
     });
 
     if (!report) throw new NotFoundException('Report not found');
-    
+
     // We can allow managers/admins to view reports too, but for now just basic auth 
     return report;
   }
@@ -392,13 +350,13 @@ export class OutreachService {
     const report = await this.prisma.activityReport.findUnique({
       where: { id }
     });
-    
+
     if (!report) throw new NotFoundException('Report not found');
 
     // Make sure user owns it or has right role
     const roles = user.roles?.map((r: any) => r.role?.name || r.name) || [];
     const isSuperAdmin = roles.includes('SUPER_ADMIN') || roles.includes('ADMIN') || roles.includes('MANAGER');
-    
+
     if (!isSuperAdmin && report.reportedById !== user.userId) {
       throw new ForbiddenException('You can only update reports that you created');
     }
@@ -420,15 +378,12 @@ export class OutreachService {
     if (dto.beneficiaryId) dataToUpdate.beneficiaryId = dto.beneficiaryId;
     if (dto.childId !== undefined) dataToUpdate.childId = dto.childId || null;
 
-    let updated = await this.prisma.activityReport.update({
+    const updated = await this.prisma.activityReport.update({
       where: { id },
       data: dataToUpdate
     });
     await this.recalculateGroupsForBeneficiary(updated.beneficiaryId);
-
-    // Refresh the group on the report to reflect the newly calculated group
-    updated = await this.refreshReportGroup(updated.id, updated.beneficiaryId, updated.childId);
-
+    await this.updateReportGroupSnapshot(updated.id, updated.beneficiaryId, updated.childId || null);
     return updated;
   }
 
@@ -603,11 +558,11 @@ export class OutreachService {
         infantsCfPromotion: toNumber(row.infantsCfPromotion),
         womenDueForDelivery30Days: toNumber(row.womenDueForDelivery30Days)
       },
-      episodesOfCare: { 
-        adults: toNumber(row.adults), 
-        adolescents: toNumber(row.adolescents), 
-        childrenUnder5: toNumber(row.childrenUnder5), 
-        children6To10: toNumber(row.children6To10) 
+      episodesOfCare: {
+        adults: toNumber(row.adults),
+        adolescents: toNumber(row.adolescents),
+        childrenUnder5: toNumber(row.childrenUnder5),
+        children6To10: toNumber(row.children6To10)
       },
       activities: [
         { label: 'YOUNG MARRIED WOMEN', count: toNumber(row.youngMarriedWomen), countColor: 'text-gray-900' },
@@ -1338,7 +1293,7 @@ export class OutreachService {
         groupNames.add('Children above 6(6-9 Years) - Girls');
       } else if (
         (age >= 10 && age < 14) ||
-        (age >= 14 && age <=19 && latestPregnancyStatus !== 'Currently Pregnant') ||
+        (age >= 14 && age <= 19 && latestPregnancyStatus !== 'Currently Pregnant') ||
         (age >= 14 && age <= 19 && maritalStatus !== 'Married' && !hasChildUnder2)
       ) {
         groupNames.add('Adolescent Girls');
@@ -1377,9 +1332,9 @@ export class OutreachService {
         }
       } else if (age >= 6 && age < 10) {
         groupNames.add('Children above 6 (6-9 Years) - Boys');
-      } else if (age >= 10 && age <=19) {
+      } else if (age >= 10 && age <= 19) {
         groupNames.add('Adolescent Boys');
-      } else if (age >19) {
+      } else if (age > 19) {
         groupNames.add('Other Beneficiaries - Males');
       }
     }
@@ -1564,5 +1519,43 @@ export class OutreachService {
         });
       }
     });
+  }
+
+  private async updateReportGroupSnapshot(reportId: number, beneficiaryId: number, childId: number | null) {
+    const report = await this.prisma.activityReport.findUnique({ where: { id: reportId } });
+    if (!report) return;
+
+    let newGroupString = 'N/A';
+    
+    if (childId) {
+      const childGroups = await this.prisma.childGroupMember.findMany({
+        where: { childId },
+        include: { group: true }
+      });
+      if (childGroups.length > 0) {
+        newGroupString = childGroups.map((g: any) => g.group.name).join(', ');
+      }
+    } else {
+      const mainGroups = await this.prisma.groupMember.findMany({
+        where: { beneficiaryId },
+        include: { group: true }
+      });
+      if (mainGroups.length > 0) {
+        newGroupString = mainGroups.map((g: any) => g.group.name).join(', ');
+      }
+    }
+
+    const currentData = (report.reportData as any) || {};
+    if (currentData.group !== newGroupString) {
+      await this.prisma.activityReport.update({
+        where: { id: reportId },
+        data: {
+          reportData: {
+            ...currentData,
+            group: newGroupString
+          }
+        }
+      });
+    }
   }
 }
