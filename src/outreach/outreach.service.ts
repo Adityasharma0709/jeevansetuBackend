@@ -655,7 +655,7 @@ export class OutreachService {
         SELECT 
           r.id AS "reportId",
           r.date AS "reportingDate",
-          b.uid AS "beneficiaryId",
+          COALESCE(c.uid, b.uid) AS "beneficiaryId",
           COALESCE(c.name, b.name) AS "beneficiaryName",
           b."typeof",
           a."awcName" AS awc,
@@ -666,12 +666,20 @@ export class OutreachService {
           b."maritalStatus",
           EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
           (EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
-          (
-            SELECT STRING_AGG(bg.name, ', ')
-            FROM "GroupMember" gm
-            INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-            WHERE gm."beneficiaryId" = b.id
-          ) AS "actualGroups"
+          CASE 
+            WHEN r."childId" IS NOT NULL THEN (
+              SELECT STRING_AGG(bg.name, ', ')
+              FROM "ChildGroupMember" cgm
+              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+              WHERE cgm."childId" = c.id
+            )
+            ELSE (
+              SELECT STRING_AGG(bg.name, ', ')
+              FROM "GroupMember" gm
+              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+              WHERE gm."beneficiaryId" = b.id
+            )
+          END AS "actualGroups"
         FROM "ActivityReport" r
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
         LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
