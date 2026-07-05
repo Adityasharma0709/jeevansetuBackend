@@ -107,6 +107,13 @@ export class OutreachController {
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN', 'ANALYST')
+  @Get('dashboard/action-details')
+  getActionDetails(@Req() req, @Query('group') group: string) {
+    return this.outreachService.getActionDetails(req.user, group);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN', 'ANALYST')
   @Get('my-reports')
   getMyReports(@Req() req, @Query('projectId') projectId?: string) {
     return this.outreachService.getMyReports(req.user, projectId ? +projectId : undefined);

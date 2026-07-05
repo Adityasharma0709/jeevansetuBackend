@@ -579,6 +579,121 @@ export class OutreachService {
     };
   }
 
+  async getActionDetails(user: any, groupName: string) {
+    const roles = user.roles?.map((r: any) => r.role?.name || r.name) || [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
+    const isAnalyst = roles.includes('ANALYST');
+    const isAdmin = roles.includes('ADMIN');
+    const isManager = roles.includes('MANAGER');
+
+    const conditions: Prisma.Sql[] = [];
+
+    if (!isSuperAdmin) {
+      if (isAdmin || isAnalyst) {
+        const assignments = await this.prisma.userProjectLocation.findMany({
+          where: { userId: user.userId },
+          select: { projectId: true }
+        });
+        const pIds = assignments.map(a => a.projectId);
+        if (pIds.length > 0) {
+          conditions.push(Prisma.sql`b."projectId" IN (${Prisma.join(pIds)})`);
+        } else {
+          conditions.push(Prisma.sql`1 = 0`); // Deny access
+        }
+      } else if (isManager) {
+        const managedUsers = await this.prisma.user.findMany({
+          where: { createdByAdminId: user.userId },
+          select: { id: true }
+        });
+        const managedIds = [...managedUsers.map(u => u.id), user.userId];
+        if (managedIds.length > 0) {
+          conditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(managedIds)})`);
+        }
+      } else {
+        conditions.push(Prisma.sql`r."reportedById" = ${user.userId}`);
+      }
+    }
+
+    // Map group name to SQL condition
+    let groupCondition: Prisma.Sql;
+    switch (groupName) {
+      case 'Currently Active Pregnant women':
+        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant'`;
+        break;
+      case 'Currently Active Lactating Mothers':
+        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Baby Delivered'`;
+        break;
+      case 'Currently Active SAM Children':
+        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM'`;
+        break;
+      case 'Currently Active MAM Children':
+        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'MAM'`;
+        break;
+      case 'Adolescent Girls':
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19`;
+        break;
+      case 'Infants for EBF Promotion (<= 6m)':
+        groupCondition = Prisma.sql`age_months <= 6`;
+        break;
+      case 'Infants for CF Promotion (12year<child age<6months)':
+        groupCondition = Prisma.sql`age_months > 6 AND age_years < 12`;
+        break;
+      case 'Women due for delivery in next 30 days':
+        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`;
+        break;
+      default:
+        groupCondition = Prisma.sql`1 = 1`; // Default to no filter or throw error
+        break;
+    }
+
+    conditions.push(groupCondition);
+
+    const whereClause = Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`;
+
+    const rawRecords: any[] = await this.prisma.$queryRaw`
+      WITH ReportData AS (
+        SELECT 
+          r.id AS "reportId",
+          r.date AS "reportingDate",
+          b.uid AS "beneficiaryId",
+          COALESCE(c.name, b.name) AS "beneficiaryName",
+          b."typeof",
+          a."awcName" AS awc,
+          act.name AS activity,
+          sess.name AS session,
+          r."reportData",
+          COALESCE(c.gender, b.gender) AS gender,
+          b."maritalStatus",
+          EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
+          (EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months
+        FROM "ActivityReport" r
+        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+        LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "Activity" act ON r."activityId" = act.id
+        LEFT JOIN "Session" sess ON r."sessionId" = sess.id
+      )
+      SELECT 
+        "reportId",
+        "beneficiaryId" AS id,
+        "beneficiaryName" AS name,
+        ${groupName} AS group,
+        COALESCE(awc, 'N/A') AS awc,
+        COALESCE(activity, 'N/A') AS activity,
+        COALESCE(session, 'N/A') AS session,
+        "reportingDate"
+      FROM ReportData
+      ${whereClause}
+      ORDER BY "reportingDate" DESC
+      LIMIT 100;
+    `;
+
+    return rawRecords.map(record => ({
+      ...record,
+      reportingDate: record.reportingDate ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'
+    }));
+  }
+
   async getMyReports(user: any, projectId?: number) {
     const roles = user.roles?.map(r => r.role?.name || r.name) || [];
     const isSuperAdmin = roles.includes('SUPER_ADMIN');
