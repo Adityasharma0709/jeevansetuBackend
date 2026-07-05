@@ -586,7 +586,7 @@ export class OutreachService {
     const isAdmin = roles.includes('ADMIN');
     const isManager = roles.includes('MANAGER');
 
-    const conditions: Prisma.Sql[] = [];
+    const rbacConditions: Prisma.Sql[] = [];
 
     if (!isSuperAdmin) {
       if (isAdmin || isAnalyst) {
@@ -596,9 +596,9 @@ export class OutreachService {
         });
         const pIds = assignments.map(a => a.projectId);
         if (pIds.length > 0) {
-          conditions.push(Prisma.sql`b."projectId" IN (${Prisma.join(pIds)})`);
+          rbacConditions.push(Prisma.sql`b."projectId" IN (${Prisma.join(pIds)})`);
         } else {
-          conditions.push(Prisma.sql`1 = 0`); // Deny access
+          rbacConditions.push(Prisma.sql`1 = 0`); // Deny access
         }
       } else if (isManager) {
         const managedUsers = await this.prisma.user.findMany({
@@ -607,10 +607,10 @@ export class OutreachService {
         });
         const managedIds = [...managedUsers.map(u => u.id), user.userId];
         if (managedIds.length > 0) {
-          conditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(managedIds)})`);
+          rbacConditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(managedIds)})`);
         }
       } else {
-        conditions.push(Prisma.sql`r."reportedById" = ${user.userId}`);
+        rbacConditions.push(Prisma.sql`r."reportedById" = ${user.userId}`);
       }
     }
 
@@ -646,9 +646,7 @@ export class OutreachService {
         break;
     }
 
-    conditions.push(groupCondition);
-
-    const whereClause = Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`;
+    const rbacWhereClause = rbacConditions.length > 0 ? Prisma.sql`WHERE ${Prisma.join(rbacConditions, ' AND ')}` : Prisma.empty;
 
     const rawRecords: any[] = await this.prisma.$queryRaw`
       WITH ReportData AS (
@@ -672,6 +670,7 @@ export class OutreachService {
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "Activity" act ON r."activityId" = act.id
         LEFT JOIN "Session" sess ON r."sessionId" = sess.id
+        ${rbacWhereClause}
       )
       SELECT 
         "reportId",
@@ -683,7 +682,7 @@ export class OutreachService {
         COALESCE(session, 'N/A') AS session,
         "reportingDate"
       FROM ReportData
-      ${whereClause}
+      WHERE ${groupCondition}
       ORDER BY "reportingDate" DESC
       LIMIT 100;
     `;
