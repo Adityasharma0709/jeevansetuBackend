@@ -313,7 +313,7 @@ export class OutreachService {
       throw new ConflictException('A report for this activity and session has already been submitted for this beneficiary on this date.');
     }
 
-    const report = await this.prisma.activityReport.create({
+    let report = await this.prisma.activityReport.create({
       data: {
         beneficiaryId: dto.beneficiaryId,
         childId: dto.childId || null,
@@ -325,7 +325,50 @@ export class OutreachService {
       }
     });
     await this.recalculateGroupsForBeneficiary(dto.beneficiaryId);
+
+    // Refresh the group on the report to reflect the newly calculated group
+    report = await this.refreshReportGroup(report.id, dto.beneficiaryId, dto.childId || null);
+
     return report;
+  }
+
+  private async refreshReportGroup(reportId: number, beneficiaryId: number, childId: number | null) {
+    const ben = await this.prisma.beneficiary.findUnique({
+      where: { id: beneficiaryId },
+      include: {
+        groups: { include: { group: true } },
+        children: {
+           where: childId ? { id: childId } : undefined,
+           include: { childGroups: { include: { group: true } } }
+        }
+      }
+    });
+
+    let currentGroupString = '';
+    if (ben) {
+      if (childId) {
+         const child = ben.children.find(c => c.id === childId);
+         if (child && child.childGroups) {
+           currentGroupString = child.childGroups.map(g => g.group?.name).filter(Boolean).join(', ');
+         }
+      } else {
+         if (ben.groups) {
+           currentGroupString = ben.groups.map(g => g.group?.name).filter(Boolean).join(', ');
+         }
+      }
+    }
+
+    if (currentGroupString) {
+      const existingReport = await this.prisma.activityReport.findUnique({ where: { id: reportId } });
+      if (existingReport) {
+        const updatedData = { ...(existingReport.reportData as any), group: currentGroupString };
+        return (await this.prisma.activityReport.update({
+          where: { id: reportId },
+          data: { reportData: updatedData }
+        })) as any;
+      }
+    }
+    return (await this.prisma.activityReport.findUnique({ where: { id: reportId } })) as any;
   }
 
   async getReport(id: number, user: any) {
@@ -377,11 +420,15 @@ export class OutreachService {
     if (dto.beneficiaryId) dataToUpdate.beneficiaryId = dto.beneficiaryId;
     if (dto.childId !== undefined) dataToUpdate.childId = dto.childId || null;
 
-    const updated = await this.prisma.activityReport.update({
+    let updated = await this.prisma.activityReport.update({
       where: { id },
       data: dataToUpdate
     });
     await this.recalculateGroupsForBeneficiary(updated.beneficiaryId);
+
+    // Refresh the group on the report to reflect the newly calculated group
+    updated = await this.refreshReportGroup(updated.id, updated.beneficiaryId, updated.childId);
+
     return updated;
   }
 
