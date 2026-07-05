@@ -282,6 +282,20 @@ model BeneficiaryChild {
 
   beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
   reports     ActivityReport[]
+  childGroups ChildGroupMember[]
+}
+
+model ChildGroupMember {
+  id            Int @id @default(autoincrement())
+  childId       Int
+  groupId       Int
+
+  child         BeneficiaryChild @relation(fields: [childId], references: [id])
+  group         BeneficiaryGroup @relation(fields: [groupId], references: [id])
+
+  assignedAt    DateTime @default(now())
+
+  @@unique([childId, groupId])
 }
 
 /**
@@ -299,6 +313,7 @@ status String @default("ACTIVE")
 
   activities GroupActivity[]
   members    GroupMember[]
+  childMembers ChildGroupMember[]
 
   createdAt DateTime @default(now())
 }

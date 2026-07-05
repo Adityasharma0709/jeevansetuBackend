@@ -755,7 +755,12 @@ export class OutreachService {
             name: true,
             uid: true,
             dateOfBirth: true,
-            gender: true
+            gender: true,
+            childGroups: {
+              include: {
+                group: true
+              }
+            }
           }
         },
         activity: { select: { name: true } },
@@ -822,7 +827,13 @@ export class OutreachService {
       include: {
         project: true,
         awc: true,
-        children: true,
+        children: {
+          include: {
+            childGroups: {
+              include: { group: true }
+            }
+          }
+        },
         createdBy: {
           select: { name: true, email: true }
         }
@@ -976,7 +987,13 @@ export class OutreachService {
       include: {
         project: true,
         awc: true,
-        children: true,
+        children: {
+          include: {
+            childGroups: {
+              include: { group: true }
+            }
+          }
+        },
         groups: { include: { group: true } },
         activities: { include: { activity: true, session: true } }
       }
@@ -1307,8 +1324,57 @@ export class OutreachService {
 
 
 
-    // Sync database
+    // Sync database for primary beneficiary
     await this.syncGroupsForBeneficiary(beneficiaryId, Array.from(groupNames));
+
+    // Evaluate children rules
+    for (const child of beneficiary.children) {
+      const childGroupNames = new Set<string>();
+      const childAge = this.calcAge(child.dateOfBirth);
+      const childGender = (child.gender || '').trim();
+
+      // Fetch latest report for this specific child
+      const latestChildReport = await this.prisma.activityReport.findFirst({
+        where: {
+          beneficiaryId,
+          childId: child.id
+        },
+        orderBy: {
+          date: 'desc'
+        }
+      });
+      const latestChildReportData = (latestChildReport?.reportData as any) || {};
+      const childSamMamStatus = latestChildReportData.samMamStatus || '';
+
+      if (childGender === 'Female') {
+        if (childAge < 6) {
+          if (childSamMamStatus === 'SAM') childGroupNames.add('SAM Children [0-5 Years]');
+          else if (childSamMamStatus === 'MAM') childGroupNames.add('MAM Children [0-5 Years]');
+          else childGroupNames.add('Children below 6(3-6 Years) - Girls');
+        } else if (childAge >= 6 && childAge < 10) {
+          childGroupNames.add('Children above 6(6-9 Years) - Girls');
+        } else if (childAge >= 10 && childAge <= 19) {
+          childGroupNames.add('Adolescent Girls');
+        } else if (childAge >= 20) {
+          childGroupNames.add('Other Beneficiaries - Females');
+        }
+      } else if (childGender === 'Male') {
+        if (childAge < 6) {
+          if (childSamMamStatus === 'SAM') childGroupNames.add('SAM Children [0-5 Years]');
+          else if (childSamMamStatus === 'MAM') childGroupNames.add('MAM Children [0-5 Years]');
+          else childGroupNames.add('Children below 6(3-6 Years) - Boys');
+        } else if (childAge >= 6 && childAge < 10) {
+          childGroupNames.add('Children above 6 (6-9 Years) - Boys');
+        } else if (childAge >= 10 && childAge <= 19) {
+          childGroupNames.add('Adolescent Boys');
+        } else if (childAge >= 20) {
+          childGroupNames.add('Other Beneficiaries - Males');
+        }
+      }
+
+      // Sync database for child
+      await this.syncGroupsForChild(child.id, Array.from(childGroupNames));
+    }
   }
 
   async syncGroupsForBeneficiary(beneficiaryId: number, groupNames: string[]) {
@@ -1364,6 +1430,62 @@ export class OutreachService {
           update: {},
           create: {
             beneficiaryId,
+            groupId
+          }
+        });
+      }
+    });
+  }
+
+  async syncGroupsForChild(childId: number, groupNames: string[]) {
+    const dbGroups = await this.prisma.beneficiaryGroup.findMany({
+      where: { name: { in: groupNames }, status: 'ACTIVE' }
+    });
+
+    const existingGroupNames = dbGroups.map(g => g.name);
+    const missingGroupNames = groupNames.filter(name => !existingGroupNames.includes(name));
+
+    if (missingGroupNames.length > 0) {
+      const systemUser = await this.prisma.user.findFirst({
+        where: { email: 'superadmin@jeevansetu.com' }
+      });
+      const creatorId = systemUser?.id || 1;
+
+      for (const name of missingGroupNames) {
+        const newGroup = await this.prisma.beneficiaryGroup.upsert({
+          where: { name },
+          update: { status: 'ACTIVE' },
+          create: {
+            name,
+            createdById: creatorId,
+            status: 'ACTIVE'
+          }
+        });
+        dbGroups.push(newGroup);
+      }
+    }
+
+    const groupIds = dbGroups.map(g => g.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.childGroupMember.deleteMany({
+        where: {
+          childId,
+          groupId: { notIn: groupIds }
+        }
+      });
+
+      for (const groupId of groupIds) {
+        await tx.childGroupMember.upsert({
+          where: {
+            childId_groupId: {
+              childId,
+              groupId
+            }
+          },
+          update: {},
+          create: {
+            childId,
             groupId
           }
         });
