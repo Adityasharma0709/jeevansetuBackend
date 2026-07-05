@@ -1208,18 +1208,35 @@ export class OutreachService {
 
     if (!beneficiary) return;
 
-    // Fetch the latest report for the main beneficiary (childId: null)
-    const latestMainReport = await this.prisma.activityReport.findFirst({
+    // Fetch all reports for the main beneficiary (childId: null) to find the most recent non-empty statuses
+    const mainReports = await this.prisma.activityReport.findMany({
       where: {
         beneficiaryId,
         childId: null
       },
       orderBy: {
         date: 'desc'
+      },
+      select: {
+        reportData: true
       }
     });
 
-    const latestMainReportData = (latestMainReport?.reportData as any) || {};
+    let latestPregnancyStatus = '';
+    let latestSamMamStatus = '';
+
+    for (const report of mainReports) {
+      const data = (report.reportData as any) || {};
+      if (!latestPregnancyStatus && data.pregnancyStatus) {
+        latestPregnancyStatus = data.pregnancyStatus;
+      }
+      if (!latestSamMamStatus && data.samMamStatus) {
+        latestSamMamStatus = data.samMamStatus;
+      }
+      if (latestPregnancyStatus && latestSamMamStatus) {
+        break; // Both found, no need to look further back
+      }
+    }
 
     // We no longer fetch all reports for children since the group logic does not use it.
 
@@ -1228,8 +1245,6 @@ export class OutreachService {
     const age = this.calcAge(beneficiary.dateOfBirth);
     const gender = (beneficiary.gender || '').trim();
     const maritalStatus = beneficiary.maritalStatus;
-    const latestPregnancyStatus = latestMainReportData.pregnancyStatus || '';
-    const latestSamMamStatus = latestMainReportData.samMamStatus || '';
 
     if (beneficiary.typeof === 'Stakeholder') {
       groupNames.add('Stakeholders');
@@ -1333,18 +1348,29 @@ export class OutreachService {
       const childAge = this.calcAge(child.dateOfBirth);
       const childGender = (child.gender || '').trim();
 
-      // Fetch latest report for this specific child
-      const latestChildReport = await this.prisma.activityReport.findFirst({
+      // Fetch all reports for this specific child to find the most recent non-empty statuses
+      const childReports = await this.prisma.activityReport.findMany({
         where: {
           beneficiaryId,
           childId: child.id
         },
         orderBy: {
           date: 'desc'
+        },
+        select: {
+          reportData: true
         }
       });
-      const latestChildReportData = (latestChildReport?.reportData as any) || {};
-      const childSamMamStatus = latestChildReportData.samMamStatus || '';
+
+      let childSamMamStatus = '';
+
+      for (const report of childReports) {
+        const data = (report.reportData as any) || {};
+        if (data.samMamStatus) {
+          childSamMamStatus = data.samMamStatus;
+          break; // Found the latest non-empty status
+        }
+      }
 
       if (childGender === 'Female') {
         if (childAge < 6) {
