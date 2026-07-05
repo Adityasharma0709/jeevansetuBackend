@@ -663,7 +663,13 @@ export class OutreachService {
           COALESCE(c.gender, b.gender) AS gender,
           b."maritalStatus",
           EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
-          (EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months
+          (EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
+          (
+            SELECT STRING_AGG(bg.name, ', ')
+            FROM "GroupMember" gm
+            INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+            WHERE gm."beneficiaryId" = b.id
+          ) AS "actualGroups"
         FROM "ActivityReport" r
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
         LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
@@ -676,7 +682,7 @@ export class OutreachService {
         "reportId",
         "beneficiaryId" AS id,
         "beneficiaryName" AS name,
-        ${groupName} AS group,
+        COALESCE("actualGroups", 'N/A') AS group,
         COALESCE(awc, 'N/A') AS awc,
         COALESCE(activity, 'N/A') AS activity,
         COALESCE(session, 'N/A') AS session,
