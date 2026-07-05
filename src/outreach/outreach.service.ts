@@ -1139,8 +1139,8 @@ export class OutreachService {
         groupNames.add('Children above 6(6-9 Years) - Girls');
       } else if (
         (age >= 10 && age < 14) ||
-        (age >= 14 && age < 18 && latestPregnancyStatus !== 'Currently Pregnant') ||
-        (age >= 14 && age <= 18 && maritalStatus !== 'Married' && !hasChildUnder2)
+        (age >= 14 && age <=19 && latestPregnancyStatus !== 'Currently Pregnant') ||
+        (age >= 14 && age <= 19 && maritalStatus !== 'Married' && !hasChildUnder2)
       ) {
         groupNames.add('Adolescent Girls');
       }
@@ -1178,9 +1178,9 @@ export class OutreachService {
         }
       } else if (age >= 6 && age < 10) {
         groupNames.add('Children above 6 (6-9 Years) - Boys');
-      } else if (age >= 10 && age < 18) {
+      } else if (age >= 10 && age <=19) {
         groupNames.add('Adolescent Boys');
-      } else if (age >= 18) {
+      } else if (age >19) {
         groupNames.add('Other Beneficiaries - Males');
       }
     }
