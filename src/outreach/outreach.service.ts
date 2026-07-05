@@ -498,7 +498,7 @@ export class OutreachService {
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM') AS "activeMamChildren",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
         COUNT(*) FILTER (WHERE age_months <= 6) AS "infantsEbfPromotion",
-        COUNT(*) FILTER (WHERE age_months > 6 AND age_years < 12) AS "infantsCfPromotion",
+        COUNT(*) FILTER (WHERE age_months > 6 AND age_years < 2) AS "infantsCfPromotion",
         COUNT(*) FILTER (
           WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
           AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
@@ -635,8 +635,8 @@ export class OutreachService {
       case 'Infants for EBF Promotion (<= 6m)':
         groupCondition = Prisma.sql`age_months <= 6`;
         break;
-      case 'Infants for CF Promotion (12year<child age<6months)':
-        groupCondition = Prisma.sql`age_months > 6 AND age_years < 12`;
+      case 'Infants for CF Promotion(2year<child age<6months)':
+        groupCondition = Prisma.sql`age_months > 6 AND age_years < 2`;
         break;
       case 'Women due for delivery in next 30 days':
         groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`;
