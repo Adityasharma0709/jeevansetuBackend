@@ -519,6 +519,7 @@ export class OutreachService {
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24) AS "youngMarriedWomen",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years < 6) AS "childrenBelow6Girls",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years < 6) AS "childrenBelow6Boys",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Girls",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Boys",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
@@ -531,6 +532,7 @@ export class OutreachService {
           OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
           OR (LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years < 6)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10)
           OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 6 AND 10)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19)
@@ -569,6 +571,7 @@ export class OutreachService {
         { label: 'PREGNANT WOMEN', count: toNumber(row.pregnantWomen), countColor: 'text-gray-900' },
         { label: 'MAM (0-5)', count: toNumber(row.mam0to5), countColor: 'text-green-600' },
         { label: 'CHILDREN BELOW 6 (0-5 YEARS) - GIRLS', count: toNumber(row.childrenBelow6Girls), countColor: 'text-gray-900' },
+        { label: 'CHILDREN BELOW 6 (0-5 YEARS) - BOYS', count: toNumber(row.childrenBelow6Boys), countColor: 'text-gray-900' },
         { label: 'LACTATING WOMEN', count: toNumber(row.lactatingWomen), countColor: 'text-gray-900' },
         { label: 'ADOLESCENT GIRLS', count: toNumber(row.adolescentGirls2), countColor: 'text-gray-900' },
         { label: 'CHILDREN ABOVE 6 (6-10 YEARS) - GIRLS', count: toNumber(row.childrenAbove6Girls), countColor: 'text-red-600' },
