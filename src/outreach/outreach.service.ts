@@ -509,7 +509,7 @@ export class OutreachService {
         -- Episodes of Care
         COUNT(*) FILTER (WHERE age_years > 19) AS "adults",
         COUNT(*) FILTER (WHERE age_years BETWEEN 10 AND 19) AS "adolescents",
-        COUNT(*) FILTER (WHERE age_years < 5) AS "childrenUnder5",
+        COUNT(*) FILTER (WHERE age_years < 6) AS "childrenUnder5",
         COUNT(*) FILTER (WHERE age_years BETWEEN 6 AND 10) AS "children6To10",
 
         -- Activity Session Demographics
