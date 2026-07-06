@@ -696,17 +696,32 @@ export class OutreachService {
         COALESCE(awc, 'N/A') AS awc,
         COALESCE(activity, 'N/A') AS activity,
         COALESCE(session, 'N/A') AS session,
-        "reportingDate"
+        "reportingDate",
+        age_years,
+        age_months
       FROM ReportData
       WHERE ${groupCondition}
       ORDER BY "reportingDate" DESC
       LIMIT 100;
     `;
 
-    return rawRecords.map(record => ({
-      ...record,
-      reportingDate: record.reportingDate ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'
-    }));
+    return rawRecords.map(record => {
+      let ageStr = 'N/A';
+      if (record.age_years !== null && record.age_years !== undefined) {
+        const yrs = Number(record.age_years);
+        const mos = Number(record.age_months);
+        if (yrs === 0) {
+          ageStr = `${mos} M`;
+        } else {
+          ageStr = `${yrs} Y`;
+        }
+      }
+      return {
+        ...record,
+        age: ageStr,
+        reportingDate: record.reportingDate ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'
+      };
+    });
   }
 
   async getMyReports(user: any, projectId?: number) {
