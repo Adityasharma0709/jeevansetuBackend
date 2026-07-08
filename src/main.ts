@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 async function bootstrap() {
@@ -32,7 +32,10 @@ async function bootstrap() {
   SwaggerModule.setup('api', app, document);
 
   // ✅ Listen should ALWAYS be last
-  await app.listen(process.env.PORT ?? 3000);
+  const port = process.env.PORT || 3000;
+  await app.listen(port, '0.0.0.0');
+  Logger.log(`Application is running on: ${port}`, 'Bootstrap');
+  Logger.log(`Swagger UI is available at: ${port}/api`, 'Bootstrap');
 }
 
 bootstrap();
