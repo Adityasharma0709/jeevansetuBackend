@@ -11,7 +11,7 @@ function toStateLocationCode(stateId: number) {
 }
 
 async function main() {
-  console.log("ðŸŒ± Seeding started...")
+  console.log("🌱 Seeding started...")
 
   for (const state of data) {
     const locationCode = toStateLocationCode(state.id)
@@ -42,7 +42,7 @@ async function main() {
     console.log(`âœ… Seeded: ${state.name}`)
   }
 
-  console.log("ðŸŽ‰ Seeding completed")
+  console.log("🌱 Seeding completed")
 }
 
 main()

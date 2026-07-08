@@ -1,14 +1,23 @@
-import { PrismaClient } from "@prisma/client";
-import * as bcrypt from "bcrypt";
+import { PrismaClient } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+import geoData from './india_states_districts.json';
 
 const prisma = new PrismaClient();
 
+function toStateLocationCode(stateId: number) {
+  const minDigits = 2;
+  const numeric = String(stateId);
+  const padded =
+    numeric.length >= minDigits ? numeric : numeric.padStart(minDigits, '0');
+  return `LC${padded}`;
+}
+
 async function main() {
-  console.log("🌱 Seeding database...");
+  console.log('🌱 Seeding database...');
 
   /* ================= ROLES ================= */
 
-  const roles = ["SUPER_ADMIN", "ADMIN", "MANAGER", "OUTREACH"];
+  const roles = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'OUTREACH', 'ANALYST'];
 
   for (const role of roles) {
     await prisma.role.upsert({
@@ -18,33 +27,33 @@ async function main() {
     });
   }
 
-  console.log("✅ Roles seeded");
+  console.log('✅ Roles seeded');
 
   /* ================= SUPER ADMIN ================= */
 
-  const passwordHash = await bcrypt.hash("Admin@123", 10);
+  const passwordHash = await bcrypt.hash('Admin@123', 10);
 
   const superAdmin = await prisma.user.upsert({
-    where: { email: "superadmin@jeevansetu.com" },
+    where: { email: 'superadmin@jeevansetu.com' },
     update: {},
     create: {
-      name: "Super Admin",
-      email: "superadmin@jeevansetu.com",
+      name: 'Super Admin',
+      email: 'superadmin@jeevansetu.com',
       password: passwordHash,
-      status: "ACTIVE",
+      status: 'ACTIVE',
     },
   });
 
-  console.log("✅ Super Admin created");
+  console.log('✅ Super Admin created');
 
   /* ================= ROLE MAPPING ================= */
 
   const superAdminRole = await prisma.role.findUnique({
-    where: { name: "SUPER_ADMIN" },
+    where: { name: 'SUPER_ADMIN' },
   });
 
   if (!superAdminRole) {
-    throw new Error("SUPER_ADMIN role not found");
+    throw new Error('SUPER_ADMIN role not found');
   }
 
   await prisma.userRole.upsert({
@@ -61,49 +70,54 @@ async function main() {
     },
   });
 
-  console.log("✅ SUPER_ADMIN role assigned");
+  console.log('✅ SUPER_ADMIN role assigned');
 
   /* ================= STATES & DISTRICTS ================= */
-  const fs = require('fs');
-  const path = require('path');
-  const geoPath = path.join(__dirname, '../../india_states_districts.json');
 
-  if (fs.existsSync(geoPath)) {
-    console.log("📍 Seeding States and Districts...");
-    const geoData = JSON.parse(fs.readFileSync(geoPath, 'utf8'));
+  console.log('📍 Seeding States and Districts...');
 
-    for (const stateData of geoData) {
-      const state = await prisma.state.upsert({
-        where: { id: stateData.id },
-        update: { name: stateData.name },
-        create: {
-          id: stateData.id,
-          name: stateData.name,
-        },
-      });
+  for (const stateData of geoData as Array<{
+    id: number;
+    name: string;
+    districts: string[];
+  }>) {
+    const locationCode = toStateLocationCode(stateData.id);
 
-      for (const districtName of stateData.districts) {
-        await prisma.district.create({
-          data: {
-            name: districtName,
-            stateId: state.id,
-          },
-        });
-      }
+    const state = await prisma.state.upsert({
+      where: { id: stateData.id },
+      update: { name: stateData.name, locationCode },
+      create: { id: stateData.id, name: stateData.name, locationCode },
+    });
+
+    // Seed districts idempotently without requiring a unique constraint.
+    const existing = await prisma.district.findMany({
+      where: { stateId: state.id },
+      select: { name: true },
+    });
+
+    const existingNames = new Set(existing.map((d) => d.name));
+    const districtsToCreate = stateData.districts
+      .filter((name) => !existingNames.has(name))
+      .map((name) => ({ name, stateId: state.id }));
+
+    if (districtsToCreate.length > 0) {
+      await prisma.district.createMany({ data: districtsToCreate });
     }
-    console.log(`✅ ${geoData.length} States seeded with districts`);
-  } else {
-    console.log("⚠️ geo-data.json not found, skipping states seeding");
   }
+
+  console.log(
+    `✅ ${geoData.length} States seeded with districts (locationCode: LC##)`,
+  );
 }
 
 main()
   .then(async () => {
-    console.log("🎉 Seeding completed successfully");
+    console.log('🎉 Seeding completed successfully');
     await prisma.$disconnect();
   })
   .catch(async (e) => {
-    console.error("❌ Seeding failed:", e);
+    console.error('❌ Seeding failed:', e);
     await prisma.$disconnect();
     process.exit(1);
   });
+

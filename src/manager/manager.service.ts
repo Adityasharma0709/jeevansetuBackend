@@ -59,7 +59,7 @@ export class ManagerService {
 
     // Safely assign all valid properties
     ['projectId', 'awcId', 'womanAgeAtMarriage', 'husbandAgeAtMarriage', 'monthlyIncome'].forEach(assignNumber);
-    ['mobileNumber', 'name', 'gender', 'guardianName', 'maritalStatus', 'dateOfMarriage', 'qualification', 'religion', 'caste', 'economicStatus', 'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'].forEach(assignString);
+    ['typeof', 'mobileNumber', 'name', 'gender', 'guardianName', 'maritalStatus', 'dateOfMarriage', 'qualification', 'religion', 'caste', 'economicStatus', 'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'].forEach(assignString);
     assignDate('dateOfBirth');
 
     return data;
@@ -124,11 +124,20 @@ export class ManagerService {
   }
 
   async createWorker(dto: CreateWorkerDto, managerId: number) {
-    const assigned = await this.prisma.userProjectLocation.findFirst({
-      where: { userId: managerId, projectId: dto.projectId }
-    });
+    const numericProjectId = dto.projectId ? Number(dto.projectId) : null;
+    const isValidProjectId = numericProjectId !== null && Number.isFinite(numericProjectId) && numericProjectId > 0;
 
-    if (!assigned) throw new ForbiddenException('You are not assigned to this project');
+    let managerAssignment: { stateId: number | null } | null = null;
+
+    if (isValidProjectId) {
+      managerAssignment = await this.prisma.userProjectLocation.findFirst({
+        where: { userId: managerId, projectId: numericProjectId! }
+      });
+
+      if (!managerAssignment) {
+        throw new ForbiddenException('You are not assigned to this project');
+      }
+    }
 
     const exists = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (exists) throw new ConflictException('Email already exists');
@@ -158,13 +167,16 @@ export class ManagerService {
             data: { userId: user.id, roleId: role.id }
           });
 
-          await tx.userProjectLocation.create({
-            data: { 
-              userId: user.id, 
-              projectId: dto.projectId, 
-              stateId: assigned?.stateId ?? null 
-            }
-          });
+          // Only assign to project/location if projectId was provided
+          if (isValidProjectId && numericProjectId) {
+            await tx.userProjectLocation.create({
+              data: {
+                userId: user.id,
+                projectId: numericProjectId,
+                stateId: managerAssignment?.stateId ?? null
+              }
+            });
+          }
 
           return user;
         });
@@ -261,9 +273,13 @@ export class ManagerService {
     });
   }
 
-  async getBeneficiaryRequests() {
+  async getBeneficiaryRequests(managerId: number) {
     const requests = await this.prisma.approvalRequest.findMany({
-      where: { requestType: 'UPDATE_BENEFICIARY', status: 'PENDING' },
+      where: { 
+        requestType: 'UPDATE_BENEFICIARY', 
+        status: 'PENDING',
+        targetAdminId: managerId 
+      },
       include: {
         requestedBy: { select: { id: true, name: true, email: true, status: true, createdAt: true } }
       }
@@ -299,7 +315,7 @@ export class ManagerService {
 
     // Compare applicable fields
     const fields = [
-      'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
+      'typeof', 'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
       'maritalStatus', 'dateOfMarriage', 'womanAgeAtMarriage', 'husbandAgeAtMarriage',
       'qualification', 'religion', 'caste', 'monthlyIncome', 'economicStatus',
       'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'

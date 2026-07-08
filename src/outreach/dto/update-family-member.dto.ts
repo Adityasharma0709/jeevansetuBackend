@@ -1,42 +1,37 @@
-import {
-  IsDateString,
-  IsEnum,
-  IsOptional,
-  IsString,
-} from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { Gender } from '../enums/beneficiary.enum';
 
 /** Converts DD/MM/YYYY → YYYY-MM-DD so that new Date(value) works in service. */
 function parseDDMMYYYY(value: any): string {
   if (typeof value !== 'string') return value;
-  const ddmmyyyy = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim());
-  if (ddmmyyyy) {
-    return `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`;
-  }
-  return value; // already ISO or other format — leave untouched
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim());
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return value;
 }
 
-export class AddFamilyMemberDto {
+export class UpdateFamilyMemberDto {
+  @IsOptional()
   @IsString()
-  name: string;
+  name?: string;
 
+  @IsOptional()
   @IsString()
-  relationship: string;
+  relationship?: string;
 
+  @IsOptional()
   @Transform(({ value }) => parseDDMMYYYY(value))
-  @IsDateString()
-  dateOfBirth: string;
+  @IsString()
+  dateOfBirth?: string;
 
+  @IsOptional()
   @IsEnum(Gender, { message: 'gender must be Male, Female, or Other' })
-  gender: Gender;
+  gender?: Gender;
 
-  /** Required when age ≤ 14 */
   @IsOptional()
   @IsString()
   schoolingStatus?: string;
 
-  /** Required when age > 14 */
   @IsOptional()
   @IsString()
   employmentStatus?: string;

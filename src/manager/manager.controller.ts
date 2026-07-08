@@ -62,8 +62,8 @@ export class ManagerController {
   }
 
   @Get('beneficiary-requests')
-  getBeneficiaryRequests() {
-    return this.managerService.getBeneficiaryRequests();
+  getBeneficiaryRequests(@Req() req) {
+    return this.managerService.getBeneficiaryRequests(Number(req.user.userId));
   }
 
   @Patch('request/:id/approve')

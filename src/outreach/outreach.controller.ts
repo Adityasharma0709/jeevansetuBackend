@@ -20,6 +20,7 @@ import { CreateReportDto } from './dto/create-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
 import { RequestBeneficiaryUpdateDto } from './dto/request-beneficiary-update.dto';
 import { AddFamilyMemberDto } from './dto/add-family-member.dto';
+import { UpdateFamilyMemberDto } from './dto/update-family-member.dto';
 
 @Controller('outreach')
 export class OutreachController {
@@ -98,10 +99,24 @@ export class OutreachController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('OUTREACH')
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN', 'ANALYST')
+  @Get('dashboard/stats')
+  getDashboardStats(@Req() req, @Query('projectId') projectId?: string, @Query('activityId') activityId?: string, @Query('sessionId') sessionId?: string) {
+    return this.outreachService.getDashboardStats(req.user, projectId ? +projectId : undefined, activityId ? +activityId : undefined, sessionId ? +sessionId : undefined);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN', 'ANALYST')
+  @Get('dashboard/action-details')
+  getActionDetails(@Req() req, @Query('group') group: string) {
+    return this.outreachService.getActionDetails(req.user, group);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN', 'ANALYST')
   @Get('my-reports')
-  getMyReports(@Req() req) {
-    return this.outreachService.getMyReports(req.user.userId);
+  getMyReports(@Req() req, @Query('projectId') projectId?: string) {
+    return this.outreachService.getMyReports(req.user, projectId ? +projectId : undefined);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -111,10 +126,10 @@ export class OutreachController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN')
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN', 'ANALYST')
   @Get('beneficiary-list')
-  beneficiaryList(@Req() req, @Query('search') search?: string) {
-    return this.outreachService.getBeneficiaryList(req.user, search);
+  beneficiaryList(@Req() req, @Query('search') search?: string, @Query('projectId') projectId?: string) {
+    return this.outreachService.getBeneficiaryList(req.user, search, projectId ? +projectId : undefined);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -148,8 +163,8 @@ export class OutreachController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Get('activities')
-  getActivities() {
-    return this.outreachService.getActivities();
+  getActivities(@Req() req) {
+    return this.outreachService.getActivities(req.user);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -183,5 +198,16 @@ export class OutreachController {
   @Get('beneficiary/:id/family-members')
   getFamilyMembers(@Param('id') id: string) {
     return this.outreachService.getFamilyMembers(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH')
+  @Patch('family-member/:id')
+  updateFamilyMember(
+    @Param('id') id: string,
+    @Body() dto: UpdateFamilyMemberDto,
+    @Req() req,
+  ) {
+    return this.outreachService.updateFamilyMember(+id, dto, req.user);
   }
 }

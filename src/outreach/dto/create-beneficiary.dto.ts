@@ -5,19 +5,36 @@ import {
   IsOptional,
   IsString,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import {
   EconomicStatus,
   EmploymentStatus,
   Gender,
   MaritalStatus,
+  BeneficiaryType,
 } from '../enums/beneficiary.enum';
 
+/** Converts DD/MM/YYYY → YYYY-MM-DD so that new Date(value) works in service. */
+function parseDDMMYYYY(value: any): string {
+  if (typeof value !== 'string') return value;
+  const ddmmyyyy = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim());
+  if (ddmmyyyy) {
+    return `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`;
+  }
+  return value; // already ISO or other format — leave untouched
+}
+
 export class CreateBeneficiaryDto {
+  @IsOptional()
+  @IsEnum(BeneficiaryType)
+  beneficiaryType?: BeneficiaryType;
+
   @IsNumber()
   projectId: number;
 
+  @IsOptional()
   @IsNumber()
-  locationId: number;
+  locationId?: number;
 
   @IsOptional()
   @IsString()
@@ -44,9 +61,11 @@ export class CreateBeneficiaryDto {
   @IsEnum(Gender, { message: 'gender must be Male, Female, or Other' })
   gender: Gender;
 
+  @IsOptional()
   @IsString()
-  guardianName: string;
+  guardianName?: string;
 
+  @Transform(({ value }) => parseDDMMYYYY(value))
   @IsDateString()
   dateOfBirth: string;
 
@@ -57,6 +76,7 @@ export class CreateBeneficiaryDto {
   maritalStatus?: MaritalStatus;
 
   @IsOptional()
+  @Transform(({ value }) => parseDDMMYYYY(value))
   @IsString()
   dateOfMarriage?: string;
 
@@ -68,26 +88,33 @@ export class CreateBeneficiaryDto {
   @IsNumber()
   husbandAgeAtMarriage?: number;
 
+  @IsOptional()
   @IsString()
-  qualification: string;
+  qualification?: string;
 
+  @IsOptional()
   @IsString()
-  religion: string;
+  religion?: string;
 
+  @IsOptional()
   @IsString()
-  caste: string;
+  caste?: string;
 
+  @IsOptional()
   @IsNumber()
-  monthlyIncome: number;
+  monthlyIncome?: number;
 
-  @IsEnum(EconomicStatus, { message: 'economicStatus must be APL or BPL' })
-  economicStatus: EconomicStatus;
+  @IsOptional()
+  @IsEnum(EconomicStatus, { message: 'economicStatus must be AAY, PHH, or Others' })
+  economicStatus?: EconomicStatus;
 
+  @IsOptional()
   @IsString()
-  primaryIncomeSource: string;
+  primaryIncomeSource?: string;
 
+  @IsOptional()
   @IsEnum(EmploymentStatus, {
-    message: 'employmentStatus must be Employed, Unemployed, Self-Employed, or Student',
+    message: 'employmentStatus must be Working, Not-Working, Daily-Wage-Earner, or Self-Employed',
   })
-  employmentStatus: EmploymentStatus;
+  employmentStatus?: EmploymentStatus;
 }

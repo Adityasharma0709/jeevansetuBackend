@@ -15,6 +15,8 @@ import { AssignUserDto } from 'src/projects/dto/assign-user.dto';
 import { CreateManagerDto } from './dto/create-manager.dto';
 import { UpdateManagerDto } from './dto/update-manager.dto';
 import { AssignProjectDto } from './dto/assign-project.dto';
+import { CreateAnalystDto } from './dto/create-analyst.dto';
+import { UpdateAnalystDto } from './dto/update-analyst.dto';
 
 const ADMIN_CODE_PREFIX = 'AC';
 const ADMIN_CODE_MIN_DIGITS = 3;
@@ -26,6 +28,10 @@ const MANAGER_CODE_MAX_RETRIES = 5;
 
 const OUTREACH_CODE_PREFIX = 'OW';
 const OUTREACH_CODE_MIN_DIGITS = 2;
+
+const ANALYST_CODE_PREFIX = 'AN';
+const ANALYST_CODE_MIN_DIGITS = 2;
+const ANALYST_CODE_MAX_RETRIES = 5;
 
 @Injectable()
 export class UsersService {
@@ -70,6 +76,12 @@ export class UsersService {
     tx: Prisma.TransactionClient,
   ): Promise<string> {
     return this.generateNextUserCode(OUTREACH_CODE_PREFIX, OUTREACH_CODE_MIN_DIGITS, tx);
+  }
+
+  private async generateNextAnalystUserCode(
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
+    return this.generateNextUserCode(ANALYST_CODE_PREFIX, ANALYST_CODE_MIN_DIGITS, tx);
   }
 
   private async generateNextUserCode(
@@ -201,6 +213,14 @@ export class UsersService {
       return { code };
     }
 
+    if (normalized === 'ANALYST') {
+      if (!roles.includes('SUPER_ADMIN')) {
+        throw new ForbiddenException('Not allowed to generate analyst codes');
+      }
+      const code = await this.generateNextAnalystUserCode(this.prisma);
+      return { code };
+    }
+
     throw new BadRequestException('Invalid role');
   }
   async updateAdminStatus(id: number, status: string) {
@@ -255,6 +275,19 @@ export class UsersService {
     return { message: 'Admin removed from project' };
   }
 
+  async removeAnalystFromProject(id: number, projectId: number) {
+    const analyst = await this.getAnalystById(id);
+    if (!analyst) {
+      throw new NotFoundException('Analyst not found');
+    }
+    
+    await this.prisma.userProjectLocation.deleteMany({
+      where: { userId: id, projectId: projectId },
+    });
+    
+    return { message: 'Analyst removed from project' };
+  }
+
   async removeManagerFromProject(id: number, projectId: number) {
     const manager = await this.prisma.user.findFirst({ where: { id, roles: { some: { role: { name: 'MANAGER' } } } } });
     if (!manager) throw new NotFoundException('Manager not found');
@@ -277,6 +310,178 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id },
       data: { status: 'INACTIVE' },
+    });
+  }
+
+  // =========================
+  // ANALYST METHODS
+  // =========================
+
+  async createAnalyst(dto: CreateAnalystDto) {
+    const exists = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (exists) {
+      throw new BadRequestException('Email already exists');
+    }
+
+    const hash = await bcrypt.hash(dto.password, 10);
+
+    for (let attempt = 0; attempt < ANALYST_CODE_MAX_RETRIES; attempt++) {
+      try {
+        const user = await this.prisma.$transaction(async (tx) => {
+          const usercode = await this.generateNextAnalystUserCode(tx);
+
+          const user = await tx.user.create({
+            data: {
+              name: dto.name,
+              email: dto.email,
+              password: hash,
+              mobileNumber: dto.mobileNumber ?? null,
+              status: 'ACTIVE',
+              usercode,
+            },
+          });
+
+          const role = await tx.role.findUnique({
+            where: { name: 'ANALYST' },
+          });
+
+          if (!role) {
+            throw new BadRequestException('ANALYST role does not exist. Please run the database seed.');
+          }
+
+          await tx.userRole.create({
+            data: {
+              userId: user.id,
+              roleId: role.id,
+            },
+          });
+
+          return user;
+        });
+
+        const { password, ...safeUser } = user;
+        return {
+          message: 'Analyst created successfully',
+          safeUser,
+        };
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+          if (error.code === 'P2002') {
+            const target = error.meta?.target;
+            const isUsercodeConflict = Array.isArray(target)
+              ? target.includes('usercode')
+              : typeof target === 'string'
+                ? target.includes('usercode')
+                : false;
+
+            if (isUsercodeConflict) {
+              continue;
+            }
+          }
+        }
+        throw error;
+      }
+    }
+
+    throw new ConflictException('Could not generate a unique analyst user code');
+  }
+
+  async getAllAnalysts() {
+    return this.prisma.user.findMany({
+      where: {
+        roles: {
+          some: {
+            role: { name: 'ANALYST' },
+          },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        usercode: true,
+        mobileNumber: true,
+        status: true,
+        createdAt: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
+
+  async getAnalystById(id: number) {
+    const analyst = await this.prisma.user.findFirst({
+      where: {
+        id,
+        roles: { some: { role: { name: 'ANALYST' } } },
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        usercode: true,
+        mobileNumber: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+
+    if (!analyst) {
+      throw new NotFoundException('Analyst not found');
+    }
+
+    return analyst;
+  }
+
+  async updateAnalyst(id: number, dto: UpdateAnalystDto) {
+    const analyst = await this.prisma.user.findFirst({
+      where: { id, roles: { some: { role: { name: 'ANALYST' } } } },
+    });
+
+    if (!analyst) {
+      throw new NotFoundException('Analyst not found');
+    }
+
+    const data: any = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.email !== undefined) data.email = dto.email;
+    if (dto.status !== undefined) data.status = dto.status;
+    if (dto.password) {
+      data.password = await bcrypt.hash(dto.password, 10);
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        usercode: true,
+        status: true,
+        updatedAt: true,
+      },
+    });
+
+    return { message: 'Analyst updated successfully', user: updated };
+  }
+
+  async updateAnalystStatus(id: number, status: string) {
+    return this.prisma.user.update({
+      where: { id },
+      data: { status },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        usercode: true,
+        status: true,
+        updatedAt: true,
+      },
     });
   }
 
@@ -713,6 +918,22 @@ export class UsersService {
       whereClause.createdByAdminId = loggedUser.userId || loggedUser.id;
     }
 
+    // Scoping for ADMIN viewing OUTREACH
+    if (roleName === 'OUTREACH' && loggedUser?.roles?.includes('ADMIN') && !loggedUser?.roles?.includes('SUPER_ADMIN')) {
+      const loggedUserId = loggedUser.userId || loggedUser.id;
+      const adminProjects = await this.prisma.userProjectLocation.findMany({
+        where: { userId: loggedUserId },
+        select: { projectId: true },
+      });
+      const projectIds = adminProjects.map(p => p.projectId);
+
+      whereClause.projectAssignments = {
+        some: {
+          projectId: { in: projectIds }
+        }
+      };
+    }
+
     return this.prisma.user.findMany({
       where: whereClause,
       select: {
@@ -722,6 +943,13 @@ export class UsersService {
         usercode: true,
         mobileNumber: true,
         createdByAdminId: true,
+        createdByAdmin: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          }
+        },
         status: true,
         createdAt: true,
         roles: {
@@ -768,5 +996,123 @@ export class UsersService {
         updatedAt: true,
       }
     });
+  }
+
+  async assignOutreachManager(outreachId: number, managerId: number, loggedUser: any) {
+    const outreach = await this.prisma.user.findFirst({
+      where: { id: outreachId, roles: { some: { role: { name: 'OUTREACH' } } } }
+    });
+    if (!outreach) throw new NotFoundException('Outreach worker not found');
+
+    // ADMIN can only reassign outreach workers in their assigned projects
+    if (loggedUser?.roles?.includes('ADMIN') && !loggedUser?.roles?.includes('SUPER_ADMIN')) {
+      const loggedUserId = loggedUser.userId || loggedUser.id;
+      const adminProjects = await this.prisma.userProjectLocation.findMany({
+        where: { userId: loggedUserId },
+        select: { projectId: true },
+      });
+      const adminProjectIds = adminProjects.map(p => p.projectId);
+
+      const outreachInAdminProject = await this.prisma.userProjectLocation.findFirst({
+        where: {
+          userId: outreachId,
+          projectId: { in: adminProjectIds },
+        },
+      });
+
+      if (!outreachInAdminProject) {
+        throw new ForbiddenException('You are not authorized to reassign this outreach worker');
+      }
+    }
+    
+    const manager = await this.prisma.user.findFirst({
+      where: { id: managerId, roles: { some: { role: { name: 'MANAGER' } } } }
+    });
+    if (!manager) throw new NotFoundException('Manager not found');
+
+    return this.prisma.user.update({
+      where: { id: outreachId },
+      data: { createdByAdminId: managerId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        createdByAdminId: true,
+        createdByAdmin: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          }
+        }
+      }
+    });
+  }
+
+  async getAnalystDashboardReports(userId: number) {
+    // 1. Get projects assigned to this analyst
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: { userId },
+      select: { projectId: true },
+    });
+
+    if (!assignments.length) {
+      return [];
+    }
+
+    const projectIds = [...new Set(assignments.map((a) => a.projectId))];
+
+    // 2. Fetch all activity reports for beneficiaries in those projects
+    const reports = await this.prisma.activityReport.findMany({
+      where: {
+        beneficiary: {
+          projectId: { in: projectIds },
+        },
+      },
+      orderBy: { date: 'desc' },
+      include: {
+        beneficiary: {
+          include: {
+            awc: {
+              include: {
+                state: true,
+                district: true,
+                block: true,
+                village: true,
+              },
+            },
+          },
+        },
+        activity: { select: { id: true, name: true } },
+        session: { select: { id: true, name: true } },
+        reportedBy: { select: { id: true, name: true } },
+      },
+    });
+
+    return reports.map((r) => ({
+      reportId: r.id,
+      beneficiaryId: r.beneficiary.uid,
+      beneficiaryName: r.beneficiary.name,
+      // Beneficiary detail fields
+      dateOfBirth: r.beneficiary.dateOfBirth ?? null,
+      guardianName: r.beneficiary.guardianName ?? null,
+      dateOfMarriage: r.beneficiary.dateOfMarriage ?? null,
+      womanAgeAtMarriage: r.beneficiary.womanAgeAtMarriage ?? null,
+      husbandAgeAtMarriage: r.beneficiary.husbandAgeAtMarriage ?? null,
+      maritalStatus: r.beneficiary.maritalStatus ?? null,
+      gender: r.beneficiary.gender ?? null,
+      // Location
+      state: r.beneficiary.awc?.state?.name ?? r.beneficiary.state ?? '-',
+      district: r.beneficiary.awc?.district?.name ?? r.beneficiary.district ?? '-',
+      block: r.beneficiary.awc?.block?.name ?? r.beneficiary.block ?? '-',
+      village: r.beneficiary.awc?.village?.name ?? r.beneficiary.village ?? '-',
+      awcCenter: r.beneficiary.awc?.awcName ?? r.beneficiary.awc?.locationCode ?? '-',
+      // Activity & report
+      activity: r.activity.name,
+      session: r.session.name,
+      reportData: r.reportData,
+      reportingDate: r.date,
+      reportedBy: r.reportedBy.name,
+    }));
   }
 }

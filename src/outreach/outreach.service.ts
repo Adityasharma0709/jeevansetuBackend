@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto';
 import { CreateReportDto } from './dto/create-report.dto';
@@ -23,7 +24,7 @@ export class OutreachService {
     }
   }
 
-  private async ensureOutreachAssignedToBeneficiary(userId: number, beneficiary: { projectId: number; awcId: number }) {
+  private async ensureOutreachAssignedToBeneficiary(userId: number, beneficiary: { projectId: number; awcId?: number | null }) {
     const assigned = await this.prisma.userProjectLocation.findFirst({
       where: {
         userId,
@@ -38,27 +39,47 @@ export class OutreachService {
     }
   }
   async createBeneficiary(dto: CreateBeneficiaryDto, user: any) {
-    // 1. Get AWC and check its state
-    const awc = await this.prisma.awc.findUnique({
-      where: { id: dto.locationId },
-      select: { id: true, stateId: true, status: true },
-    });
-    if (!awc) throw new NotFoundException('AWC not found');
-    this.assertIsActive(awc.status, 'AWC');
-
-    // 2. Check outreach assignment for this project and state
-    const assigned = await this.prisma.userProjectLocation.findFirst({
-      where: {
-        userId: user.userId,
-        projectId: dto.projectId,
-        stateId: awc.stateId
+    if (dto.beneficiaryType === 'Priority') {
+      if (!dto.locationId) {
+        throw new BadRequestException('locationId is required for Priority beneficiaries');
       }
-    });
 
-    if (!assigned) {
-      throw new ForbiddenException(
-        'You are not assigned to this project or the state of this location'
-      );
+      // 1. Get AWC and check its state
+      const awc = await this.prisma.awc.findUnique({
+        where: { id: dto.locationId },
+        select: { id: true, stateId: true, status: true },
+      });
+      if (!awc) throw new NotFoundException('AWC not found');
+      this.assertIsActive(awc.status, 'AWC');
+
+      // 2. Check outreach assignment for this project and state
+      const assigned = await this.prisma.userProjectLocation.findFirst({
+        where: {
+          userId: user.userId,
+          projectId: dto.projectId,
+          stateId: awc.stateId
+        }
+      });
+
+      if (!assigned) {
+        throw new ForbiddenException(
+          'You are not assigned to this project or the state of this location'
+        );
+      }
+    } else {
+      // For Stakeholder and General, just verify project assignment
+      const assigned = await this.prisma.userProjectLocation.findFirst({
+        where: {
+          userId: user.userId,
+          projectId: dto.projectId,
+        }
+      });
+
+      if (!assigned) {
+        throw new ForbiddenException(
+          'You are not assigned to this project'
+        );
+      }
     }
 
     // 3. Get project code   
@@ -84,11 +105,12 @@ export class OutreachService {
     const uid = `${project.projectCode}${padded}`;
 
     // 5. Create beneficiary
-    return this.prisma.beneficiary.create({
+    const ben = await this.prisma.beneficiary.create({
       data: {
         uid,
+        typeof: dto.beneficiaryType || 'Priority',
         projectId: dto.projectId,
-        awcId: dto.locationId,
+        awcId: dto.locationId || null,
         state: dto.state,
         district: dto.district,
         block: dto.block,
@@ -116,6 +138,8 @@ export class OutreachService {
         employmentStatus: dto.employmentStatus
       }
     });
+    await this.recalculateGroupsForBeneficiary(ben.id);
+    return ben;
   }
 
   async raiseRequest(dto: any, user: any) {
@@ -130,13 +154,13 @@ export class OutreachService {
     if (dto.type === 'UPDATE_PROFILE' && outreachUser) {
       const diff: Record<string, any> = {};
       const incoming = dto.data || {};
-      
+
       if (incoming.name && incoming.name !== outreachUser.name) diff.name = incoming.name;
       if (incoming.email && incoming.email !== outreachUser.email) diff.email = incoming.email;
-      
+
       const mobile = incoming.mobileNumber || incoming.mobile;
       if (mobile && mobile !== outreachUser.mobileNumber) diff.mobileNumber = mobile;
-      
+
       payload = diff;
       if (Object.keys(diff).length === 0) {
         throw new BadRequestException('No changes detected in profile update request');
@@ -165,10 +189,10 @@ export class OutreachService {
 
     const diff: Record<string, any> = {};
     const incoming = (dto?.changes as any) || {};
-    
+
     // Compare applicable fields
     const fields = [
-      'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
+      'typeof', 'name', 'mobileNumber', 'gender', 'guardianName', 'dateOfBirth',
       'maritalStatus', 'dateOfMarriage', 'womanAgeAtMarriage', 'husbandAgeAtMarriage',
       'qualification', 'religion', 'caste', 'monthlyIncome', 'economicStatus',
       'primaryIncomeSource', 'employmentStatus', 'state', 'district', 'block', 'village'
@@ -289,7 +313,7 @@ export class OutreachService {
       throw new ConflictException('A report for this activity and session has already been submitted for this beneficiary on this date.');
     }
 
-    return this.prisma.activityReport.create({
+    const report = await this.prisma.activityReport.create({
       data: {
         beneficiaryId: dto.beneficiaryId,
         childId: dto.childId || null,
@@ -300,6 +324,9 @@ export class OutreachService {
         reportData: dto.reportData
       }
     });
+    await this.recalculateGroupsForBeneficiary(dto.beneficiaryId);
+    await this.updateReportGroupSnapshot(report.id, dto.beneficiaryId, dto.childId || null);
+    return report;
   }
 
   async getReport(id: number, user: any) {
@@ -314,7 +341,7 @@ export class OutreachService {
     });
 
     if (!report) throw new NotFoundException('Report not found');
-    
+
     // We can allow managers/admins to view reports too, but for now just basic auth 
     return report;
   }
@@ -323,13 +350,13 @@ export class OutreachService {
     const report = await this.prisma.activityReport.findUnique({
       where: { id }
     });
-    
+
     if (!report) throw new NotFoundException('Report not found');
 
     // Make sure user owns it or has right role
     const roles = user.roles?.map((r: any) => r.role?.name || r.name) || [];
     const isSuperAdmin = roles.includes('SUPER_ADMIN') || roles.includes('ADMIN') || roles.includes('MANAGER');
-    
+
     if (!isSuperAdmin && report.reportedById !== user.userId) {
       throw new ForbiddenException('You can only update reports that you created');
     }
@@ -338,16 +365,26 @@ export class OutreachService {
     const existingData = (report.reportData as any) || {};
     const newData = dto.reportData || {};
 
-    return this.prisma.activityReport.update({
-      where: { id },
-      data: {
-        reportData: {
-          ...existingData,
-          ...newData,
-          sessionDate: dto.sessionDate || existingData.sessionDate
-        }
+    const dataToUpdate: any = {
+      reportData: {
+        ...existingData,
+        ...newData,
       }
+    };
+
+    if (dto.sessionDate) dataToUpdate.date = new Date(dto.sessionDate);
+    if (dto.activityId) dataToUpdate.activityId = dto.activityId;
+    if (dto.sessionId) dataToUpdate.sessionId = dto.sessionId;
+    if (dto.beneficiaryId) dataToUpdate.beneficiaryId = dto.beneficiaryId;
+    if (dto.childId !== undefined) dataToUpdate.childId = dto.childId || null;
+
+    const updated = await this.prisma.activityReport.update({
+      where: { id },
+      data: dataToUpdate
     });
+    await this.recalculateGroupsForBeneficiary(updated.beneficiaryId);
+    await this.updateReportGroupSnapshot(updated.id, updated.beneficiaryId, updated.childId || null);
+    return updated;
   }
 
   async outreachDashboard(userId: number) {
@@ -378,12 +415,382 @@ export class OutreachService {
     };
   }
 
-  async getMyReports(userId: number) {
+  async getDashboardStats(user: any, projectId?: number, activityId?: number, sessionId?: number) {
+    const roles = user.roles?.map(r => r.role?.name || r.name) || [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
+    const isAnalyst = roles.includes('ANALYST');
+    const isAdmin = roles.includes('ADMIN');
+    const isManager = roles.includes('MANAGER');
+
+    let benWhere: any = {};
+    let projWhere: any = {};
+    const conditions: Prisma.Sql[] = [];
+
+    if (!isSuperAdmin) {
+      if (isAnalyst) {
+        if (!projectId) {
+          throw new BadRequestException('projectId is required for Analyst role');
+        }
+        conditions.push(Prisma.sql`b."projectId" = ${projectId}`);
+        benWhere.projectId = projectId;
+        projWhere.id = projectId;
+      } else if (isAdmin) {
+        const assignments = await this.prisma.userProjectLocation.findMany({
+          where: { userId: user.userId },
+          select: { projectId: true }
+        });
+        const pIds = assignments.map(a => a.projectId);
+        benWhere.projectId = { in: pIds };
+        projWhere.id = { in: pIds };
+        if (pIds.length > 0) {
+          conditions.push(Prisma.sql`b."projectId" IN (${Prisma.join(pIds)})`);
+        } else {
+          conditions.push(Prisma.sql`1 = 0`); // Deny access
+        }
+      } else if (isManager) {
+        const managedUsers = await this.prisma.user.findMany({
+          where: { createdByAdminId: user.userId },
+          select: { id: true }
+        });
+        const managedIds = [...managedUsers.map(u => u.id), user.userId];
+        benWhere.createdById = { in: managedIds };
+        if (managedIds.length > 0) {
+          conditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(managedIds)})`);
+        }
+      } else {
+        benWhere.createdById = user.userId;
+        conditions.push(Prisma.sql`r."reportedById" = ${user.userId}`);
+      }
+    }
+
+    if (activityId) conditions.push(Prisma.sql`r."activityId" = ${activityId}`);
+    if (sessionId) conditions.push(Prisma.sql`r."sessionId" = ${sessionId}`);
+
+    const totalBeneficiaries = await this.prisma.beneficiary.count({ where: benWhere });
+
+    let assignedProjects = 0;
+    if (isSuperAdmin) assignedProjects = await this.prisma.project.count();
+    else if (isAdmin || isAnalyst) assignedProjects = await this.prisma.project.count({ where: projWhere });
+    else assignedProjects = await this.prisma.userProjectLocation.count({ where: { userId: user.userId } });
+
+    const whereClause = conditions.length > 0 ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}` : Prisma.empty;
+
+    const statsRaw: any[] = await this.prisma.$queryRaw`
+      WITH ReportData AS (
+        SELECT 
+          r.id,
+          r."reportData",
+          COALESCE(c.gender, b.gender) AS gender,
+          b."maritalStatus",
+          b."typeof",
+          EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
+          (EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months
+        FROM "ActivityReport" r
+        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+        LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
+        ${whereClause}
+      )
+      SELECT 
+        COUNT(*) AS "totalReports",
+
+        -- Outreach Actions
+        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant') AS "activePregnantWomen",
+        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered') AS "activeLactatingMothers",
+        COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM') AS "activeSamChildren",
+        COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM') AS "activeMamChildren",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
+        COUNT(*) FILTER (WHERE age_months <= 6) AS "infantsEbfPromotion",
+        COUNT(*) FILTER (WHERE age_months > 6 AND age_years < 2) AS "infantsCfPromotion",
+        COUNT(*) FILTER (
+          WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
+          AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+        ) AS "womenDueForDelivery30Days",
+
+        -- Episodes of Care
+        COUNT(*) FILTER (WHERE age_years > 19) AS "adults",
+        COUNT(*) FILTER (WHERE age_years BETWEEN 10 AND 19) AS "adolescents",
+        COUNT(*) FILTER (WHERE age_years < 6) AS "childrenUnder5",
+        COUNT(*) FILTER (WHERE age_years BETWEEN 6 AND 10) AS "children6To10",
+
+        -- Activity Session Demographics
+        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant') AS "pregnantWomen",
+        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered') AS "lactatingWomen",
+        COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
+        COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24) AS "youngMarriedWomen",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years < 6) AS "childrenBelow6Girls",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years < 6) AS "childrenBelow6Boys",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Girls",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Boys",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
+        COUNT(*) FILTER (WHERE LOWER(TRIM("typeof")) = 'stakeholder') AS "stakeholders",
+        
+        -- Catch all
+        COUNT(*) FILTER (
+          WHERE NOT ("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered')
+          OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
+          OR (LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years < 6)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years < 6)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 6 AND 10)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19)
+          OR LOWER(TRIM("typeof")) = 'stakeholder')
+        ) AS "otherBeneficiaries"
+      FROM ReportData;
+    `;
+
+    const row = statsRaw[0] || {};
+    const toNumber = (val: any) => val ? Number(val) : 0;
+
+    return {
+      totalBeneficiaries,
+      assignedProjects,
+      assignedLocations: 0,
+      totalReports: toNumber(row.totalReports),
+      outreachActions: {
+        activePregnantWomen: toNumber(row.activePregnantWomen),
+        activeLactatingMothers: toNumber(row.activeLactatingMothers),
+        activeSamChildren: toNumber(row.activeSamChildren),
+        activeMamChildren: toNumber(row.activeMamChildren),
+        adolescentGirls: toNumber(row.adolescentGirls),
+        infantsEbfPromotion: toNumber(row.infantsEbfPromotion),
+        infantsCfPromotion: toNumber(row.infantsCfPromotion),
+        womenDueForDelivery30Days: toNumber(row.womenDueForDelivery30Days)
+      },
+      episodesOfCare: {
+        adults: toNumber(row.adults),
+        adolescents: toNumber(row.adolescents),
+        childrenUnder5: toNumber(row.childrenUnder5),
+        children6To10: toNumber(row.children6To10)
+      },
+      activities: [
+        { label: 'YOUNG MARRIED WOMEN', count: toNumber(row.youngMarriedWomen), countColor: 'text-gray-900' },
+        { label: 'PREGNANT WOMEN', count: toNumber(row.pregnantWomen), countColor: 'text-gray-900' },
+        { label: 'MAM (0-5)', count: toNumber(row.mam0to5), countColor: 'text-green-600' },
+        { label: 'CHILDREN BELOW 6 (0-5 YEARS) - GIRLS', count: toNumber(row.childrenBelow6Girls), countColor: 'text-gray-900' },
+        { label: 'CHILDREN BELOW 6 (0-5 YEARS) - BOYS', count: toNumber(row.childrenBelow6Boys), countColor: 'text-gray-900' },
+        { label: 'LACTATING WOMEN', count: toNumber(row.lactatingWomen), countColor: 'text-gray-900' },
+        { label: 'ADOLESCENT GIRLS', count: toNumber(row.adolescentGirls2), countColor: 'text-gray-900' },
+        { label: 'CHILDREN ABOVE 6 (6-10 YEARS) - GIRLS', count: toNumber(row.childrenAbove6Girls), countColor: 'text-red-600' },
+        { label: 'STAKEHOLDERS', count: toNumber(row.stakeholders), countColor: 'text-gray-900' },
+        { label: 'ADOLESCENT BOYS', count: toNumber(row.adolescentBoys), countColor: 'text-gray-900' },
+        { label: 'SAM (0-5)', count: toNumber(row.sam0to5), countColor: 'text-red-600' },
+        { label: 'CHILDREN ABOVE 6 (6-10 YEARS) - BOYS', count: toNumber(row.childrenAbove6Boys), countColor: 'text-green-600' },
+        { label: 'OTHER BENEFICIARIES', count: toNumber(row.otherBeneficiaries), countColor: 'text-gray-900' },
+      ]
+    };
+  }
+
+  async getActionDetails(user: any, groupName: string) {
+    const roles = user.roles?.map((r: any) => r.role?.name || r.name) || [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
+    const isAnalyst = roles.includes('ANALYST');
+    const isAdmin = roles.includes('ADMIN');
+    const isManager = roles.includes('MANAGER');
+
+    const rbacConditions: Prisma.Sql[] = [];
+
+    if (!isSuperAdmin) {
+      if (isAdmin || isAnalyst) {
+        const assignments = await this.prisma.userProjectLocation.findMany({
+          where: { userId: user.userId },
+          select: { projectId: true }
+        });
+        const pIds = assignments.map(a => a.projectId);
+        if (pIds.length > 0) {
+          rbacConditions.push(Prisma.sql`b."projectId" IN (${Prisma.join(pIds)})`);
+        } else {
+          rbacConditions.push(Prisma.sql`1 = 0`); // Deny access
+        }
+      } else if (isManager) {
+        const managedUsers = await this.prisma.user.findMany({
+          where: { createdByAdminId: user.userId },
+          select: { id: true }
+        });
+        const managedIds = [...managedUsers.map(u => u.id), user.userId];
+        if (managedIds.length > 0) {
+          rbacConditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(managedIds)})`);
+        }
+      } else {
+        rbacConditions.push(Prisma.sql`r."reportedById" = ${user.userId}`);
+      }
+    }
+
+    // Map group name to SQL condition
+    let groupCondition: Prisma.Sql;
+    switch (groupName) {
+      case 'Currently Active Pregnant women':
+        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant'`;
+        break;
+      case 'Currently Active Lactating Mothers':
+        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Baby Delivered'`;
+        break;
+      case 'Currently Active SAM Children':
+        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM'`;
+        break;
+      case 'Currently Active MAM Children':
+        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'MAM'`;
+        break;
+      case 'Adolescent Girls':
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19`;
+        break;
+      case 'Infants for EBF Promotion (<= 6m)':
+        groupCondition = Prisma.sql`age_months <= 6`;
+        break;
+      case 'Infants for CF Promotion(2year<child age<6months)':
+        groupCondition = Prisma.sql`age_months > 6 AND age_years < 2`;
+        break;
+      case 'Women due for delivery in next 30 days':
+        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`;
+        break;
+      default:
+        groupCondition = Prisma.sql`1 = 1`; // Default to no filter or throw error
+        break;
+    }
+
+    const rbacWhereClause = rbacConditions.length > 0 ? Prisma.sql`WHERE ${Prisma.join(rbacConditions, ' AND ')}` : Prisma.empty;
+
+    const rawRecords: any[] = await this.prisma.$queryRaw`
+      WITH ReportData AS (
+        SELECT 
+          r.id AS "reportId",
+          r.date AS "reportingDate",
+          COALESCE(c.uid, b.uid) AS "beneficiaryId",
+          COALESCE(c.name, b.name) AS "beneficiaryName",
+          b."typeof",
+          a."awcName" AS awc,
+          act.name AS activity,
+          sess.name AS session,
+          r."reportData",
+          COALESCE(c.gender, b.gender) AS gender,
+          b."maritalStatus",
+          EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
+          (EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
+          CASE 
+            WHEN r."childId" IS NOT NULL THEN (
+              SELECT STRING_AGG(bg.name, ', ')
+              FROM "ChildGroupMember" cgm
+              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+              WHERE cgm."childId" = c.id
+            )
+            ELSE (
+              SELECT STRING_AGG(bg.name, ', ')
+              FROM "GroupMember" gm
+              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+              WHERE gm."beneficiaryId" = b.id
+            )
+          END AS "actualGroups"
+        FROM "ActivityReport" r
+        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+        LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "Activity" act ON r."activityId" = act.id
+        LEFT JOIN "Session" sess ON r."sessionId" = sess.id
+        ${rbacWhereClause}
+      )
+      SELECT 
+        "reportId",
+        "beneficiaryId" AS id,
+        "beneficiaryName" AS name,
+        COALESCE("actualGroups", 'N/A') AS group,
+        COALESCE(awc, 'N/A') AS awc,
+        COALESCE(activity, 'N/A') AS activity,
+        COALESCE(session, 'N/A') AS session,
+        "reportingDate",
+        age_years,
+        age_months
+      FROM ReportData
+      WHERE ${groupCondition}
+      ORDER BY "reportingDate" DESC
+      LIMIT 100;
+    `;
+
+    return rawRecords.map(record => {
+      let ageStr = 'N/A';
+      if (record.age_years !== null && record.age_years !== undefined) {
+        const yrs = Number(record.age_years);
+        const mos = Number(record.age_months);
+        if (yrs === 0) {
+          ageStr = `${mos} M`;
+        } else {
+          ageStr = `${yrs} Y`;
+        }
+      }
+      return {
+        ...record,
+        age: ageStr,
+        reportingDate: record.reportingDate ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'
+      };
+    });
+  }
+
+  async getMyReports(user: any, projectId?: number) {
+    const roles = user.roles?.map(r => r.role?.name || r.name) || [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
+    const isAnalyst = roles.includes('ANALYST');
+    const isAdmin = roles.includes('ADMIN');
+    const isManager = roles.includes('MANAGER');
+
+    let where: any = {};
+
+    if (!isSuperAdmin) {
+      if (isAnalyst) {
+        if (!projectId) {
+          throw new BadRequestException('projectId is required for Analyst role');
+        }
+        where.beneficiary = { projectId };
+      } else if (isAdmin) {
+        const assignments = await this.prisma.userProjectLocation.findMany({
+          where: { userId: user.userId },
+          select: { projectId: true }
+        });
+        where.beneficiary = { projectId: { in: assignments.map(a => a.projectId) } };
+      } else if (isManager) {
+        const managedUsers = await this.prisma.user.findMany({
+          where: { createdByAdminId: user.userId },
+          select: { id: true }
+        });
+        const managedIds = managedUsers.map(u => u.id);
+        where.reportedById = { in: [...managedIds, user.userId] };
+      } else {
+        where.reportedById = user.userId;
+      }
+    }
+
     return this.prisma.activityReport.findMany({
-      where: { reportedById: userId },
+      where,
       include: {
-        beneficiary: { select: { name: true, uid: true, mobileNumber: true } },
-        child: { select: { name: true, uid: true } },
+        beneficiary: {
+          select: {
+            name: true,
+            uid: true,
+            mobileNumber: true,
+            dateOfBirth: true,
+            gender: true,
+            typeof: true,
+            groups: {
+              include: {
+                group: true
+              }
+            }
+          }
+        },
+        child: {
+          select: {
+            name: true,
+            uid: true,
+            dateOfBirth: true,
+            gender: true,
+            childGroups: {
+              include: {
+                group: true
+              }
+            }
+          }
+        },
         activity: { select: { name: true } },
         session: { select: { name: true } }
       },
@@ -399,28 +806,38 @@ export class OutreachService {
 
     return { users, projects, awcs, assignments };
   }
-  async getBeneficiaryList(user: any, search?: string) {
+  async getBeneficiaryList(user: any, search?: string, projectId?: number) {
     const roles = user.roles?.map(r => r.role?.name || r.name) || [];
     const isSuperAdmin = roles.includes('SUPER_ADMIN');
+    const isAnalyst = roles.includes('ANALYST');
+    const isAdmin = roles.includes('ADMIN');
+    const isManager = roles.includes('MANAGER');
 
     let where: any = {};
 
     if (!isSuperAdmin) {
-      const assignments = await this.prisma.userProjectLocation.findMany({
-        where: { userId: user.userId }
-      });
-
-      if (assignments.length === 0) {
-        return [];
+      if (isAnalyst) {
+        if (!projectId) {
+          throw new BadRequestException('projectId is required for Analyst role');
+        }
+        where.projectId = projectId;
+      } else if (isAdmin) {
+        const assignments = await this.prisma.userProjectLocation.findMany({
+          where: { userId: user.userId },
+          select: { projectId: true }
+        });
+        where.projectId = { in: assignments.map(a => a.projectId) };
+      } else if (isManager) {
+        const managedUsers = await this.prisma.user.findMany({
+          where: { createdByAdminId: user.userId },
+          select: { id: true }
+        });
+        const managedIds = managedUsers.map(u => u.id);
+        where.createdById = { in: [...managedIds, user.userId] };
+      } else {
+        // Outreach workers only see beneficiaries they personally registered
+        where.createdById = user.userId;
       }
-
-      // Filter by projects assigned to the user
-      const projectIds = assignments.map(a => a.projectId);
-      where.projectId = { in: projectIds };
-
-      // Optionally filter by location as well if the requirement is strict
-      // const locationIds = assignments.map(a => a.locationId);
-      // where.locationId = { in: locationIds };
     }
 
     if (search) {
@@ -438,7 +855,13 @@ export class OutreachService {
       include: {
         project: true,
         awc: true,
-        children: true,
+        children: {
+          include: {
+            childGroups: {
+              include: { group: true }
+            }
+          }
+        },
         createdBy: {
           select: { name: true, email: true }
         }
@@ -546,9 +969,19 @@ export class OutreachService {
     });
   }
 
-  async getActivities() {
+  async getActivities(user: any) {
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: { userId: user.userId },
+      select: { projectId: true }
+    });
+
+    const projectIds = [...new Set(assignments.map(a => a.projectId))];
+
     return this.prisma.activity.findMany({
-      where: { status: 'ACTIVE' },
+      where: {
+        status: 'ACTIVE',
+        projectId: { in: projectIds }
+      },
       include: {
         creator: {
           select: { id: true, name: true, email: true },
@@ -582,7 +1015,13 @@ export class OutreachService {
       include: {
         project: true,
         awc: true,
-        children: true,
+        children: {
+          include: {
+            childGroups: {
+              include: { group: true }
+            }
+          }
+        },
         groups: { include: { group: true } },
         activities: { include: { activity: true, session: true } }
       }
@@ -676,11 +1115,11 @@ export class OutreachService {
       ageYears--;
     }
 
-    if (ageYears <= 14) {
+    if (ageYears >= 3 && ageYears <= 14) {
       if (!dto.schoolingStatus) {
         throw new BadRequestException(`schoolingStatus is required for children (Age: ${ageYears})`);
       }
-    } else {
+    } else if (ageYears > 14) {
       if (!dto.employmentStatus) {
         throw new BadRequestException(`employmentStatus is required for family members (Age: ${ageYears})`);
       }
@@ -700,7 +1139,7 @@ export class OutreachService {
     const memberUid = `${beneficiary.uid}F${suffix}`;
 
     // 5. Create family member record
-    return this.prisma.beneficiaryChild.create({
+    const child = await this.prisma.beneficiaryChild.create({
       data: {
         uid: memberUid,
         beneficiaryId,
@@ -713,6 +1152,8 @@ export class OutreachService {
         qualification: (ageYears > 6 ? (dto.qualification ?? null) : null) as any,
       },
     });
+    await this.recalculateGroupsForBeneficiary(beneficiaryId);
+    return child;
   }
 
   async getFamilyMembers(beneficiaryId: number) {
@@ -727,5 +1168,420 @@ export class OutreachService {
       orderBy: { id: 'asc' },
     });
   }
-}
 
+  async updateFamilyMember(memberId: number, dto: any, user: any) {
+    const userId = Number(user?.userId);
+    if (!Number.isFinite(userId)) throw new BadRequestException('Invalid user');
+
+    const member = await this.prisma.beneficiaryChild.findUnique({
+      where: { id: memberId },
+      include: { beneficiary: { select: { id: true, createdById: true } } },
+    });
+    if (!member) throw new NotFoundException('Family member not found');
+    if (member.beneficiary.createdById !== userId) {
+      throw new ForbiddenException('You can only edit family members of beneficiaries you created');
+    }
+
+    const rawDob = dto.dateOfBirth ? new Date(dto.dateOfBirth) : member.dateOfBirth;
+    const today = new Date();
+    let ageYears = today.getFullYear() - rawDob.getFullYear();
+    const m = today.getMonth() - rawDob.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < rawDob.getDate())) ageYears--;
+
+    const data: any = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.relationship !== undefined) data.relationship = dto.relationship;
+    if (dto.gender !== undefined) data.gender = dto.gender;
+    if (dto.dateOfBirth !== undefined) data.dateOfBirth = rawDob;
+
+    if (ageYears >= 3 && ageYears <= 14) {
+      data.schoolingStatus = dto.schoolingStatus ?? member.schoolingStatus ?? null;
+      data.employmentStatus = null;
+    } else if (ageYears > 14) {
+      data.employmentStatus = dto.employmentStatus ?? member.employmentStatus ?? null;
+      data.schoolingStatus = null;
+    } else {
+      data.schoolingStatus = null;
+      data.employmentStatus = null;
+    }
+    data.qualification = ageYears > 6 ? (dto.qualification ?? member.qualification ?? null) : null;
+
+    const child = await this.prisma.beneficiaryChild.update({ where: { id: memberId }, data });
+    await this.recalculateGroupsForBeneficiary(child.beneficiaryId);
+    return child;
+  }
+
+  private calcAge(dob: Date | string | null | undefined): number {
+    if (!dob) return 0;
+    const birth = new Date(dob);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    return age;
+  }
+
+  async recalculateGroupsForBeneficiary(beneficiaryId: number) {
+    const beneficiary = await this.prisma.beneficiary.findUnique({
+      where: { id: beneficiaryId },
+      include: {
+        children: true,
+        groups: {
+          include: { group: true }
+        }
+      }
+    });
+
+    if (!beneficiary) return;
+
+    // Fetch all reports for the main beneficiary (childId: null) to find the most recent non-empty statuses
+    const mainReports = await this.prisma.activityReport.findMany({
+      where: {
+        beneficiaryId,
+        childId: null
+      },
+      orderBy: {
+        date: 'desc'
+      },
+      select: {
+        reportData: true
+      }
+    });
+
+    let latestPregnancyStatus = '';
+    let latestSamMamStatus = '';
+
+    for (const report of mainReports) {
+      const data = (report.reportData as any) || {};
+      if (!latestPregnancyStatus && data.pregnancyStatus) {
+        latestPregnancyStatus = data.pregnancyStatus;
+      }
+      if (!latestSamMamStatus && data.samMamStatus) {
+        latestSamMamStatus = data.samMamStatus;
+      }
+      if (latestPregnancyStatus && latestSamMamStatus) {
+        break; // Both found, no need to look further back
+      }
+    }
+
+    // We no longer fetch all reports for children since the group logic does not use it.
+
+    const groupNames = new Set<string>();
+
+    const age = this.calcAge(beneficiary.dateOfBirth);
+    const gender = (beneficiary.gender || '').trim();
+    const maritalStatus = beneficiary.maritalStatus;
+
+    if (beneficiary.typeof === 'Stakeholder') {
+      groupNames.add('Stakeholders');
+    }
+
+    // Preserve non-system groups
+    const existingGroupNames = beneficiary.groups.map(g => g.group.name);
+    const systemGroupNames = [
+      'Young Married Women',
+      'Pregnant Women',
+      'Lactating Women',
+      'Adolescent Girls',
+      'Adolescent Boys',
+      'Children above 6(6-9 Years) - Girls',
+      'Children above 6 (6-9 Years) - Boys',
+      'Children below 6(3-6 Years) - Girls',
+      'Children below 6(3-6 Years) - Boys',
+      'Other Beneficiaries - Females',
+      'Other Beneficiaries - Males',
+      'SAM Children [0-5 Years]',
+      'MAM Children [0-5 Years]',
+      'Stakeholders'
+    ];
+    for (const name of existingGroupNames) {
+      if (!systemGroupNames.includes(name)) {
+        groupNames.add(name);
+      }
+    }
+
+    // Check child under 2 status
+    const hasChildUnder2 = beneficiary.children.some(c => this.calcAge(c.dateOfBirth) <= 2);
+
+    // Evaluate main beneficiary rules
+    if (gender === 'Female') {
+      if (age < 6) {
+        if (latestSamMamStatus === 'SAM') {
+          groupNames.add('SAM Children [0-5 Years]');
+        } else if (latestSamMamStatus === 'MAM') {
+          groupNames.add('MAM Children [0-5 Years]');
+        } else {
+          groupNames.add('Children below 6(3-6 Years) - Girls');
+        }
+      } else if (age >= 6 && age < 10) {
+        groupNames.add('Children above 6(6-9 Years) - Girls');
+      } else if (
+        (age >= 10 && age < 14) ||
+        (age >= 14 && age <= 19 && latestPregnancyStatus !== 'Currently Pregnant') ||
+        (age >= 14 && age <= 19 && maritalStatus !== 'Married' && !hasChildUnder2)
+      ) {
+        groupNames.add('Adolescent Girls');
+      }
+
+      if (age >= 14) {
+        if (maritalStatus === 'Married' && age >= 15 && age <= 24) {
+          groupNames.add('Young Married Women');
+        }
+        if (latestPregnancyStatus === 'Currently Pregnant') {
+          groupNames.add('Pregnant Women');
+        }
+        if (latestPregnancyStatus === 'Baby Delivered' || hasChildUnder2) {
+          groupNames.add('Lactating Women');
+        }
+
+        // If she is >= 14 and does not belong to any primary female group, mark as Other Beneficiaries - Females
+        const hasPrimaryGroup =
+          groupNames.has('Pregnant Women') ||
+          groupNames.has('Lactating Women') ||
+          groupNames.has('Adolescent Girls') ||
+          groupNames.has('Young Married Women');
+
+        if (!hasPrimaryGroup) {
+          groupNames.add('Other Beneficiaries - Females');
+        }
+      }
+    } else if (gender === 'Male') {
+      if (age < 6) {
+        if (latestSamMamStatus === 'SAM') {
+          groupNames.add('SAM Children [0-5 Years]');
+        } else if (latestSamMamStatus === 'MAM') {
+          groupNames.add('MAM Children [0-5 Years]');
+        } else {
+          groupNames.add('Children below 6(3-6 Years) - Boys');
+        }
+      } else if (age >= 6 && age < 10) {
+        groupNames.add('Children above 6 (6-9 Years) - Boys');
+      } else if (age >= 10 && age <= 19) {
+        groupNames.add('Adolescent Boys');
+      } else if (age > 19) {
+        groupNames.add('Other Beneficiaries - Males');
+      }
+    }
+
+
+
+    // Sync database for primary beneficiary
+    await this.syncGroupsForBeneficiary(beneficiaryId, Array.from(groupNames));
+
+    // Evaluate children rules
+    for (const child of beneficiary.children) {
+      const childGroupNames = new Set<string>();
+      const childAge = this.calcAge(child.dateOfBirth);
+      const childGender = (child.gender || '').trim();
+
+      // Fetch all reports for this specific child to find the most recent non-empty statuses
+      const childReports = await this.prisma.activityReport.findMany({
+        where: {
+          beneficiaryId,
+          childId: child.id
+        },
+        orderBy: {
+          date: 'desc'
+        },
+        select: {
+          reportData: true
+        }
+      });
+
+      let childSamMamStatus = '';
+
+      for (const report of childReports) {
+        const data = (report.reportData as any) || {};
+        if (data.samMamStatus) {
+          childSamMamStatus = data.samMamStatus;
+          break; // Found the latest non-empty status
+        }
+      }
+
+      if (childGender === 'Female') {
+        if (childAge < 6) {
+          if (childSamMamStatus === 'SAM') childGroupNames.add('SAM Children [0-5 Years]');
+          else if (childSamMamStatus === 'MAM') childGroupNames.add('MAM Children [0-5 Years]');
+          else childGroupNames.add('Children below 6(3-6 Years) - Girls');
+        } else if (childAge >= 6 && childAge < 10) {
+          childGroupNames.add('Children above 6(6-9 Years) - Girls');
+        } else if (childAge >= 10 && childAge <= 19) {
+          childGroupNames.add('Adolescent Girls');
+        } else if (childAge >= 20) {
+          childGroupNames.add('Other Beneficiaries - Females');
+        }
+      } else if (childGender === 'Male') {
+        if (childAge < 6) {
+          if (childSamMamStatus === 'SAM') childGroupNames.add('SAM Children [0-5 Years]');
+          else if (childSamMamStatus === 'MAM') childGroupNames.add('MAM Children [0-5 Years]');
+          else childGroupNames.add('Children below 6(3-6 Years) - Boys');
+        } else if (childAge >= 6 && childAge < 10) {
+          childGroupNames.add('Children above 6 (6-9 Years) - Boys');
+        } else if (childAge >= 10 && childAge <= 19) {
+          childGroupNames.add('Adolescent Boys');
+        } else if (childAge >= 20) {
+          childGroupNames.add('Other Beneficiaries - Males');
+        }
+      }
+
+      // Sync database for child
+      await this.syncGroupsForChild(child.id, Array.from(childGroupNames));
+    }
+  }
+
+  async syncGroupsForBeneficiary(beneficiaryId: number, groupNames: string[]) {
+    // 1. Get all active groups in the database matching groupNames
+    const dbGroups = await this.prisma.beneficiaryGroup.findMany({
+      where: { name: { in: groupNames }, status: 'ACTIVE' }
+    });
+
+    const existingGroupNames = dbGroups.map(g => g.name);
+    const missingGroupNames = groupNames.filter(name => !existingGroupNames.includes(name));
+
+    if (missingGroupNames.length > 0) {
+      const systemUser = await this.prisma.user.findFirst({
+        where: { email: 'superadmin@jeevansetu.com' }
+      });
+      const creatorId = systemUser?.id || 1;
+
+      for (const name of missingGroupNames) {
+        const newGroup = await this.prisma.beneficiaryGroup.upsert({
+          where: { name },
+          update: { status: 'ACTIVE' },
+          create: {
+            name,
+            createdById: creatorId,
+            status: 'ACTIVE'
+          }
+        });
+        dbGroups.push(newGroup);
+      }
+    }
+
+    const groupIds = dbGroups.map(g => g.id);
+
+    // Sync relationships inside a transaction
+    await this.prisma.$transaction(async (tx) => {
+      // Delete relationships not in target groupIds
+      await tx.groupMember.deleteMany({
+        where: {
+          beneficiaryId,
+          groupId: { notIn: groupIds }
+        }
+      });
+
+      // Add missing relationships
+      for (const groupId of groupIds) {
+        await tx.groupMember.upsert({
+          where: {
+            beneficiaryId_groupId: {
+              beneficiaryId,
+              groupId
+            }
+          },
+          update: {},
+          create: {
+            beneficiaryId,
+            groupId
+          }
+        });
+      }
+    });
+  }
+
+  async syncGroupsForChild(childId: number, groupNames: string[]) {
+    const dbGroups = await this.prisma.beneficiaryGroup.findMany({
+      where: { name: { in: groupNames }, status: 'ACTIVE' }
+    });
+
+    const existingGroupNames = dbGroups.map(g => g.name);
+    const missingGroupNames = groupNames.filter(name => !existingGroupNames.includes(name));
+
+    if (missingGroupNames.length > 0) {
+      const systemUser = await this.prisma.user.findFirst({
+        where: { email: 'superadmin@jeevansetu.com' }
+      });
+      const creatorId = systemUser?.id || 1;
+
+      for (const name of missingGroupNames) {
+        const newGroup = await this.prisma.beneficiaryGroup.upsert({
+          where: { name },
+          update: { status: 'ACTIVE' },
+          create: {
+            name,
+            createdById: creatorId,
+            status: 'ACTIVE'
+          }
+        });
+        dbGroups.push(newGroup);
+      }
+    }
+
+    const groupIds = dbGroups.map(g => g.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.childGroupMember.deleteMany({
+        where: {
+          childId,
+          groupId: { notIn: groupIds }
+        }
+      });
+
+      for (const groupId of groupIds) {
+        await tx.childGroupMember.upsert({
+          where: {
+            childId_groupId: {
+              childId,
+              groupId
+            }
+          },
+          update: {},
+          create: {
+            childId,
+            groupId
+          }
+        });
+      }
+    });
+  }
+
+  private async updateReportGroupSnapshot(reportId: number, beneficiaryId: number, childId: number | null) {
+    const report = await this.prisma.activityReport.findUnique({ where: { id: reportId } });
+    if (!report) return;
+
+    let newGroupString = 'N/A';
+    
+    if (childId) {
+      const childGroups = await this.prisma.childGroupMember.findMany({
+        where: { childId },
+        include: { group: true }
+      });
+      if (childGroups.length > 0) {
+        newGroupString = childGroups.map((g: any) => g.group.name).join(', ');
+      }
+    } else {
+      const mainGroups = await this.prisma.groupMember.findMany({
+        where: { beneficiaryId },
+        include: { group: true }
+      });
+      if (mainGroups.length > 0) {
+        newGroupString = mainGroups.map((g: any) => g.group.name).join(', ');
+      }
+    }
+
+    const currentData = (report.reportData as any) || {};
+    if (currentData.group !== newGroupString) {
+      await this.prisma.activityReport.update({
+        where: { id: reportId },
+        data: {
+          reportData: {
+            ...currentData,
+            group: newGroupString
+          }
+        }
+      });
+    }
+  }
+}

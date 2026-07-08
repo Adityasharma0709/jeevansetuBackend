@@ -9,14 +9,13 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { CreateGroupDto } from './dto/create-group.dto';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { TagGroupActivityDto } from './dto/tag-group-activity.dto';
-import { UpdateGroupDto } from './dto/update-group.dto';
 import { UpdateActivityDto } from './dto/update-activity.dto';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import * as bcrypt from 'bcrypt';
+import { OutreachService } from '../outreach/outreach.service';
 
 const OUTREACH_CODE_PREFIX = 'OW';
 const OUTREACH_CODE_MIN_DIGITS = 2;
@@ -24,7 +23,10 @@ const OUTREACH_CODE_MAX_RETRIES = 5;
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private outreachService: OutreachService,
+  ) { }
 
   private async generateNextOutreachUserCode(
     tx: Prisma.TransactionClient,
@@ -100,14 +102,21 @@ export class AdminService {
     return request;
   }
 
-  async adminDashboard() {
+  async adminDashboard(user: any) {
+    const adminId = user.userId;
+    const isSuperAdmin = user.roles?.includes('SUPER_ADMIN');
 
-    const groups = await this.prisma.beneficiaryGroup.count();
-    const activities = await this.prisma.activity.count();
-    const sessions = await this.prisma.session.count();
+    const where = isSuperAdmin ? {} : { createdById: adminId };
+
+    const groups = await this.prisma.beneficiaryGroup.count({ where });
+    const activities = await this.prisma.activity.count({ where });
+    const sessions = await this.prisma.session.count({ where });
 
     const reportStats = await this.prisma.activityReport.groupBy({
       by: ['activityId'],
+      where: isSuperAdmin ? {} : {
+        activity: { createdById: adminId }
+      },
       _count: true
     });
 
@@ -121,45 +130,10 @@ export class AdminService {
 
 
   //group
-  async createGroup(dto: CreateGroupDto, user: any) {
-    if (!user?.userId) {
-      throw new UnauthorizedException('User not found');
-    }
-
-    if (dto.activityId) {
-      await this.ensureActivityIsActive(dto.activityId);
-    }
-
-    const exists = await this.prisma.beneficiaryGroup.findFirst({
-      where: { name: dto.name },
-    });
-
-    if (exists) {
-      throw new ConflictException('Group already exists');
-    }
-
-    const createdGroup = await this.prisma.beneficiaryGroup.create({
-      data: {
-        name: dto.name,
-        minAge: dto.minAge,
-        maxAge: dto.maxAge,
-        createdById: user.userId, // ðŸ”¥ FIXED
-      },
-    });
-
-    if (dto.activityId) {
-      await this.prisma.groupActivity.create({
-        data: {
-          groupId: createdGroup.id,
-          activityId: dto.activityId,
-        },
-      });
-    }
-
-    return createdGroup;
-  }
-  async getAllGroups() {
+  async getAllGroups(user: any) {
+    const where = user.roles?.includes('SUPER_ADMIN') ? {} : { createdById: user.userId };
     return this.prisma.beneficiaryGroup.findMany({
+      where,
       include: {
         activities: {
           include: {
@@ -180,82 +154,6 @@ export class AdminService {
     });
   }
 
-  async updateGroup(id: number, dto: UpdateGroupDto) {
-    const { activityId, ...updateData } = dto;
-
-    if (activityId) {
-      const existingGroup = await this.prisma.beneficiaryGroup.findUnique({
-        where: { id },
-        select: { id: true, status: true },
-      });
-      if (!existingGroup) throw new NotFoundException('Group not found');
-      if (existingGroup.status?.toUpperCase() !== 'ACTIVE') {
-        throw new BadRequestException('Group is deactivated');
-      }
-
-      await this.ensureActivityIsActive(activityId);
-    }
-
-    const group = await this.prisma.beneficiaryGroup.update({
-      where: { id },
-      data: updateData,
-    });
-
-    if (activityId) {
-      const exists = await this.prisma.groupActivity.findFirst({
-        where: { groupId: id, activityId },
-      });
-
-      if (!exists) {
-        await this.prisma.groupActivity.create({
-          data: {
-            groupId: id,
-            activityId,
-          },
-        });
-      }
-    }
-
-    return group;
-  }
-
-  async deactivateGroup(id: number) {
-    const group = await this.prisma.beneficiaryGroup.findUnique({
-      where: { id },
-    });
-
-    if (!group) {
-      throw new NotFoundException('Group not found');
-    }
-
-    if (group.status === 'INACTIVE') {
-      throw new BadRequestException('Group already inactive');
-    }
-
-    return this.prisma.beneficiaryGroup.update({
-      where: { id },
-      data: { status: 'INACTIVE' },
-    });
-  }
-
-  async activateGroup(id: number) {
-    const group = await this.prisma.beneficiaryGroup.findUnique({
-      where: { id },
-    });
-
-    if (!group) {
-      throw new NotFoundException('Group not found');
-    }
-
-    if (group.status === 'ACTIVE') {
-      throw new BadRequestException('Group already active');
-    }
-
-    return this.prisma.beneficiaryGroup.update({
-      where: { id },
-      data: { status: 'ACTIVE' },
-    });
-  }
   //activities
   async createActivity(dto: CreateActivityDto, user: any) {
     if (!user?.userId) {
@@ -365,9 +263,16 @@ export class AdminService {
       data: { status: 'ACTIVE' }
     });
   }
-  async getActiveActivities() {
+  async getActiveActivities(user: any) {
+    const isSuperAdmin = user.roles?.includes('SUPER_ADMIN');
+    const isOutreach = user.roles?.includes('OUTREACH');
+    
+    // Outreach and Super Admin see all active activities
+    const filterByCreator = !isSuperAdmin && !isOutreach;
+
     return this.prisma.activity.findMany({
       where: {
+        ...(filterByCreator ? { createdById: user.userId } : {}),
         status: 'ACTIVE',
         OR: [
           { projectId: null },
@@ -394,14 +299,20 @@ export class AdminService {
     });
   }
 
-  async getAllActivities() {
+  async getAllActivities(user: any) {
+    const where: any = {
+      OR: [
+        { projectId: null },
+        { project: { status: { equals: 'ACTIVE', mode: 'insensitive' } } },
+      ],
+    };
+
+    if (!user.roles?.includes('SUPER_ADMIN')) {
+      where.createdById = user.userId;
+    }
+
     return this.prisma.activity.findMany({
-      where: {
-        OR: [
-          { projectId: null },
-          { project: { status: { equals: 'ACTIVE', mode: 'insensitive' } } },
-        ],
-      },
+      where,
       include: {
         creator: {
           select: {
@@ -483,7 +394,6 @@ export class AdminService {
     return this.prisma.session.create({
       data: {
         name: dto.name,
-        sessionDate: dto.sessionDate ? new Date(dto.sessionDate) : new Date(),
         activityId: dto.activityId,
         createdById: user.userId   // ðŸ‘ˆ from JWT
       }
@@ -550,11 +460,17 @@ export class AdminService {
     });
   }
 
-  async getSessionsByActivity(activityId: number) {
+  async getSessionsByActivity(activityId: number, user: any) {
     await this.ensureActivityIsActive(activityId);
+    
+    const isSuperAdmin = user.roles?.includes('SUPER_ADMIN');
+    const isOutreach = user.roles?.includes('OUTREACH');
+    const filterByCreator = !isSuperAdmin && !isOutreach;
+
     return this.prisma.session.findMany({
       where: {
         activityId,
+        ...(filterByCreator ? { createdById: user.userId } : {}),
         status: 'ACTIVE'
       },
       include: {
@@ -569,8 +485,10 @@ export class AdminService {
     });
   }
 
-  async getAllSessions() {
+  async getAllSessions(user: any) {
+    const where = user.roles?.includes('SUPER_ADMIN') ? {} : { createdById: user.userId };
     return this.prisma.session.findMany({
+      where,
       include: {
         activity: {
           select: { name: true }
@@ -645,6 +563,7 @@ export class AdminService {
         where: { id: Number(beneficiaryId) },
         data: changes,
       });
+      await this.outreachService.recalculateGroupsForBeneficiary(Number(beneficiaryId));
     }
 
     if (requestType === 'CREATE_WORKER') {
@@ -664,10 +583,15 @@ export class AdminService {
       if (!role) throw new NotFoundException('OUTREACH role not found');
 
       const numericProjectId = Number(projectId);
-      const managerAssignment = await this.prisma.userProjectLocation.findFirst({
-        where: { userId: request.requestedById, projectId: numericProjectId }
-      });
-      const stateId = managerAssignment?.stateId ?? null;
+      const isValidProjectId = Number.isFinite(numericProjectId) && numericProjectId > 0;
+
+      let stateId: number | null = null;
+      if (isValidProjectId) {
+        const managerAssignment = await this.prisma.userProjectLocation.findFirst({
+          where: { userId: request.requestedById, projectId: numericProjectId }
+        });
+        stateId = managerAssignment?.stateId ?? null;
+      }
 
       for (let attempt = 0; attempt < OUTREACH_CODE_MAX_RETRIES; attempt++) {
         try {
@@ -735,7 +659,7 @@ export class AdminService {
       }
     }
 
-    if (requestType === 'MODIFY_WORKER')    if (requestType === 'MODIFY_WORKER') {
+    if (requestType === 'MODIFY_WORKER') {
       const { workerId, name, email, mobile, mobileNumber, usercode } = payload || {};
       if (!workerId) throw new BadRequestException('Invalid MODIFY_WORKER payload');
 
@@ -764,7 +688,7 @@ export class AdminService {
       }
     }
 
-    if (requestType === 'DEACTIVATE_WORKER')    if (requestType === 'DEACTIVATE_WORKER') {
+    if (requestType === 'DEACTIVATE_WORKER') {
       const { workerId } = payload || {};
       if (!workerId) throw new BadRequestException('Invalid DEACTIVATE_WORKER payload');
       await this.prisma.user.update({

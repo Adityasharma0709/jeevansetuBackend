@@ -1,3 +1,9 @@
+export enum BeneficiaryType {
+  PRIORITY = 'Priority',
+  STAKEHOLDER = 'Stakeholder',
+  GENERAL = 'General',
+}
+
 export enum Gender {
   MALE = 'Male',
   FEMALE = 'Female',
@@ -12,15 +18,16 @@ export enum MaritalStatus {
 }
 
 export enum EconomicStatus {
-  APL = 'APL',
-  BPL = 'BPL',
+  AAY = 'AAY',
+  PHH = 'PHH',
+  Others='Others'
 }
 
 export enum EmploymentStatus {
-  EMPLOYED = 'Employed',
-  UNEMPLOYED = 'Unemployed',
+  WORKING = 'Working',
+  NOT_WORKING = 'Not-Working',
+  DAILY_WAGE_EARNER = 'Daily-Wage-Earner',
   SELF_EMPLOYED = 'Self-Employed',
-  STUDENT = 'Student',
 }
 
 // These fields allow "Other" to be replaced by custom free-text from the user
@@ -52,7 +59,6 @@ export enum Caste {
   OBC = 'OBC',
   SC = 'SC',
   ST = 'ST',
-  NT = 'NT',
   OTHER = 'Other',
 }
 
