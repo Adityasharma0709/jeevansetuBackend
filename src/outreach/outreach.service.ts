@@ -652,12 +652,12 @@ export class OutreachService {
             EXISTS (
               SELECT 1 FROM "GroupMember" gm
               INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-              WHERE gm."beneficiaryId" = b.id AND LOWER(TRIM(bg.name)) = LOWER(TRIM(${groupName}))
+              WHERE gm."beneficiaryId" = "benIntId" AND LOWER(TRIM(bg.name)) = LOWER(TRIM(${groupName}))
             )
             OR EXISTS (
               SELECT 1 FROM "ChildGroupMember" cgm
               INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-              WHERE cgm."childId" = c.id AND LOWER(TRIM(bg.name)) = LOWER(TRIM(${groupName}))
+              WHERE cgm."childId" = "childIntId" AND LOWER(TRIM(bg.name)) = LOWER(TRIM(${groupName}))
             )
           )
         `;
@@ -670,6 +670,8 @@ export class OutreachService {
       WITH ReportData AS (
         SELECT 
           r.id AS "reportId",
+          r."beneficiaryId" AS "benIntId",
+          r."childId" AS "childIntId",
           r.date AS "reportingDate",
           COALESCE(c.uid, b.uid) AS "beneficiaryId",
           COALESCE(c.name, b.name) AS "beneficiaryName",
