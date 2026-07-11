@@ -479,6 +479,7 @@ export class OutreachService {
       WITH ReportData AS (
         SELECT 
           r.id,
+          r."childId" AS "childId",
           r."reportData",
           COALESCE(c.gender, b.gender) AS gender,
           b."maritalStatus",
@@ -494,8 +495,8 @@ export class OutreachService {
         COUNT(*) AS "totalReports",
 
         -- Outreach Actions
-        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant') AS "activePregnantWomen",
-        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered') AS "activeLactatingMothers",
+        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL) AS "activePregnantWomen",
+        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "activeLactatingMothers",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM') AS "activeSamChildren",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM') AS "activeMamChildren",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
@@ -504,6 +505,7 @@ export class OutreachService {
         COUNT(*) FILTER (
           WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
           AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+          AND "childId" IS NULL
         ) AS "womenDueForDelivery30Days",
 
         -- Episodes of Care
@@ -513,11 +515,11 @@ export class OutreachService {
         COUNT(*) FILTER (WHERE age_years BETWEEN 6 AND 10) AS "children6To10",
 
         -- Activity Session Demographics
-        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant') AS "pregnantWomen",
-        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered') AS "lactatingWomen",
+        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL) AS "pregnantWomen",
+        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "lactatingWomen",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24) AS "youngMarriedWomen",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childId" IS NULL) AS "youngMarriedWomen",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years < 6) AS "childrenBelow6Girls",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years < 6) AS "childrenBelow6Boys",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Girls",
@@ -528,9 +530,9 @@ export class OutreachService {
         
         -- Catch all
         COUNT(*) FILTER (
-          WHERE NOT ("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered')
+          WHERE NOT (("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered') AND "childId" IS NULL)
           OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
-          OR (LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24)
+          OR (LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childId" IS NULL)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'male' AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10)
@@ -633,11 +635,11 @@ export class OutreachService {
     switch (gName) {
       case 'CURRENTLY ACTIVE PREGNANT WOMEN':
       case 'PREGNANT WOMEN':
-        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant'`;
+        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childIntId" IS NULL`;
         break;
       case 'CURRENTLY ACTIVE LACTATING MOTHERS':
       case 'LACTATING WOMEN':
-        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Baby Delivered'`;
+        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childIntId" IS NULL`;
         break;
       case 'CURRENTLY ACTIVE SAM CHILDREN':
         groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM'`;
@@ -661,10 +663,10 @@ export class OutreachService {
         groupCondition = Prisma.sql`age_months > 6 AND age_years < 2`;
         break;
       case 'WOMEN DUE FOR DELIVERY IN NEXT 30 DAYS':
-        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`;
+        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days' AND "childIntId" IS NULL`;
         break;
       case 'YOUNG MARRIED WOMEN':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24`;
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childIntId" IS NULL`;
         break;
       case 'CHILDREN BELOW 6 (0-5 YEARS) - GIRLS':
         groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years < 6`;
@@ -686,9 +688,9 @@ export class OutreachService {
         break;
       case 'OTHER BENEFICIARIES':
         groupCondition = Prisma.sql`
-          NOT ("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered')
+          NOT (("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered') AND "childIntId" IS NULL)
           OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
-          OR (LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24)
+          OR (LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childIntId" IS NULL)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'male' AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10)
