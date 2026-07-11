@@ -647,7 +647,20 @@ export class OutreachService {
         groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`;
         break;
       default:
-        groupCondition = Prisma.sql`1 = 1`; // Default to no filter or throw error
+        groupCondition = Prisma.sql`
+          (
+            EXISTS (
+              SELECT 1 FROM "GroupMember" gm
+              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+              WHERE gm."beneficiaryId" = b.id AND LOWER(TRIM(bg.name)) = LOWER(TRIM(${groupName}))
+            )
+            OR EXISTS (
+              SELECT 1 FROM "ChildGroupMember" cgm
+              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+              WHERE cgm."childId" = c.id AND LOWER(TRIM(bg.name)) = LOWER(TRIM(${groupName}))
+            )
+          )
+        `;
         break;
     }
 
