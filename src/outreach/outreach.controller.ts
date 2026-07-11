@@ -108,8 +108,18 @@ export class OutreachController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN', 'ANALYST')
   @Get('dashboard/action-details')
-  getActionDetails(@Req() req, @Query('group') group: string) {
-    return this.outreachService.getActionDetails(req.user, group);
+  getActionDetails(
+    @Req() req,
+    @Query('group') group: string,
+    @Query('activityId') activityId?: string,
+    @Query('sessionId') sessionId?: string,
+  ) {
+    return this.outreachService.getActionDetails(
+      req.user,
+      group,
+      activityId ? +activityId : undefined,
+      sessionId ? +sessionId : undefined,
+    );
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)

@@ -584,7 +584,7 @@ export class OutreachService {
     };
   }
 
-  async getActionDetails(user: any, groupName: string) {
+  async getActionDetails(user: any, groupName: string, activityId?: number, sessionId?: number) {
     const roles = user.roles?.map((r: any) => r.role?.name || r.name) || [];
     const isSuperAdmin = roles.includes('SUPER_ADMIN');
     const isAnalyst = roles.includes('ANALYST');
@@ -617,6 +617,13 @@ export class OutreachService {
       } else {
         rbacConditions.push(Prisma.sql`r."reportedById" = ${user.userId}`);
       }
+    }
+
+    if (activityId) {
+      rbacConditions.push(Prisma.sql`r."activityId" = ${activityId}`);
+    }
+    if (sessionId) {
+      rbacConditions.push(Prisma.sql`r."sessionId" = ${sessionId}`);
     }
 
     // Map group name to SQL condition
