@@ -628,46 +628,78 @@ export class OutreachService {
 
     // Map group name to SQL condition
     let groupCondition: Prisma.Sql;
-    switch (groupName) {
-      case 'Currently Active Pregnant women':
+    const gName = (groupName || '').trim().toUpperCase();
+
+    switch (gName) {
+      case 'CURRENTLY ACTIVE PREGNANT WOMEN':
+      case 'PREGNANT WOMEN':
         groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant'`;
         break;
-      case 'Currently Active Lactating Mothers':
+      case 'CURRENTLY ACTIVE LACTATING MOTHERS':
+      case 'LACTATING WOMEN':
         groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Baby Delivered'`;
         break;
-      case 'Currently Active SAM Children':
+      case 'CURRENTLY ACTIVE SAM CHILDREN':
         groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM'`;
         break;
-      case 'Currently Active MAM Children':
+      case 'SAM (0-5)':
+        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5`;
+        break;
+      case 'CURRENTLY ACTIVE MAM CHILDREN':
         groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'MAM'`;
         break;
-      case 'Adolescent Girls':
+      case 'MAM (0-5)':
+        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5`;
+        break;
+      case 'ADOLESCENT GIRLS':
         groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19`;
         break;
-      case 'Infants for EBF Promotion (<= 6m)':
+      case 'INFANTS FOR EBF PROMOTION (<= 6M)':
         groupCondition = Prisma.sql`age_months <= 6`;
         break;
-      case 'Infants for CF Promotion(2year<child age<6months)':
+      case 'INFANTS FOR CF PROMOTION(2YEAR<CHILD AGE<6MONTHS)':
         groupCondition = Prisma.sql`age_months > 6 AND age_years < 2`;
         break;
-      case 'Women due for delivery in next 30 days':
+      case 'WOMEN DUE FOR DELIVERY IN NEXT 30 DAYS':
         groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`;
         break;
-      default:
+      case 'YOUNG MARRIED WOMEN':
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24`;
+        break;
+      case 'CHILDREN BELOW 6 (0-5 YEARS) - GIRLS':
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years < 6`;
+        break;
+      case 'CHILDREN BELOW 6 (0-5 YEARS) - BOYS':
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'male' AND age_years < 6`;
+        break;
+      case 'CHILDREN ABOVE 6 (6-10 YEARS) - GIRLS':
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10`;
+        break;
+      case 'CHILDREN ABOVE 6 (6-10 YEARS) - BOYS':
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 6 AND 10`;
+        break;
+      case 'ADOLESCENT BOYS':
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19`;
+        break;
+      case 'STAKEHOLDERS':
+        groupCondition = Prisma.sql`LOWER(TRIM("typeof")) = 'stakeholder'`;
+        break;
+      case 'OTHER BENEFICIARIES':
         groupCondition = Prisma.sql`
-          (
-            EXISTS (
-              SELECT 1 FROM "GroupMember" gm
-              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-              WHERE gm."beneficiaryId" = "benIntId" AND LOWER(TRIM(bg.name)) = LOWER(TRIM(${groupName}))
-            )
-            OR EXISTS (
-              SELECT 1 FROM "ChildGroupMember" cgm
-              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-              WHERE cgm."childId" = "childIntId" AND LOWER(TRIM(bg.name)) = LOWER(TRIM(${groupName}))
-            )
-          )
+          NOT ("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered')
+          OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
+          OR (LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years < 6)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years < 6)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 6 AND 10)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19)
+          OR LOWER(TRIM("typeof")) = 'stakeholder')
         `;
+        break;
+      default:
+        groupCondition = Prisma.sql`1 = 1`;
         break;
     }
 
