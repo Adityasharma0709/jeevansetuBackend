@@ -504,7 +504,13 @@ export class OutreachService {
         COUNT(*) FILTER (WHERE age_months > 6 AND age_years < 2) AS "infantsCfPromotion",
         COUNT(*) FILTER (
           WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
-          AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+          AND (
+            CASE
+              WHEN "reportData"->>'edd' ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN to_date("reportData"->>'edd', 'DD/MM/YYYY')
+              WHEN "reportData"->>'edd' ~ '^[0-9]{8}$' THEN to_date("reportData"->>'edd', 'DDMMYYYY')
+              ELSE NULL
+            END
+          ) BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
           AND "childId" IS NULL
         ) AS "womenDueForDelivery30Days",
 
@@ -663,7 +669,17 @@ export class OutreachService {
         groupCondition = Prisma.sql`age_months > 6 AND age_years < 2`;
         break;
       case 'WOMEN DUE FOR DELIVERY IN NEXT 30 DAYS':
-        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND ("reportData"->>'edd')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days' AND "childIntId" IS NULL`;
+        groupCondition = Prisma.sql`
+          "reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
+          AND (
+            CASE
+              WHEN "reportData"->>'edd' ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN to_date("reportData"->>'edd', 'DD/MM/YYYY')
+              WHEN "reportData"->>'edd' ~ '^[0-9]{8}$' THEN to_date("reportData"->>'edd', 'DDMMYYYY')
+              ELSE NULL
+            END
+          ) BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days' 
+          AND "childIntId" IS NULL
+        `;
         break;
       case 'YOUNG MARRIED WOMEN':
         groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childIntId" IS NULL`;
