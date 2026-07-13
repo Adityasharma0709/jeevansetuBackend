@@ -775,8 +775,8 @@ export class OutreachService {
           r."reportData",
           COALESCE(c.gender, b.gender) AS gender,
           b."maritalStatus",
-          EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
-          (EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
+          EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
+          (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
           CASE 
             WHEN r."childId" IS NOT NULL THEN (
               SELECT STRING_AGG(bg.name, ', ')
