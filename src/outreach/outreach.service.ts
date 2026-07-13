@@ -525,7 +525,13 @@ export class OutreachService {
         COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "lactatingWomen",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childId" IS NULL) AS "youngMarriedWomen",
+        COUNT(*) FILTER (
+          WHERE LOWER(TRIM(gender)) = 'female' 
+          AND "maritalStatus" = 'Married' 
+          AND age_years BETWEEN 15 AND 24 
+          AND "childId" IS NULL
+          AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
+        ) AS "youngMarriedWomen",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Girls",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Boys",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Girls",
@@ -538,7 +544,13 @@ export class OutreachService {
         COUNT(*) FILTER (
           WHERE NOT (("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered') AND "childId" IS NULL)
           OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
-          OR (LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childId" IS NULL)
+          OR (
+            LOWER(TRIM(gender)) = 'female' 
+            AND "maritalStatus" = 'Married' 
+            AND age_years BETWEEN 15 AND 24 
+            AND "childId" IS NULL 
+            AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
+          )
           OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10)
@@ -682,7 +694,13 @@ export class OutreachService {
         `;
         break;
       case 'YOUNG MARRIED WOMEN':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childIntId" IS NULL`;
+        groupCondition = Prisma.sql`
+          LOWER(TRIM(gender)) = 'female' 
+          AND "maritalStatus" = 'Married' 
+          AND age_years BETWEEN 15 AND 24 
+          AND "childIntId" IS NULL
+          AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
+        `;
         break;
       case 'CHILDREN BELOW 6 (3-6 YEARS) - GIRLS':
         groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6`;
@@ -706,7 +724,13 @@ export class OutreachService {
         groupCondition = Prisma.sql`
           NOT (("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered') AND "childIntId" IS NULL)
           OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
-          OR (LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childIntId" IS NULL)
+          OR (
+            LOWER(TRIM(gender)) = 'female' 
+            AND "maritalStatus" = 'Married' 
+            AND age_years BETWEEN 15 AND 24 
+            AND "childIntId" IS NULL 
+            AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
+          )
           OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10)
@@ -1398,7 +1422,14 @@ export class OutreachService {
       }
 
       if (age >= 14) {
-        if (maritalStatus === 'Married' && age >= 15 && age <= 24) {
+        if (
+          maritalStatus === 'Married' &&
+          age >= 15 &&
+          age <= 24 &&
+          latestPregnancyStatus !== 'Currently Pregnant' &&
+          latestPregnancyStatus !== 'Baby Delivered' &&
+          !hasChildUnder2
+        ) {
           groupNames.add('Young Married Women');
         }
         if (latestPregnancyStatus === 'Currently Pregnant') {
