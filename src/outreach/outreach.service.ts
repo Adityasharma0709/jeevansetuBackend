@@ -539,6 +539,8 @@ export class OutreachService {
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
         COUNT(*) FILTER (WHERE LOWER(TRIM("typeof")) = 'stakeholder') AS "stakeholders",
+        COUNT(*) FILTER (WHERE age_years < 1) AS "infantsLessThan1",
+        COUNT(*) FILTER (WHERE age_years >= 1 AND age_years < 3) AS "toddlers1To3",
         
         -- Catch all
         COUNT(*) FILTER (
@@ -551,6 +553,7 @@ export class OutreachService {
             AND "childId" IS NULL 
             AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
           )
+          OR (age_years < 3)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10)
@@ -599,6 +602,8 @@ export class OutreachService {
         { label: 'ADOLESCENT BOYS', count: toNumber(row.adolescentBoys), countColor: 'text-gray-900' },
         { label: 'SAM (0-5)', count: toNumber(row.sam0to5), countColor: 'text-red-600' },
         { label: 'CHILDREN ABOVE 6 (6-9 YEARS) - BOYS', count: toNumber(row.childrenAbove6Boys), countColor: 'text-green-600' },
+        { label: 'INFANT', count: toNumber(row.infantsLessThan1), countColor: 'text-gray-900' },
+        { label: 'TODDLER', count: toNumber(row.toddlers1To3), countColor: 'text-gray-900' },
         { label: 'OTHER BENEFICIARIES', count: toNumber(row.otherBeneficiaries), countColor: 'text-gray-900' },
       ]
     };
@@ -702,6 +707,12 @@ export class OutreachService {
           AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
         `;
         break;
+      case 'INFANT':
+        groupCondition = Prisma.sql`age_years < 1`;
+        break;
+      case 'TODDLER':
+        groupCondition = Prisma.sql`age_years >= 1 AND age_years < 3`;
+        break;
       case 'CHILDREN BELOW 6 (3-6 YEARS) - GIRLS':
         groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6`;
         break;
@@ -731,6 +742,7 @@ export class OutreachService {
             AND "childIntId" IS NULL 
             AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
           )
+          OR (age_years < 3)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10)
@@ -1390,7 +1402,9 @@ export class OutreachService {
       'Other Beneficiaries - Males',
       'SAM Children [0-5 Years]',
       'MAM Children [0-5 Years]',
-      'Stakeholders'
+      'Stakeholders',
+      'Infant',
+      'Toddler'
     ];
     for (const name of existingGroupNames) {
       if (!systemGroupNames.includes(name)) {
@@ -1408,7 +1422,11 @@ export class OutreachService {
           groupNames.add('SAM Children [0-5 Years]');
         } else if (latestSamMamStatus === 'MAM') {
           groupNames.add('MAM Children [0-5 Years]');
-        } else {
+        } else if (age < 1) {
+          groupNames.add('Infant');
+        } else if (age >= 1 && age < 3) {
+          groupNames.add('Toddler');
+        } else if (age >= 3) {
           groupNames.add('Children below 6(3-6 Years) - Girls');
         }
       } else if (age >= 6 && age < 10) {
@@ -1456,7 +1474,11 @@ export class OutreachService {
           groupNames.add('SAM Children [0-5 Years]');
         } else if (latestSamMamStatus === 'MAM') {
           groupNames.add('MAM Children [0-5 Years]');
-        } else {
+        } else if (age < 1) {
+          groupNames.add('Infant');
+        } else if (age >= 1 && age < 3) {
+          groupNames.add('Toddler');
+        } else if (age >= 3) {
           groupNames.add('Children below 6(3-6 Years) - Boys');
         }
       } else if (age >= 6 && age < 10) {
@@ -1507,7 +1529,9 @@ export class OutreachService {
         if (childAge < 6) {
           if (childSamMamStatus === 'SAM') childGroupNames.add('SAM Children [0-5 Years]');
           else if (childSamMamStatus === 'MAM') childGroupNames.add('MAM Children [0-5 Years]');
-          else childGroupNames.add('Children below 6(3-6 Years) - Girls');
+          else if (childAge < 1) childGroupNames.add('Infant');
+          else if (childAge >= 1 && childAge < 3) childGroupNames.add('Toddler');
+          else if (childAge >= 3) childGroupNames.add('Children below 6(3-6 Years) - Girls');
         } else if (childAge >= 6 && childAge < 10) {
           childGroupNames.add('Children above 6(6-9 Years) - Girls');
         } else if (childAge >= 10 && childAge <= 19) {
@@ -1519,7 +1543,9 @@ export class OutreachService {
         if (childAge < 6) {
           if (childSamMamStatus === 'SAM') childGroupNames.add('SAM Children [0-5 Years]');
           else if (childSamMamStatus === 'MAM') childGroupNames.add('MAM Children [0-5 Years]');
-          else childGroupNames.add('Children below 6(3-6 Years) - Boys');
+          else if (childAge < 1) childGroupNames.add('Infant');
+          else if (childAge >= 1 && childAge < 3) childGroupNames.add('Toddler');
+          else if (childAge >= 3) childGroupNames.add('Children below 6(3-6 Years) - Boys');
         } else if (childAge >= 6 && childAge < 10) {
           childGroupNames.add('Children above 6 (6-9 Years) - Boys');
         } else if (childAge >= 10 && childAge <= 19) {

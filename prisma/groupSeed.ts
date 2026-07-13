@@ -27,7 +27,9 @@ async function main() {
     'Other Beneficiaries - Females',
     'Other Beneficiaries - Males',
     'SAM Children [0-5 Years]',
-    'MAM Children [0-5 Years]'
+    'MAM Children [0-5 Years]',
+    'Infant',
+    'Toddler'
   ];
 
   for (const name of groupNames) {
