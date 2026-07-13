@@ -484,8 +484,8 @@ export class OutreachService {
           COALESCE(c.gender, b.gender) AS gender,
           b."maritalStatus",
           b."typeof",
-          EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
-          (EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months
+          EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
+          (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months
         FROM "ActivityReport" r
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
         LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
@@ -518,7 +518,7 @@ export class OutreachService {
         COUNT(*) FILTER (WHERE age_years > 19) AS "adults",
         COUNT(*) FILTER (WHERE age_years BETWEEN 10 AND 19) AS "adolescents",
         COUNT(*) FILTER (WHERE age_years < 6) AS "childrenUnder5",
-        COUNT(*) FILTER (WHERE age_years BETWEEN 6 AND 10) AS "children6To10",
+        COUNT(*) FILTER (WHERE age_years >= 6 AND age_years < 10) AS "children6To10",
 
         -- Activity Session Demographics
         COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL) AS "pregnantWomen",
@@ -526,10 +526,10 @@ export class OutreachService {
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childId" IS NULL) AS "youngMarriedWomen",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years < 6) AS "childrenBelow6Girls",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years < 6) AS "childrenBelow6Boys",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Girls",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 6 AND 10) AS "childrenAbove6Boys",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Girls",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Boys",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Girls",
+        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Boys",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
         COUNT(*) FILTER (WHERE LOWER(TRIM("typeof")) = 'stakeholder') AS "stakeholders",
@@ -539,10 +539,10 @@ export class OutreachService {
           WHERE NOT (("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered') AND "childId" IS NULL)
           OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
           OR (LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childId" IS NULL)
-          OR (LOWER(TRIM(gender)) = 'female' AND age_years < 6)
-          OR (LOWER(TRIM(gender)) = 'male' AND age_years < 6)
-          OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10)
-          OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 6 AND 10)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19)
           OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19)
           OR LOWER(TRIM("typeof")) = 'stakeholder')
@@ -578,15 +578,15 @@ export class OutreachService {
         { label: 'YOUNG MARRIED WOMEN', count: toNumber(row.youngMarriedWomen), countColor: 'text-gray-900' },
         { label: 'PREGNANT WOMEN', count: toNumber(row.pregnantWomen), countColor: 'text-gray-900' },
         { label: 'MAM (0-5)', count: toNumber(row.mam0to5), countColor: 'text-green-600' },
-        { label: 'CHILDREN BELOW 6 (0-5 YEARS) - GIRLS', count: toNumber(row.childrenBelow6Girls), countColor: 'text-gray-900' },
-        { label: 'CHILDREN BELOW 6 (0-5 YEARS) - BOYS', count: toNumber(row.childrenBelow6Boys), countColor: 'text-gray-900' },
+        { label: 'CHILDREN BELOW 6 (3-6 YEARS) - GIRLS', count: toNumber(row.childrenBelow6Girls), countColor: 'text-gray-900' },
+        { label: 'CHILDREN BELOW 6 (3-6 YEARS) - BOYS', count: toNumber(row.childrenBelow6Boys), countColor: 'text-gray-900' },
         { label: 'LACTATING WOMEN', count: toNumber(row.lactatingWomen), countColor: 'text-gray-900' },
         { label: 'ADOLESCENT GIRLS', count: toNumber(row.adolescentGirls2), countColor: 'text-gray-900' },
-        { label: 'CHILDREN ABOVE 6 (6-10 YEARS) - GIRLS', count: toNumber(row.childrenAbove6Girls), countColor: 'text-red-600' },
+        { label: 'CHILDREN ABOVE 6 (6-9 YEARS) - GIRLS', count: toNumber(row.childrenAbove6Girls), countColor: 'text-red-600' },
         { label: 'STAKEHOLDERS', count: toNumber(row.stakeholders), countColor: 'text-gray-900' },
         { label: 'ADOLESCENT BOYS', count: toNumber(row.adolescentBoys), countColor: 'text-gray-900' },
         { label: 'SAM (0-5)', count: toNumber(row.sam0to5), countColor: 'text-red-600' },
-        { label: 'CHILDREN ABOVE 6 (6-10 YEARS) - BOYS', count: toNumber(row.childrenAbove6Boys), countColor: 'text-green-600' },
+        { label: 'CHILDREN ABOVE 6 (6-9 YEARS) - BOYS', count: toNumber(row.childrenAbove6Boys), countColor: 'text-green-600' },
         { label: 'OTHER BENEFICIARIES', count: toNumber(row.otherBeneficiaries), countColor: 'text-gray-900' },
       ]
     };
@@ -684,17 +684,17 @@ export class OutreachService {
       case 'YOUNG MARRIED WOMEN':
         groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childIntId" IS NULL`;
         break;
-      case 'CHILDREN BELOW 6 (0-5 YEARS) - GIRLS':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years < 6`;
+      case 'CHILDREN BELOW 6 (3-6 YEARS) - GIRLS':
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6`;
         break;
-      case 'CHILDREN BELOW 6 (0-5 YEARS) - BOYS':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'male' AND age_years < 6`;
+      case 'CHILDREN BELOW 6 (3-6 YEARS) - BOYS':
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6`;
         break;
-      case 'CHILDREN ABOVE 6 (6-10 YEARS) - GIRLS':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10`;
+      case 'CHILDREN ABOVE 6 (6-9 YEARS) - GIRLS':
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10`;
         break;
-      case 'CHILDREN ABOVE 6 (6-10 YEARS) - BOYS':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 6 AND 10`;
+      case 'CHILDREN ABOVE 6 (6-9 YEARS) - BOYS':
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10`;
         break;
       case 'ADOLESCENT BOYS':
         groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19`;
@@ -707,10 +707,10 @@ export class OutreachService {
           NOT (("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered') AND "childIntId" IS NULL)
           OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
           OR (LOWER(TRIM(gender)) = 'female' AND "maritalStatus" = 'Married' AND age_years <= 24 AND "childIntId" IS NULL)
-          OR (LOWER(TRIM(gender)) = 'female' AND age_years < 6)
-          OR (LOWER(TRIM(gender)) = 'male' AND age_years < 6)
-          OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 6 AND 10)
-          OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 6 AND 10)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6)
+          OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10)
+          OR (LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10)
           OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19)
           OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19)
           OR LOWER(TRIM("typeof")) = 'stakeholder')
@@ -1624,7 +1624,7 @@ export class OutreachService {
     if (!report) return;
 
     let newGroupString = 'N/A';
-    
+
     if (childId) {
       const childGroups = await this.prisma.childGroupMember.findMany({
         where: { childId },
