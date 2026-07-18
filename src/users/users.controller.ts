@@ -236,6 +236,54 @@ export class UsersController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ANALYST')
+  @Get('analyst/dashboard/stats')
+  getAnalystDashboardStats(
+    @Req() req,
+    @Query('projectId') projectId?: string,
+    @Query('activityId') activityId?: string,
+    @Query('sessionId') sessionId?: string
+  ) {
+    return this.usersService.getAnalystDashboardStats(
+      req.user.userId,
+      projectId ? +projectId : undefined,
+      activityId ? +activityId : undefined,
+      sessionId ? +sessionId : undefined
+    );
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ANALYST')
+  @Get('analyst/dashboard/action-details')
+  getAnalystActionDetails(
+    @Req() req,
+    @Query('group') group: string,
+    @Query('activityId') activityId?: string,
+    @Query('sessionId') sessionId?: string
+  ) {
+    return this.usersService.getAnalystActionDetails(
+      req.user.userId,
+      group,
+      activityId ? +activityId : undefined,
+      sessionId ? +sessionId : undefined
+    );
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ANALYST')
+  @Get('analyst/dashboard/activities')
+  getAnalystActivities() {
+    return this.usersService.getAnalystActivities();
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ANALYST')
+  @Get('analyst/dashboard/activity/:id/sessions')
+  getAnalystSessions(@Param('id') id: string) {
+    return this.usersService.getAnalystSessions(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('SUPER_ADMIN')
   @Post('create-analyst')
   createAnalyst(@Body() dto: CreateAnalystDto) {
