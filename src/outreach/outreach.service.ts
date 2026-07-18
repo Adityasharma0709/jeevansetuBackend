@@ -926,9 +926,14 @@ export class OutreachService {
     if (!isSuperAdmin) {
       if (isAnalyst) {
         if (!projectId) {
-          throw new BadRequestException('projectId is required for Analyst role');
+          const assignments = await this.prisma.userProjectLocation.findMany({
+            where: { userId: user.userId },
+            select: { projectId: true }
+          });
+          where.projectId = { in: [...new Set(assignments.map(a => a.projectId))] };
+        } else {
+          where.projectId = projectId;
         }
-        where.projectId = projectId;
       } else if (isAdmin) {
         const assignments = await this.prisma.userProjectLocation.findMany({
           where: { userId: user.userId },
