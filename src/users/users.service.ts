@@ -1116,7 +1116,15 @@ export class UsersService {
     }));
   }
 
-  async getAnalystDashboardStats(userId: number, projectId?: number, activityId?: number, sessionId?: number) {
+  async getAnalystDashboardStats(
+    userId: number,
+    projectId?: number,
+    activityId?: number,
+    sessionId?: number,
+    adminId?: number,
+    managerId?: number,
+    workerId?: number
+  ) {
     // 1. Get projects assigned to this analyst
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId },
@@ -1164,6 +1172,46 @@ export class UsersService {
 
     if (activityId) conditions.push(Prisma.sql`r."activityId" = ${activityId}`);
     if (sessionId) conditions.push(Prisma.sql`r."sessionId" = ${sessionId}`);
+
+    // User hierarchy filtering
+    let reporterIds: number[] = [];
+    if (workerId) {
+      reporterIds = [workerId];
+    } else if (managerId) {
+      const workers = await this.prisma.user.findMany({
+        where: {
+          createdByAdminId: managerId,
+          roles: { some: { role: { name: 'OUTREACH' } } }
+        },
+        select: { id: true }
+      });
+      reporterIds = [managerId, ...workers.map(w => w.id)];
+    } else if (adminId) {
+      const managers = await this.prisma.user.findMany({
+        where: {
+          createdByAdminId: adminId,
+          roles: { some: { role: { name: 'MANAGER' } } }
+        },
+        select: { id: true }
+      });
+      const managerIds = managers.map(m => m.id);
+      let workerIds: number[] = [];
+      if (managerIds.length > 0) {
+        const workers = await this.prisma.user.findMany({
+          where: {
+            createdByAdminId: { in: managerIds },
+            roles: { some: { role: { name: 'OUTREACH' } } }
+          },
+          select: { id: true }
+        });
+        workerIds = workers.map(w => w.id);
+      }
+      reporterIds = [adminId, ...managerIds, ...workerIds];
+    }
+
+    if (reporterIds.length > 0) {
+      conditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(reporterIds)})`);
+    }
 
     const totalBeneficiaries = await this.prisma.beneficiary.count({
       where: { projectId: { in: targetProjectIds } }
@@ -1309,7 +1357,15 @@ export class UsersService {
     };
   }
 
-  async getAnalystActionDetails(userId: number, groupName: string, activityId?: number, sessionId?: number) {
+  async getAnalystActionDetails(
+    userId: number,
+    groupName: string,
+    activityId?: number,
+    sessionId?: number,
+    adminId?: number,
+    managerId?: number,
+    workerId?: number
+  ) {
     // 1. Get projects assigned to this analyst
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId },
@@ -1328,6 +1384,46 @@ export class UsersService {
 
     if (activityId) rbacConditions.push(Prisma.sql`r."activityId" = ${activityId}`);
     if (sessionId) rbacConditions.push(Prisma.sql`r."sessionId" = ${sessionId}`);
+
+    // User hierarchy filtering
+    let reporterIds: number[] = [];
+    if (workerId) {
+      reporterIds = [workerId];
+    } else if (managerId) {
+      const workers = await this.prisma.user.findMany({
+        where: {
+          createdByAdminId: managerId,
+          roles: { some: { role: { name: 'OUTREACH' } } }
+        },
+        select: { id: true }
+      });
+      reporterIds = [managerId, ...workers.map(w => w.id)];
+    } else if (adminId) {
+      const managers = await this.prisma.user.findMany({
+        where: {
+          createdByAdminId: adminId,
+          roles: { some: { role: { name: 'MANAGER' } } }
+        },
+        select: { id: true }
+      });
+      const managerIds = managers.map(m => m.id);
+      let workerIds: number[] = [];
+      if (managerIds.length > 0) {
+        const workers = await this.prisma.user.findMany({
+          where: {
+            createdByAdminId: { in: managerIds },
+            roles: { some: { role: { name: 'OUTREACH' } } }
+          },
+          select: { id: true }
+        });
+        workerIds = workers.map(w => w.id);
+      }
+      reporterIds = [adminId, ...managerIds, ...workerIds];
+    }
+
+    if (reporterIds.length > 0) {
+      rbacConditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(reporterIds)})`);
+    }
 
     // Map group name to SQL condition
     let groupCondition: Prisma.Sql;
@@ -1530,5 +1626,60 @@ export class UsersService {
       where: { activityId, status: 'ACTIVE' },
       orderBy: { name: 'asc' },
     });
+  }
+
+  async getAnalystDashboardUsers() {
+    const users = await this.prisma.user.findMany({
+      where: {
+        status: 'ACTIVE',
+        roles: {
+          some: {
+            role: {
+              name: { in: ['ADMIN', 'MANAGER', 'OUTREACH'] }
+            }
+          }
+        }
+      },
+      select: {
+        id: true,
+        name: true,
+        createdByAdminId: true,
+        roles: {
+          select: {
+            role: {
+              select: { name: true }
+            }
+          }
+        }
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    const admins: any[] = [];
+    const managers: any[] = [];
+    const workers: any[] = [];
+
+    users.forEach((u) => {
+      const rolesList = u.roles.map(r => r.role.name);
+      const isOutreach = rolesList.includes('OUTREACH');
+      const isManager = rolesList.includes('MANAGER');
+      const isAdmin = rolesList.includes('ADMIN');
+
+      const mappedUser = {
+        id: u.id,
+        name: u.name,
+        createdByAdminId: u.createdByAdminId
+      };
+
+      if (isOutreach) {
+        workers.push(mappedUser);
+      } else if (isManager) {
+        managers.push(mappedUser);
+      } else if (isAdmin) {
+        admins.push(mappedUser);
+      }
+    });
+
+    return { admins, managers, workers };
   }
 }

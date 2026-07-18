@@ -242,13 +242,19 @@ export class UsersController {
     @Req() req,
     @Query('projectId') projectId?: string,
     @Query('activityId') activityId?: string,
-    @Query('sessionId') sessionId?: string
+    @Query('sessionId') sessionId?: string,
+    @Query('adminId') adminId?: string,
+    @Query('managerId') managerId?: string,
+    @Query('workerId') workerId?: string
   ) {
     return this.usersService.getAnalystDashboardStats(
       req.user.userId,
       projectId ? +projectId : undefined,
       activityId ? +activityId : undefined,
-      sessionId ? +sessionId : undefined
+      sessionId ? +sessionId : undefined,
+      adminId ? +adminId : undefined,
+      managerId ? +managerId : undefined,
+      workerId ? +workerId : undefined
     );
   }
 
@@ -259,14 +265,27 @@ export class UsersController {
     @Req() req,
     @Query('group') group: string,
     @Query('activityId') activityId?: string,
-    @Query('sessionId') sessionId?: string
+    @Query('sessionId') sessionId?: string,
+    @Query('adminId') adminId?: string,
+    @Query('managerId') managerId?: string,
+    @Query('workerId') workerId?: string
   ) {
     return this.usersService.getAnalystActionDetails(
       req.user.userId,
       group,
       activityId ? +activityId : undefined,
-      sessionId ? +sessionId : undefined
+      sessionId ? +sessionId : undefined,
+      adminId ? +adminId : undefined,
+      managerId ? +managerId : undefined,
+      workerId ? +workerId : undefined
     );
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ANALYST')
+  @Get('analyst/dashboard/users')
+  getAnalystDashboardUsers() {
+    return this.usersService.getAnalystDashboardUsers();
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
