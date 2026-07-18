@@ -1250,7 +1250,7 @@ export class UsersService {
             LOWER(TRIM(gender)) = 'female' 
             AND "maritalStatus" = 'Married' 
             AND age_years BETWEEN 15 AND 24 
-            AND "childIntId" IS NULL 
+            AND "childId" IS NULL 
             AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
           )
           OR (age_years < 3)
