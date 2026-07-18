@@ -185,7 +185,7 @@ export class OutreachController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('OUTREACH')
+  @Roles('OUTREACH', 'ANALYST')
   @Get('assigned-locations/:projectId')
   getAssignedLocations(@Param('projectId') projectId: string, @Req() req) {
     return this.outreachService.getAssignedLocations(+projectId, req.user.userId);

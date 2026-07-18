@@ -619,4 +619,82 @@ export class ManagerService {
       data: { status: 'CANCELLED' }
     });
   }
+
+  async getActiveShares(managerId: number) {
+    return this.prisma.accountShare.findMany({
+      where: { managerId },
+      include: {
+        fromUser: {
+          select: { id: true, name: true, email: true, usercode: true }
+        },
+        toUser: {
+          select: { id: true, name: true, email: true, usercode: true }
+        }
+      }
+    });
+  }
+
+  async shareAccount(fromWorkerId: number, toWorkerId: number, managerId: number) {
+    if (fromWorkerId === toWorkerId) {
+      throw new BadRequestException('Cannot share account with oneself');
+    }
+
+    // Verify both users exist
+    const [fromUser, toUser] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: fromWorkerId } }),
+      this.prisma.user.findUnique({ where: { id: toWorkerId } })
+    ]);
+
+    if (!fromUser || !toUser) {
+      throw new NotFoundException('One or both outreach workers not found');
+    }
+
+    // Check if share already exists
+    const existing = await this.prisma.accountShare.findUnique({
+      where: {
+        fromUserId_toUserId: {
+          fromUserId: fromWorkerId,
+          toUserId: toWorkerId
+        }
+      }
+    });
+
+    if (existing) {
+      throw new ConflictException('This account sharing relationship already exists');
+    }
+
+    return this.prisma.accountShare.create({
+      data: {
+        fromUserId: fromWorkerId,
+        toUserId: toWorkerId,
+        managerId
+      },
+      include: {
+        fromUser: {
+          select: { id: true, name: true, email: true, usercode: true }
+        },
+        toUser: {
+          select: { id: true, name: true, email: true, usercode: true }
+        }
+      }
+    });
+  }
+
+  async revokeShare(shareId: number, managerId: number) {
+    const share = await this.prisma.accountShare.findUnique({
+      where: { id: shareId }
+    });
+
+    if (!share) {
+      throw new NotFoundException('Account sharing relationship not found');
+    }
+
+    if (share.managerId !== managerId) {
+      throw new ForbiddenException('You cannot revoke sharing relationship created by another manager');
+    }
+
+    return this.prisma.accountShare.delete({
+      where: { id: shareId }
+    });
+  }
 }
