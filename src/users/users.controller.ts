@@ -161,7 +161,7 @@ export class UsersController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
   @Put('manager/:id')
   updateManager(
     @Param('id') id: string,

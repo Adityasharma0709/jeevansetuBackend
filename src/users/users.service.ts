@@ -757,7 +757,7 @@ export class UsersService {
     }
 
     // ADMIN updating manager
-    if (loggedUser.roles?.includes('ADMIN')) {
+    if (loggedUser.roles?.includes('ADMIN') && !loggedUser.roles?.includes('SUPER_ADMIN')) {
       const loggedUserId = loggedUser.userId || loggedUser.id;
 
       // Creator admin can always update their own manager
