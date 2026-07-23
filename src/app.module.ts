@@ -6,12 +6,10 @@ import { UsersModule } from './users/users.module';
 import { RolesModule } from './roles/roles.module';
 import { ProjectsModule } from './projects/projects.module';
 import { LocationsModule } from './locations/locations.module';
-// import { PrismaModule } from 'prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { AdminModule } from './admin/admin.module';
 import { ManagerModule } from './manager/manager.module';
-import { OutreachService } from './outreach/outreach.service';
 import { OutreachModule } from './outreach/outreach.module';
 
 @Module({
@@ -28,6 +26,6 @@ import { OutreachModule } from './outreach/outreach.module';
     OutreachModule
   ],
   controllers: [AppController],
-  providers: [AppService, OutreachService],
+  providers: [AppService],
 })
 export class AppModule {}

@@ -29,14 +29,31 @@ export class OutreachService {
       where: {
         userId,
         projectId: beneficiary.projectId,
-
       },
       select: { id: true },
     });
 
-    if (!assigned) {
-      throw new ForbiddenException('You are not assigned to this beneficiary');
+    if (assigned) return;
+
+    // Check shared accounts
+    const shares = await this.prisma.accountShare.findMany({
+      where: { toUserId: userId },
+      select: { fromUserId: true }
+    });
+
+    if (shares.length > 0) {
+      const sharedFromUserIds = shares.map(s => s.fromUserId);
+      const sharedAssigned = await this.prisma.userProjectLocation.findFirst({
+        where: {
+          userId: { in: sharedFromUserIds },
+          projectId: beneficiary.projectId
+        },
+        select: { id: true }
+      });
+      if (sharedAssigned) return;
     }
+
+    throw new ForbiddenException('You are not assigned to this beneficiary');
   }
   async createBeneficiary(dto: CreateBeneficiaryDto, user: any) {
     if (dto.beneficiaryType === 'Priority') {
@@ -62,9 +79,23 @@ export class OutreachService {
       });
 
       if (!assigned) {
-        throw new ForbiddenException(
-          'You are not assigned to this project or the state of this location'
-        );
+        const shares = await this.prisma.accountShare.findMany({
+          where: { toUserId: user.userId },
+          select: { fromUserId: true }
+        });
+        const sharedFromUserIds = shares.map(s => s.fromUserId);
+        const sharedAssigned = await this.prisma.userProjectLocation.findFirst({
+          where: {
+            userId: { in: sharedFromUserIds },
+            projectId: dto.projectId,
+            stateId: awc.stateId
+          }
+        });
+        if (!sharedAssigned) {
+          throw new ForbiddenException(
+            'You are not assigned to this project or the state of this location'
+          );
+        }
       }
     } else {
       // For Stakeholder and General, just verify project assignment
@@ -76,9 +107,22 @@ export class OutreachService {
       });
 
       if (!assigned) {
-        throw new ForbiddenException(
-          'You are not assigned to this project'
-        );
+        const shares = await this.prisma.accountShare.findMany({
+          where: { toUserId: user.userId },
+          select: { fromUserId: true }
+        });
+        const sharedFromUserIds = shares.map(s => s.fromUserId);
+        const sharedAssigned = await this.prisma.userProjectLocation.findFirst({
+          where: {
+            userId: { in: sharedFromUserIds },
+            projectId: dto.projectId,
+          }
+        });
+        if (!sharedAssigned) {
+          throw new ForbiddenException(
+            'You are not assigned to this project'
+          );
+        }
       }
     }
 
@@ -358,7 +402,14 @@ export class OutreachService {
     const isSuperAdmin = roles.includes('SUPER_ADMIN') || roles.includes('ADMIN') || roles.includes('MANAGER');
 
     if (!isSuperAdmin && report.reportedById !== user.userId) {
-      throw new ForbiddenException('You can only update reports that you created');
+      const shares = await this.prisma.accountShare.findMany({
+        where: { toUserId: user.userId },
+        select: { fromUserId: true }
+      });
+      const sharedFromUserIds = shares.map(s => s.fromUserId);
+      if (!sharedFromUserIds.includes(report.reportedById)) {
+        throw new ForbiddenException('You can only update reports that you created or are shared with you');
+      }
     }
 
     // Prepare updated data
@@ -458,8 +509,14 @@ export class OutreachService {
           conditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(managedIds)})`);
         }
       } else {
-        benWhere.createdById = user.userId;
-        conditions.push(Prisma.sql`r."reportedById" = ${user.userId}`);
+        const shares = await this.prisma.accountShare.findMany({
+          where: { toUserId: user.userId },
+          select: { fromUserId: true }
+        });
+        const sharedFromUserIds = shares.map(s => s.fromUserId);
+        const allIds = [user.userId, ...sharedFromUserIds];
+        benWhere.createdById = { in: allIds };
+        conditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(allIds)})`);
       }
     }
 
@@ -864,7 +921,12 @@ export class OutreachService {
         const managedIds = managedUsers.map(u => u.id);
         where.reportedById = { in: [...managedIds, user.userId] };
       } else {
-        where.reportedById = user.userId;
+        const shares = await this.prisma.accountShare.findMany({
+          where: { toUserId: user.userId },
+          select: { fromUserId: true }
+        });
+        const sharedFromUserIds = shares.map(s => s.fromUserId);
+        where.reportedById = { in: [user.userId, ...sharedFromUserIds] };
       }
     }
 
@@ -948,8 +1010,13 @@ export class OutreachService {
         const managedIds = managedUsers.map(u => u.id);
         where.createdById = { in: [...managedIds, user.userId] };
       } else {
-        // Outreach workers only see beneficiaries they personally registered
-        where.createdById = user.userId;
+        // Outreach workers only see beneficiaries they personally registered or are shared with them
+        const shares = await this.prisma.accountShare.findMany({
+          where: { toUserId: user.userId },
+          select: { fromUserId: true }
+        });
+        const sharedFromUserIds = shares.map(s => s.fromUserId);
+        where.createdById = { in: [user.userId, ...sharedFromUserIds] };
       }
     }
 
@@ -1292,7 +1359,14 @@ export class OutreachService {
     });
     if (!member) throw new NotFoundException('Family member not found');
     if (member.beneficiary.createdById !== userId) {
-      throw new ForbiddenException('You can only edit family members of beneficiaries you created');
+      const shares = await this.prisma.accountShare.findMany({
+        where: { toUserId: userId },
+        select: { fromUserId: true }
+      });
+      const sharedFromUserIds = shares.map(s => s.fromUserId);
+      if (!sharedFromUserIds.includes(member.beneficiary.createdById)) {
+        throw new ForbiddenException('You can only edit family members of beneficiaries you created or are shared with you');
+      }
     }
 
     const rawDob = dto.dateOfBirth ? new Date(dto.dateOfBirth) : member.dateOfBirth;
