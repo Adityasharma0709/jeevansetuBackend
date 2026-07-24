@@ -225,29 +225,7 @@ export class AnalystService {
               INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
               WHERE cgm."childId" = c.id AND bg.name = 'Adolescent Girls'
             )
-          ) AS "isAdolescentGirlsGroup",
-          CASE 
-            WHEN r."childId" IS NOT NULL THEN 
-              (EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) * 12) + EXTRACT(MONTH FROM AGE(r.date, c."dateOfBirth")) <= 6
-            ELSE 
-              EXISTS (
-                SELECT 1 FROM "BeneficiaryChild" c_sub 
-                WHERE c_sub."beneficiaryId" = b.id 
-                AND (EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) * 12) + EXTRACT(MONTH FROM AGE(r.date, c_sub."dateOfBirth")) <= 6
-              )
-          END AS "hasEbfInfant",
-          CASE 
-            WHEN r."childId" IS NOT NULL THEN 
-              (EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) * 12) + EXTRACT(MONTH FROM AGE(r.date, c."dateOfBirth")) > 6
-              AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 2
-            ELSE 
-              EXISTS (
-                SELECT 1 FROM "BeneficiaryChild" c_sub 
-                WHERE c_sub."beneficiaryId" = b.id 
-                AND (EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) * 12) + EXTRACT(MONTH FROM AGE(r.date, c_sub."dateOfBirth")) > 6
-                AND EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) < 2
-              )
-          END AS "hasCfInfant"
+          ) AS "isAdolescentGirlsGroup"
         FROM "ActivityReport" r
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
         LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
@@ -260,8 +238,8 @@ export class AnalystService {
         COUNT(*) FILTER (WHERE "isSamGroup" = true) AS "activeSamChildren",
         COUNT(*) FILTER (WHERE "isMamGroup" = true) AS "activeMamChildren",
         COUNT(*) FILTER (WHERE "isAdolescentGirlsGroup" = true) AS "adolescentGirls",
-        COUNT(*) FILTER (WHERE "hasEbfInfant" = true) AS "infantsEbfPromotion",
-        COUNT(*) FILTER (WHERE "hasCfInfant" = true) AS "infantsCfPromotion",
+        COUNT(*) FILTER (WHERE age_months <= 6) AS "infantsEbfPromotion",
+        COUNT(*) FILTER (WHERE age_months > 6 AND age_years < 2) AS "infantsCfPromotion",
         COUNT(*) FILTER (
           WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
           AND (
@@ -457,10 +435,10 @@ export class AnalystService {
         groupCondition = Prisma.sql`"isAdolescentGirlsGroup" = true`;
         break;
       case 'INFANTS FOR EBF PROMOTION (<= 6M)':
-        groupCondition = Prisma.sql`"hasEbfInfant" = true`;
+        groupCondition = Prisma.sql`age_months <= 6`;
         break;
       case 'INFANTS FOR CF PROMOTION(2YEAR<CHILD AGE<6MONTHS)':
-        groupCondition = Prisma.sql`"hasCfInfant" = true`;
+        groupCondition = Prisma.sql`age_months > 6 AND age_years < 2`;
         break;
       case 'WOMEN DUE FOR DELIVERY IN NEXT 30 DAYS':
         groupCondition = Prisma.sql`
@@ -597,28 +575,6 @@ export class AnalystService {
               WHERE cgm."childId" = c.id AND bg.name = 'Adolescent Girls'
             )
           ) AS "isAdolescentGirlsGroup",
-          CASE 
-            WHEN r."childId" IS NOT NULL THEN 
-              (EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) * 12) + EXTRACT(MONTH FROM AGE(r.date, c."dateOfBirth")) <= 6
-            ELSE 
-              EXISTS (
-                SELECT 1 FROM "BeneficiaryChild" c_sub 
-                WHERE c_sub."beneficiaryId" = b.id 
-                AND (EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) * 12) + EXTRACT(MONTH FROM AGE(r.date, c_sub."dateOfBirth")) <= 6
-              )
-          END AS "hasEbfInfant",
-          CASE 
-            WHEN r."childId" IS NOT NULL THEN 
-              (EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) * 12) + EXTRACT(MONTH FROM AGE(r.date, c."dateOfBirth")) > 6
-              AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 2
-            ELSE 
-              EXISTS (
-                SELECT 1 FROM "BeneficiaryChild" c_sub 
-                WHERE c_sub."beneficiaryId" = b.id 
-                AND (EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) * 12) + EXTRACT(MONTH FROM AGE(r.date, c_sub."dateOfBirth")) > 6
-                AND EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) < 2
-              )
-          END AS "hasCfInfant",
           (
             SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(r.date, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
             FROM "BeneficiaryChild" c_sub
@@ -657,9 +613,7 @@ export class AnalystService {
         "reportingDate",
         age_years,
         age_months,
-        "childNameAndAge",
-        "hasEbfInfant",
-        "hasCfInfant"
+        "childNameAndAge"
       FROM ReportData
       WHERE ${groupCondition}
       ORDER BY "reportingDate" DESC
