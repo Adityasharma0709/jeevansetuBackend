@@ -1093,6 +1093,7 @@ export class UsersService {
       reportId: r.id,
       beneficiaryId: r.beneficiary.uid,
       beneficiaryName: r.beneficiary.name,
+      beneficiaryDbId: r.beneficiary.id,
       // Beneficiary detail fields
       dateOfBirth: r.beneficiary.dateOfBirth ?? null,
       guardianName: r.beneficiary.guardianName ?? null,
