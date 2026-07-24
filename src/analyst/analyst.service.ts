@@ -186,8 +186,46 @@ export class AnalystService {
           EXISTS (
             SELECT 1 FROM "GroupMember" gm
             INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-            WHERE gm."beneficiaryId" = b.id AND bg.name ILIKE 'Lactating Women'
-          ) AS "isLactatingGroup"
+            WHERE gm."beneficiaryId" = b.id AND bg.name = 'Pregnant Women'
+          ) AS "isPregnantGroup",
+          EXISTS (
+            SELECT 1 FROM "GroupMember" gm
+            INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+            WHERE gm."beneficiaryId" = b.id AND bg.name = 'Lactating Women'
+          ) AS "isLactatingGroup",
+          (
+            EXISTS (
+              SELECT 1 FROM "ChildGroupMember" cgm
+              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+              WHERE cgm."childId" = c.id AND bg.name = 'SAM Children [0-5 Years]'
+            ) OR EXISTS (
+              SELECT 1 FROM "GroupMember" gm
+              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+              WHERE gm."beneficiaryId" = b.id AND bg.name = 'SAM Children [0-5 Years]'
+            )
+          ) AS "isSamGroup",
+          (
+            EXISTS (
+              SELECT 1 FROM "ChildGroupMember" cgm
+              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+              WHERE cgm."childId" = c.id AND bg.name = 'MAM Children [0-5 Years]'
+            ) OR EXISTS (
+              SELECT 1 FROM "GroupMember" gm
+              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+              WHERE gm."beneficiaryId" = b.id AND bg.name = 'MAM Children [0-5 Years]'
+            )
+          ) AS "isMamGroup",
+          (
+            EXISTS (
+              SELECT 1 FROM "GroupMember" gm
+              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+              WHERE gm."beneficiaryId" = b.id AND bg.name = 'Adolescent Girls'
+            ) OR EXISTS (
+              SELECT 1 FROM "ChildGroupMember" cgm
+              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+              WHERE cgm."childId" = c.id AND bg.name = 'Adolescent Girls'
+            )
+          ) AS "isAdolescentGirlsGroup"
         FROM "ActivityReport" r
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
         LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
@@ -195,11 +233,11 @@ export class AnalystService {
       )
       SELECT 
         COUNT(*) AS "totalReports",
-        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL) AS "activePregnantWomen",
+        COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Currently Pregnant' OR "isPregnantGroup" = true) AND "childId" IS NULL) AS "activePregnantWomen",
         COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' OR "isLactatingGroup" = true) AND "childId" IS NULL) AS "activeLactatingMothers",
-        COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM') AS "activeSamChildren",
-        COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM') AS "activeMamChildren",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
+        COUNT(*) FILTER (WHERE ("reportData"->>'samMamStatus' = 'SAM' OR "isSamGroup" = true)) AS "activeSamChildren",
+        COUNT(*) FILTER (WHERE ("reportData"->>'samMamStatus' = 'MAM' OR "isMamGroup" = true)) AS "activeMamChildren",
+        COUNT(*) FILTER (WHERE ((LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) OR "isAdolescentGirlsGroup" = true)) AS "adolescentGirls",
         COUNT(*) FILTER (WHERE age_months <= 6) AS "infantsEbfPromotion",
         COUNT(*) FILTER (WHERE age_months > 6 AND age_years < 2) AS "infantsCfPromotion",
         COUNT(*) FILTER (
@@ -217,10 +255,10 @@ export class AnalystService {
         COUNT(*) FILTER (WHERE age_years BETWEEN 10 AND 19) AS "adolescents",
         COUNT(*) FILTER (WHERE age_years < 6) AS "childrenUnder5",
         COUNT(*) FILTER (WHERE age_years >= 6 AND age_years < 10) AS "children6To10",
-        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL) AS "pregnantWomen",
+        COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Currently Pregnant' OR "isPregnantGroup" = true) AND "childId" IS NULL) AS "pregnantWomen",
         COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' OR "isLactatingGroup" = true) AND "childId" IS NULL) AS "lactatingWomen",
-        COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
-        COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
+        COUNT(*) FILTER (WHERE ("reportData"->>'samMamStatus' = 'MAM' OR "isMamGroup" = true) AND age_years <= 5) AS "mam0to5",
+        COUNT(*) FILTER (WHERE ("reportData"->>'samMamStatus' = 'SAM' OR "isSamGroup" = true) AND age_years <= 5) AS "sam0to5",
         COUNT(*) FILTER (
           WHERE LOWER(TRIM(gender)) = 'female' 
           AND "maritalStatus" = 'Married' 
@@ -375,26 +413,26 @@ export class AnalystService {
     switch (gName) {
       case 'CURRENTLY ACTIVE PREGNANT WOMEN':
       case 'PREGNANT WOMEN':
-        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childIntId" IS NULL`;
+        groupCondition = Prisma.sql`("reportData"->>'pregnancyStatus' = 'Currently Pregnant' OR "isPregnantGroup" = true) AND "childIntId" IS NULL`;
         break;
       case 'CURRENTLY ACTIVE LACTATING MOTHERS':
       case 'LACTATING WOMEN':
         groupCondition = Prisma.sql`("reportData"->>'pregnancyStatus' = 'Baby Delivered' OR "isLactatingGroup" = true) AND "childIntId" IS NULL`;
         break;
       case 'CURRENTLY ACTIVE SAM CHILDREN':
-        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM'`;
+        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM' OR "isSamGroup" = true`;
         break;
       case 'SAM (0-5)':
-        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5`;
+        groupCondition = Prisma.sql`("reportData"->>'samMamStatus' = 'SAM' OR "isSamGroup" = true) AND age_years <= 5`;
         break;
       case 'CURRENTLY ACTIVE MAM CHILDREN':
-        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'MAM'`;
+        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'MAM' OR "isMamGroup" = true`;
         break;
       case 'MAM (0-5)':
-        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5`;
+        groupCondition = Prisma.sql`("reportData"->>'samMamStatus' = 'MAM' OR "isMamGroup" = true) AND age_years <= 5`;
         break;
       case 'ADOLESCENT GIRLS':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19`;
+        groupCondition = Prisma.sql`(LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) OR "isAdolescentGirlsGroup" = true`;
         break;
       case 'INFANTS FOR EBF PROMOTION (<= 6M)':
         groupCondition = Prisma.sql`age_months <= 6`;
@@ -497,8 +535,46 @@ export class AnalystService {
           EXISTS (
             SELECT 1 FROM "GroupMember" gm
             INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-            WHERE gm."beneficiaryId" = b.id AND bg.name ILIKE 'Lactating Women'
+            WHERE gm."beneficiaryId" = b.id AND bg.name = 'Pregnant Women'
+          ) AS "isPregnantGroup",
+          EXISTS (
+            SELECT 1 FROM "GroupMember" gm
+            INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+            WHERE gm."beneficiaryId" = b.id AND bg.name = 'Lactating Women'
           ) AS "isLactatingGroup",
+          (
+            EXISTS (
+              SELECT 1 FROM "ChildGroupMember" cgm
+              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+              WHERE cgm."childId" = c.id AND bg.name = 'SAM Children [0-5 Years]'
+            ) OR EXISTS (
+              SELECT 1 FROM "GroupMember" gm
+              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+              WHERE gm."beneficiaryId" = b.id AND bg.name = 'SAM Children [0-5 Years]'
+            )
+          ) AS "isSamGroup",
+          (
+            EXISTS (
+              SELECT 1 FROM "ChildGroupMember" cgm
+              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+              WHERE cgm."childId" = c.id AND bg.name = 'MAM Children [0-5 Years]'
+            ) OR EXISTS (
+              SELECT 1 FROM "GroupMember" gm
+              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+              WHERE gm."beneficiaryId" = b.id AND bg.name = 'MAM Children [0-5 Years]'
+            )
+          ) AS "isMamGroup",
+          (
+            EXISTS (
+              SELECT 1 FROM "GroupMember" gm
+              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+              WHERE gm."beneficiaryId" = b.id AND bg.name = 'Adolescent Girls'
+            ) OR EXISTS (
+              SELECT 1 FROM "ChildGroupMember" cgm
+              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+              WHERE cgm."childId" = c.id AND bg.name = 'Adolescent Girls'
+            )
+          ) AS "isAdolescentGirlsGroup",
           CASE 
             WHEN r."childId" IS NOT NULL THEN (
               SELECT STRING_AGG(bg.name, ', ')
