@@ -233,11 +233,11 @@ export class AnalystService {
       )
       SELECT 
         COUNT(*) AS "totalReports",
-        COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Currently Pregnant' OR "isPregnantGroup" = true) AND "childId" IS NULL) AS "activePregnantWomen",
-        COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' OR "isLactatingGroup" = true) AND "childId" IS NULL) AS "activeLactatingMothers",
-        COUNT(*) FILTER (WHERE ("reportData"->>'samMamStatus' = 'SAM' OR "isSamGroup" = true)) AS "activeSamChildren",
-        COUNT(*) FILTER (WHERE ("reportData"->>'samMamStatus' = 'MAM' OR "isMamGroup" = true)) AS "activeMamChildren",
-        COUNT(*) FILTER (WHERE ((LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) OR "isAdolescentGirlsGroup" = true)) AS "adolescentGirls",
+        COUNT(*) FILTER (WHERE "isPregnantGroup" = true AND "childId" IS NULL) AS "activePregnantWomen",
+        COUNT(*) FILTER (WHERE "isLactatingGroup" = true AND "childId" IS NULL) AS "activeLactatingMothers",
+        COUNT(*) FILTER (WHERE "isSamGroup" = true) AS "activeSamChildren",
+        COUNT(*) FILTER (WHERE "isMamGroup" = true) AS "activeMamChildren",
+        COUNT(*) FILTER (WHERE "isAdolescentGirlsGroup" = true) AS "adolescentGirls",
         COUNT(*) FILTER (WHERE age_months <= 6) AS "infantsEbfPromotion",
         COUNT(*) FILTER (WHERE age_months > 6 AND age_years < 2) AS "infantsCfPromotion",
         COUNT(*) FILTER (
@@ -255,10 +255,10 @@ export class AnalystService {
         COUNT(*) FILTER (WHERE age_years BETWEEN 10 AND 19) AS "adolescents",
         COUNT(*) FILTER (WHERE age_years < 6) AS "childrenUnder5",
         COUNT(*) FILTER (WHERE age_years >= 6 AND age_years < 10) AS "children6To10",
-        COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Currently Pregnant' OR "isPregnantGroup" = true) AND "childId" IS NULL) AS "pregnantWomen",
-        COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' OR "isLactatingGroup" = true) AND "childId" IS NULL) AS "lactatingWomen",
-        COUNT(*) FILTER (WHERE ("reportData"->>'samMamStatus' = 'MAM' OR "isMamGroup" = true) AND age_years <= 5) AS "mam0to5",
-        COUNT(*) FILTER (WHERE ("reportData"->>'samMamStatus' = 'SAM' OR "isSamGroup" = true) AND age_years <= 5) AS "sam0to5",
+        COUNT(*) FILTER (WHERE "isPregnantGroup" = true AND "childId" IS NULL) AS "pregnantWomen",
+        COUNT(*) FILTER (WHERE "isLactatingGroup" = true AND "childId" IS NULL) AS "lactatingWomen",
+        COUNT(*) FILTER (WHERE "isMamGroup" = true AND age_years <= 5) AS "mam0to5",
+        COUNT(*) FILTER (WHERE "isSamGroup" = true AND age_years <= 5) AS "sam0to5",
         COUNT(*) FILTER (
           WHERE LOWER(TRIM(gender)) = 'female' 
           AND "maritalStatus" = 'Married' 
@@ -413,26 +413,26 @@ export class AnalystService {
     switch (gName) {
       case 'CURRENTLY ACTIVE PREGNANT WOMEN':
       case 'PREGNANT WOMEN':
-        groupCondition = Prisma.sql`("reportData"->>'pregnancyStatus' = 'Currently Pregnant' OR "isPregnantGroup" = true) AND "childIntId" IS NULL`;
+        groupCondition = Prisma.sql`"isPregnantGroup" = true AND "childIntId" IS NULL`;
         break;
       case 'CURRENTLY ACTIVE LACTATING MOTHERS':
       case 'LACTATING WOMEN':
-        groupCondition = Prisma.sql`("reportData"->>'pregnancyStatus' = 'Baby Delivered' OR "isLactatingGroup" = true) AND "childIntId" IS NULL`;
+        groupCondition = Prisma.sql`"isLactatingGroup" = true AND "childIntId" IS NULL`;
         break;
       case 'CURRENTLY ACTIVE SAM CHILDREN':
-        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM' OR "isSamGroup" = true`;
+        groupCondition = Prisma.sql`"isSamGroup" = true`;
         break;
       case 'SAM (0-5)':
-        groupCondition = Prisma.sql`("reportData"->>'samMamStatus' = 'SAM' OR "isSamGroup" = true) AND age_years <= 5`;
+        groupCondition = Prisma.sql`"isSamGroup" = true AND age_years <= 5`;
         break;
       case 'CURRENTLY ACTIVE MAM CHILDREN':
-        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'MAM' OR "isMamGroup" = true`;
+        groupCondition = Prisma.sql`"isMamGroup" = true`;
         break;
       case 'MAM (0-5)':
-        groupCondition = Prisma.sql`("reportData"->>'samMamStatus' = 'MAM' OR "isMamGroup" = true) AND age_years <= 5`;
+        groupCondition = Prisma.sql`"isMamGroup" = true AND age_years <= 5`;
         break;
       case 'ADOLESCENT GIRLS':
-        groupCondition = Prisma.sql`(LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) OR "isAdolescentGirlsGroup" = true`;
+        groupCondition = Prisma.sql`"isAdolescentGirlsGroup" = true`;
         break;
       case 'INFANTS FOR EBF PROMOTION (<= 6M)':
         groupCondition = Prisma.sql`age_months <= 6`;
