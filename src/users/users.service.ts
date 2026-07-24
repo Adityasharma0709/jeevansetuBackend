@@ -1094,6 +1094,7 @@ export class UsersService {
       beneficiaryId: r.beneficiary.uid,
       beneficiaryName: r.beneficiary.name,
       beneficiaryDbId: r.beneficiary.id,
+      projectId: r.beneficiary.projectId,
       // Beneficiary detail fields
       dateOfBirth: r.beneficiary.dateOfBirth ?? null,
       guardianName: r.beneficiary.guardianName ?? null,
