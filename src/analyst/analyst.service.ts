@@ -575,6 +575,11 @@ export class AnalystService {
               WHERE cgm."childId" = c.id AND bg.name = 'Adolescent Girls'
             )
           ) AS "isAdolescentGirlsGroup",
+          (
+            SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(r.date, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
+            FROM "BeneficiaryChild" c_sub
+            WHERE c_sub."beneficiaryId" = b.id
+          ) AS "childNameAndAge",
           CASE 
             WHEN r."childId" IS NOT NULL THEN (
               SELECT STRING_AGG(bg.name, ', ')
@@ -607,7 +612,8 @@ export class AnalystService {
         COALESCE(session, 'N/A') AS session,
         "reportingDate",
         age_years,
-        age_months
+        age_months,
+        "childNameAndAge"
       FROM ReportData
       WHERE ${groupCondition}
       ORDER BY "reportingDate" DESC
@@ -634,6 +640,7 @@ export class AnalystService {
         session: record.session,
         reportingDate: record.reportingDate ? new Date(record.reportingDate).toLocaleDateString() : 'N/A',
         age: ageStr,
+        childNameAndAge: record.childNameAndAge || 'N/A',
       };
     });
   }
