@@ -182,7 +182,12 @@ export class AnalystService {
           b."maritalStatus",
           b."typeof",
           EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
-          (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months
+          (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
+          EXISTS (
+            SELECT 1 FROM "GroupMember" gm
+            INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+            WHERE gm."beneficiaryId" = b.id AND bg.name ILIKE 'Lactating Women'
+          ) AS "isLactatingGroup"
         FROM "ActivityReport" r
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
         LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
@@ -191,7 +196,7 @@ export class AnalystService {
       SELECT 
         COUNT(*) AS "totalReports",
         COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL) AS "activePregnantWomen",
-        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "activeLactatingMothers",
+        COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' OR "isLactatingGroup" = true) AND "childId" IS NULL) AS "activeLactatingMothers",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM') AS "activeSamChildren",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM') AS "activeMamChildren",
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
@@ -213,7 +218,7 @@ export class AnalystService {
         COUNT(*) FILTER (WHERE age_years < 6) AS "childrenUnder5",
         COUNT(*) FILTER (WHERE age_years >= 6 AND age_years < 10) AS "children6To10",
         COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL) AS "pregnantWomen",
-        COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "lactatingWomen",
+        COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' OR "isLactatingGroup" = true) AND "childId" IS NULL) AS "lactatingWomen",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
         COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
         COUNT(*) FILTER (
@@ -374,7 +379,7 @@ export class AnalystService {
         break;
       case 'CURRENTLY ACTIVE LACTATING MOTHERS':
       case 'LACTATING WOMEN':
-        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childIntId" IS NULL`;
+        groupCondition = Prisma.sql`("reportData"->>'pregnancyStatus' = 'Baby Delivered' OR "isLactatingGroup" = true) AND "childIntId" IS NULL`;
         break;
       case 'CURRENTLY ACTIVE SAM CHILDREN':
         groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM'`;
@@ -489,6 +494,11 @@ export class AnalystService {
           b."maritalStatus",
           EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
           (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
+          EXISTS (
+            SELECT 1 FROM "GroupMember" gm
+            INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+            WHERE gm."beneficiaryId" = b.id AND bg.name ILIKE 'Lactating Women'
+          ) AS "isLactatingGroup",
           CASE 
             WHEN r."childId" IS NOT NULL THEN (
               SELECT STRING_AGG(bg.name, ', ')
