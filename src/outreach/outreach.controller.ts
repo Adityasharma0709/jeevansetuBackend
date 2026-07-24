@@ -143,7 +143,7 @@ export class OutreachController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN')
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN', 'ANALYST')
   @Get('beneficiary/:id')
   getBeneficiary(@Param('id') id: string) {
     return this.outreachService.getBeneficiary(+id);
@@ -204,7 +204,7 @@ export class OutreachController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN')
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN', 'ANALYST')
   @Get('beneficiary/:id/family-members')
   getFamilyMembers(@Param('id') id: string) {
     return this.outreachService.getFamilyMembers(+id);
