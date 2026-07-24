@@ -11,6 +11,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AdminModule } from './admin/admin.module';
 import { ManagerModule } from './manager/manager.module';
 import { OutreachModule } from './outreach/outreach.module';
+import { AnalystModule } from './analyst/analyst.module';
 
 @Module({
   imports: [
@@ -23,7 +24,8 @@ import { OutreachModule } from './outreach/outreach.module';
     ConfigModule.forRoot({ isGlobal: true }),
     AdminModule,
     ManagerModule,
-    OutreachModule
+    OutreachModule,
+    AnalystModule
   ],
   controllers: [AppController],
   providers: [AppService],
