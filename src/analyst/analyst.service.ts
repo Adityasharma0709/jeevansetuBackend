@@ -102,7 +102,7 @@ export class AnalystService {
 
     const assignedProjects = targetProjectIds.length;
 
-    // 2. Count Outreach Dynamics (Unfiltered by date or activity filters, using new rules)
+    // 2. Count Outreach Dynamics (Unfiltered by date or activity filters)
     
     // a. Currently Pregnant Women: Activity table where pregnancyOutcome is null
     const pregnantCountQuery = `
@@ -338,27 +338,27 @@ export class AnalystService {
         )
         SELECT 
           COUNT(*) AS "totalReports",
-          COUNT(DISTINCT r."beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL) AS "pregnantWomen",
-          COUNT(DISTINCT r."beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "lactatingWomen",
-          COUNT(DISTINCT r."childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
-          COUNT(DISTINCT r."childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
-          COUNT(DISTINCT COALESCE(r."childId"::text, 'ben_' || r."beneficiaryId"::text)) FILTER (
+          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL) AS "pregnantWomen",
+          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "lactatingWomen",
+          COUNT(DISTINCT "childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
+          COUNT(DISTINCT "childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
+          COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (
             WHERE LOWER(TRIM(gender)) = 'female' 
             AND "maritalStatus" = 'Married' 
             AND age_years BETWEEN 15 AND 24 
             AND "childId" IS NULL
             AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
           ) AS "youngMarriedWomen",
-          COUNT(DISTINCT r."childId") FILTER (WHERE age_years < 1) AS "infantsLessThan1",
-          COUNT(DISTINCT r."childId") FILTER (WHERE age_years >= 1 AND age_years < 3) AS "toddlers1To3",
-          COUNT(DISTINCT r."childId") FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Girls",
-          COUNT(DISTINCT r."childId") FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Boys",
-          COUNT(DISTINCT r."childId") FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Girls",
-          COUNT(DISTINCT r."childId") FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Boys",
-          COUNT(DISTINCT COALESCE(r."childId"::text, 'ben_' || r."beneficiaryId"::text)) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
-          COUNT(DISTINCT COALESCE(r."childId"::text, 'ben_' || r."beneficiaryId"::text)) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
-          COUNT(DISTINCT r."beneficiaryId") FILTER (LOWER(TRIM("typeof")) = 'stakeholder') AS "stakeholders",
-          COUNT(DISTINCT COALESCE(r."childId"::text, 'ben_' || r."beneficiaryId"::text)) FILTER (
+          COUNT(DISTINCT "childId") FILTER (WHERE age_years < 1) AS "infantsLessThan1",
+          COUNT(DISTINCT "childId") FILTER (WHERE age_years >= 1 AND age_years < 3) AS "toddlers1To3",
+          COUNT(DISTINCT "childId") FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Girls",
+          COUNT(DISTINCT "childId") FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Boys",
+          COUNT(DISTINCT "childId") FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Girls",
+          COUNT(DISTINCT "childId") FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Boys",
+          COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
+          COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
+          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE LOWER(TRIM("typeof")) = 'stakeholder') AS "stakeholders",
+          COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (
             WHERE NOT (("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered') AND "childId" IS NULL)
             OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
             OR (
@@ -420,7 +420,7 @@ export class AnalystService {
           COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Boys",
           COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
           COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
-          COUNT(*) FILTER (LOWER(TRIM("typeof")) = 'stakeholder') AS "stakeholders",
+          COUNT(*) FILTER (WHERE LOWER(TRIM("typeof")) = 'stakeholder') AS "stakeholders",
           COUNT(*) FILTER (
             WHERE NOT (("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered') AND "childId" IS NULL)
             OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
@@ -905,7 +905,7 @@ export class AnalystService {
         ),
         FilteredReportData AS (
           SELECT * FROM ReportData
-          WHERE ${Prisma.raw(groupCondition)}
+          WHERE ${groupCondition}
         )
         SELECT DISTINCT ON (COALESCE("childIntId", "benIntId"))
           "reportId",
@@ -983,7 +983,7 @@ export class AnalystService {
           age_months,
           "childNameAndAge"
         FROM ReportData
-        WHERE ${Prisma.raw(groupCondition)}
+        WHERE ${groupCondition}
         ORDER BY "reportingDate" DESC
         LIMIT 100;
       `;
