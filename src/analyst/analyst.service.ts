@@ -631,8 +631,14 @@ export class AnalystService {
             ${reporterFilterStr}
             ${locFilterStr}
           ORDER BY "beneficiaryId", r.date DESC
-        )
-        SELECT b.uid AS id, b.id AS "benId", b.name, 'Pregnant Women' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT b.uid AS id, b.id AS "benId", b.name,
+               COALESCE((
+                 SELECT STRING_AGG(bg.name, ', ')
+                 FROM "GroupMember" gm
+                 INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+                 WHERE gm."beneficiaryId" = b.id
+               ), 'N/A') AS group,
+               COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, lr.date AS "reportingDate"
@@ -647,7 +653,14 @@ export class AnalystService {
       `;
     } else if (clean.includes('LACTATING') || clean.includes('MOTHER')) {
       queryStr = `
-        SELECT DISTINCT id, "benId", name, 'Lactating Mothers' AS group, awc, project, gender, "guardianName", age, "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, latest_date AS "reportingDate"
+        SELECT DISTINCT id, "benId", name,
+               COALESCE((
+                 SELECT STRING_AGG(bg.name, ', ')
+                 FROM "GroupMember" gm
+                 INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+                 WHERE gm."beneficiaryId" = "benId"
+               ), 'N/A') AS group,
+               awc, project, gender, "guardianName", age, "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, latest_date AS "reportingDate"
         FROM (
           SELECT b.uid AS id, b.id AS "benId", b.name, COALESCE(a."awcName", 'N/A') AS awc,
                  p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
@@ -708,7 +721,14 @@ export class AnalystService {
             ${locFilterStr}
           ORDER BY "childId", r.date DESC
         )
-        SELECT c.uid AS id, b.id AS "benId", c.name, 'SAM Children [0-5 Years]' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT c.uid AS id, b.id AS "benId", c.name,
+               COALESCE((
+                 SELECT STRING_AGG(bg.name, ', ')
+                 FROM "ChildGroupMember" cgm
+                 INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+                 WHERE cgm."childId" = c.id
+               ), 'N/A') AS group,
+               COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, lr.date AS "reportingDate"
@@ -733,7 +753,14 @@ export class AnalystService {
             ${locFilterStr}
           ORDER BY "childId", r.date DESC
         )
-        SELECT c.uid AS id, b.id AS "benId", c.name, 'MAM Children [0-5 Years]' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT c.uid AS id, b.id AS "benId", c.name,
+               COALESCE((
+                 SELECT STRING_AGG(bg.name, ', ')
+                 FROM "ChildGroupMember" cgm
+                 INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+                 WHERE cgm."childId" = c.id
+               ), 'N/A') AS group,
+               COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, lr.date AS "reportingDate"
@@ -748,7 +775,14 @@ export class AnalystService {
       `;
     } else if (clean.includes('ADOLESCENT')) {
       queryStr = `
-        SELECT b.uid AS id, b.id AS "benId", b.name, 'Adolescent Girls' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT b.uid AS id, b.id AS "benId", b.name,
+               COALESCE((
+                 SELECT STRING_AGG(bg.name, ', ')
+                 FROM "GroupMember" gm
+                 INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+                 WHERE gm."beneficiaryId" = b.id
+               ), 'N/A') AS group,
+               COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, b."createdAt" AS "reportingDate"
@@ -764,7 +798,14 @@ export class AnalystService {
       `;
     } else if (clean.includes('EBF')) {
       queryStr = `
-        SELECT c.uid AS id, b.id AS "benId", c.name, 'Infants for EBF' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT c.uid AS id, b.id AS "benId", c.name,
+               COALESCE((
+                 SELECT STRING_AGG(bg.name, ', ')
+                 FROM "ChildGroupMember" cgm
+                 INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+                 WHERE cgm."childId" = c.id
+               ), 'N/A') AS group,
+               COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, c."dateOfBirth" AS "reportingDate"
@@ -780,7 +821,14 @@ export class AnalystService {
       `;
     } else if (clean.includes('CF')) {
       queryStr = `
-        SELECT c.uid AS id, b.id AS "benId", c.name, 'Infants for CF' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT c.uid AS id, b.id AS "benId", c.name,
+               COALESCE((
+                 SELECT STRING_AGG(bg.name, ', ')
+                 FROM "ChildGroupMember" cgm
+                 INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+                 WHERE cgm."childId" = c.id
+               ), 'N/A') AS group,
+               COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, c."dateOfBirth" AS "reportingDate"
@@ -807,7 +855,14 @@ export class AnalystService {
             ${locFilterStr}
           ORDER BY "beneficiaryId", r.date DESC
         )
-        SELECT b.uid AS id, b.id AS "benId", b.name, 'Due for Delivery' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT b.uid AS id, b.id AS "benId", b.name,
+               COALESCE((
+                 SELECT STRING_AGG(bg.name, ', ')
+                 FROM "GroupMember" gm
+                 INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+                 WHERE gm."beneficiaryId" = b.id
+               ), 'N/A') AS group,
+               COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, lr.date AS "reportingDate"
