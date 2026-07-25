@@ -962,7 +962,13 @@ export class OutreachService {
           }
         },
         activity: { select: { name: true } },
-        session: { select: { name: true } }
+        session: { select: { name: true } },
+        reportedBy: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
       },
       orderBy: { createdAt: 'desc' }
     });
