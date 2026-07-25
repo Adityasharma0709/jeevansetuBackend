@@ -642,35 +642,35 @@ export class AnalystService {
       }
     }
 
-    let groupCondition: Prisma.Sql;
+    let groupCondition: string;
     const gName = (groupName || '').trim().toUpperCase();
 
     switch (gName) {
       case 'CURRENTLY ACTIVE PREGNANT WOMEN':
       case 'PREGNANT WOMEN':
-        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childIntId" IS NULL`;
+        groupCondition = `"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childIntId" IS NULL`;
         break;
       case 'CURRENTLY ACTIVE LACTATING MOTHERS':
       case 'LACTATING WOMEN':
-        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childIntId" IS NULL`;
+        groupCondition = `"reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childIntId" IS NULL`;
         break;
       case 'CURRENTLY ACTIVE SAM CHILDREN':
-        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM'`;
+        groupCondition = `"reportData"->>'samMamStatus' = 'SAM'`;
         break;
       case 'SAM (0-5)':
-        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5`;
+        groupCondition = `"reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5`;
         break;
       case 'CURRENTLY ACTIVE MAM CHILDREN':
-        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'MAM'`;
+        groupCondition = `"reportData"->>'samMamStatus' = 'MAM'`;
         break;
       case 'MAM (0-5)':
-        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5`;
+        groupCondition = `"reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5`;
         break;
       case 'ADOLESCENT GIRLS':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19`;
+        groupCondition = `LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19`;
         break;
       case 'YOUNG MARRIED WOMEN':
-        groupCondition = Prisma.sql`
+        groupCondition = `
           LOWER(TRIM(gender)) = 'female' 
           AND "maritalStatus" = 'Married' 
           AND age_years BETWEEN 15 AND 24 
@@ -679,31 +679,31 @@ export class AnalystService {
         `;
         break;
       case 'INFANT':
-        groupCondition = Prisma.sql`age_years < 1`;
+        groupCondition = `age_years < 1`;
         break;
       case 'TODDLER':
-        groupCondition = Prisma.sql`age_years >= 1 AND age_years < 3`;
+        groupCondition = `age_years >= 1 AND age_years < 3`;
         break;
       case 'CHILDREN BELOW 6 (3-6 YEARS) - GIRLS':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6`;
+        groupCondition = `LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6`;
         break;
       case 'CHILDREN BELOW 6 (3-6 YEARS) - BOYS':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6`;
+        groupCondition = `LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6`;
         break;
       case 'CHILDREN ABOVE 6 (6-9 YEARS) - GIRLS':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10`;
+        groupCondition = `LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10`;
         break;
       case 'CHILDREN ABOVE 6 (6-9 YEARS) - BOYS':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10`;
+        groupCondition = `LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10`;
         break;
       case 'ADOLESCENT BOYS':
-        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19`;
+        groupCondition = `LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19`;
         break;
       case 'STAKEHOLDERS':
-        groupCondition = Prisma.sql`LOWER(TRIM("typeof")) = 'stakeholder'`;
+        groupCondition = `LOWER(TRIM("typeof")) = 'stakeholder'`;
         break;
       case 'OTHER BENEFICIARIES':
-        groupCondition = Prisma.sql`
+        groupCondition = `
           NOT (("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered') AND "childIntId" IS NULL)
           OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
           OR (
@@ -724,7 +724,7 @@ export class AnalystService {
         `;
         break;
       default:
-        groupCondition = Prisma.sql`1 = 1`;
+        groupCondition = `1 = 1`;
         break;
     }
 
@@ -779,7 +779,7 @@ export class AnalystService {
         ),
         FilteredReportData AS (
           SELECT * FROM ReportData
-          WHERE ${groupCondition}
+          WHERE ${Prisma.raw(groupCondition)}
         )
         SELECT DISTINCT ON (COALESCE("childIntId", "benIntId"))
           "reportId",
@@ -856,7 +856,7 @@ export class AnalystService {
           age_months,
           "childNameAndAge"
         FROM ReportData
-        WHERE ${groupCondition}
+        WHERE ${Prisma.raw(groupCondition)}
         ORDER BY "reportingDate" DESC
         LIMIT 100;
       `;
