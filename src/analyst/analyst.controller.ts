@@ -61,10 +61,24 @@ export class AnalystController {
   getOutreachDynamicsDetails(
     @Req() req,
     @Query('group') group: string,
+    @Query('adminId') adminId?: string,
+    @Query('managerId') managerId?: string,
+    @Query('workerId') workerId?: string,
+    @Query('state') state?: string,
+    @Query('district') district?: string,
+    @Query('block') block?: string,
+    @Query('awc') awc?: string,
   ) {
     return this.analystService.getOutreachDynamicsDetails(
       req.user.userId,
       group,
+      adminId ? +adminId : undefined,
+      managerId ? +managerId : undefined,
+      workerId ? +workerId : undefined,
+      state,
+      district,
+      block,
+      awc
     );
   }
 

@@ -483,7 +483,17 @@ export class AnalystService {
     };
   }
 
-  async getOutreachDynamicsDetails(userId: number, groupName: string) {
+  async getOutreachDynamicsDetails(
+    userId: number,
+    groupName: string,
+    adminId?: number,
+    managerId?: number,
+    workerId?: number,
+    state?: string,
+    district?: string,
+    block?: string,
+    awc?: string,
+  ) {
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId },
       select: { projectId: true },
@@ -494,6 +504,62 @@ export class AnalystService {
     const projectIds = [...new Set(assignments.map(a => a.projectId))];
     const projectIdsStr = projectIds.join(',');
     
+    // 1. Resolve User Hierarchy Filters
+    let reporterIds: number[] = [];
+    if (workerId) {
+      reporterIds = [workerId];
+    } else if (managerId) {
+      const workers = await this.prisma.user.findMany({
+        where: {
+          createdByAdminId: managerId,
+          roles: { some: { role: { name: 'OUTREACH' } } }
+        },
+        select: { id: true }
+      });
+      reporterIds = [managerId, ...workers.map(w => w.id)];
+    } else if (adminId) {
+      const managers = await this.prisma.user.findMany({
+        where: {
+          createdByAdminId: adminId,
+          roles: { some: { role: { name: 'MANAGER' } } }
+        },
+        select: { id: true }
+      });
+      const managerIds = managers.map(m => m.id);
+      let workerIds: number[] = [];
+      if (managerIds.length > 0) {
+        const workers = await this.prisma.user.findMany({
+          where: {
+            createdByAdminId: { in: managerIds },
+            roles: { some: { role: { name: 'OUTREACH' } } }
+          },
+          select: { id: true }
+        });
+        workerIds = workers.map(w => w.id);
+      }
+      reporterIds = [adminId, ...managerIds, ...workerIds];
+    }
+
+    const hasReporterFilter = reporterIds.length > 0;
+    const reporterFilterStr = hasReporterFilter ? `AND r."reportedById" IN (${reporterIds.join(',')})` : '';
+    const creatorFilterStr = hasReporterFilter ? `AND b."createdById" IN (${reporterIds.join(',')})` : '';
+
+    // 2. Resolve Location Filters
+    const escapeStr = (val: string) => val.replace(/'/g, "''");
+    let locFilterStr = '';
+    if (state && state !== 'ALL') {
+      locFilterStr += ` AND LOWER(b.state) = LOWER('${escapeStr(state)}')`;
+    }
+    if (district && district !== 'ALL') {
+      locFilterStr += ` AND LOWER(b.district) = LOWER('${escapeStr(district)}')`;
+    }
+    if (block && block !== 'ALL') {
+      locFilterStr += ` AND LOWER(b.block) = LOWER('${escapeStr(block)}')`;
+    }
+    if (awc && awc !== 'ALL') {
+      locFilterStr += ` AND LOWER(a."awcName") = LOWER('${escapeStr(awc)}')`;
+    }
+
     const clean = (groupName || '').trim().toUpperCase();
 
     let rawRecords: any[] = [];
@@ -505,7 +571,10 @@ export class AnalystService {
           SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId", r.date
           FROM "ActivityReport" r
           INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+          LEFT JOIN "Awc" a ON b."awcId" = a.id
           WHERE b."projectId" IN (${projectIdsStr})
+            ${reporterFilterStr}
+            ${locFilterStr}
           ORDER BY "beneficiaryId", r.date DESC
         )
         SELECT b.uid AS id, b.id AS "benId", b.name, 'Pregnant Women' AS group, COALESCE(a."awcName", 'N/A') AS awc,
@@ -540,6 +609,8 @@ export class AnalystService {
           LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
           WHERE b."projectId" IN (${projectIdsStr})
             AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
+            ${creatorFilterStr}
+            ${locFilterStr}
           GROUP BY b.uid, b.id, b.name, a."awcName", p_proj.name, b.gender, b."guardianName", b."dateOfBirth"
           UNION
           SELECT b.uid AS id, b.id AS "benId", b.name, COALESCE(a."awcName", 'N/A') AS awc,
@@ -556,7 +627,10 @@ export class AnalystService {
             SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", date, "childId"
             FROM "ActivityReport" r
             INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+            LEFT JOIN "Awc" a ON b."awcId" = a.id
             WHERE b."projectId" IN (${projectIdsStr})
+              ${reporterFilterStr}
+              ${locFilterStr}
             ORDER BY "beneficiaryId", r.date DESC
           ) lr ON b.id = lr."beneficiaryId"
           LEFT JOIN "Awc" a ON b."awcId" = a.id
@@ -573,7 +647,10 @@ export class AnalystService {
           SELECT DISTINCT ON ("childId") "childId", "reportData", r.date
           FROM "ActivityReport" r
           INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+          LEFT JOIN "Awc" a ON b."awcId" = a.id
           WHERE b."projectId" IN (${projectIdsStr}) AND r."childId" IS NOT NULL
+            ${reporterFilterStr}
+            ${locFilterStr}
           ORDER BY "childId", r.date DESC
         )
         SELECT c.uid AS id, b.id AS "benId", c.name, 'SAM Children [0-5 Years]' AS group, COALESCE(a."awcName", 'N/A') AS awc,
@@ -595,7 +672,10 @@ export class AnalystService {
           SELECT DISTINCT ON ("childId") "childId", "reportData", r.date
           FROM "ActivityReport" r
           INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+          LEFT JOIN "Awc" a ON b."awcId" = a.id
           WHERE b."projectId" IN (${projectIdsStr}) AND r."childId" IS NOT NULL
+            ${reporterFilterStr}
+            ${locFilterStr}
           ORDER BY "childId", r.date DESC
         )
         SELECT c.uid AS id, b.id AS "benId", c.name, 'MAM Children [0-5 Years]' AS group, COALESCE(a."awcName", 'N/A') AS awc,
@@ -623,6 +703,8 @@ export class AnalystService {
         WHERE b."projectId" IN (${projectIdsStr})
           AND LOWER(TRIM(b.gender)) = 'female'
           AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) BETWEEN 10 AND 19
+          ${creatorFilterStr}
+          ${locFilterStr}
         ORDER BY b."createdAt" DESC;
       `;
     } else if (clean.includes('EBF')) {
@@ -637,6 +719,8 @@ export class AnalystService {
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         WHERE b."projectId" IN (${projectIdsStr})
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '6 months'
+          ${creatorFilterStr}
+          ${locFilterStr}
         ORDER BY c."dateOfBirth" DESC;
       `;
     } else if (clean.includes('CF')) {
@@ -652,6 +736,8 @@ export class AnalystService {
         WHERE b."projectId" IN (${projectIdsStr})
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
           AND c."dateOfBirth" < CURRENT_DATE - INTERVAL '6 months'
+          ${creatorFilterStr}
+          ${locFilterStr}
         ORDER BY c."dateOfBirth" DESC;
       `;
     } else if (clean.includes('DUE') || clean.includes('DELIVERY')) {
@@ -660,7 +746,10 @@ export class AnalystService {
           SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId", r.date
           FROM "ActivityReport" r
           INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+          LEFT JOIN "Awc" a ON b."awcId" = a.id
           WHERE b."projectId" IN (${projectIdsStr})
+            ${reporterFilterStr}
+            ${locFilterStr}
           ORDER BY "beneficiaryId", r.date DESC
         )
         SELECT b.uid AS id, b.id AS "benId", b.name, 'Due for Delivery' AS group, COALESCE(a."awcName", 'N/A') AS awc,
