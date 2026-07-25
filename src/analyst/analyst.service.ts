@@ -631,6 +631,7 @@ export class AnalystService {
             ${reporterFilterStr}
             ${locFilterStr}
           ORDER BY "beneficiaryId", r.date DESC
+        )
         SELECT b.uid AS id, b.id AS "benId", b.name,
                COALESCE((
                  SELECT STRING_AGG(bg.name, ', ')
