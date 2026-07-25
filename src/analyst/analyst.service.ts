@@ -12,13 +12,11 @@ export class AnalystService {
       select: { projectId: true },
     });
 
-    if (!assignments.length) {
-      return [];
-    }
+    if (!assignments.length) return [];
 
-    const projectIds = [...new Set(assignments.map((a) => a.projectId))];
+    const projectIds = [...new Set(assignments.map(a => a.projectId))];
 
-    const reports = await this.prisma.activityReport.findMany({
+    return this.prisma.activityReport.findMany({
       where: {
         beneficiary: {
           projectId: { in: projectIds },
@@ -38,35 +36,18 @@ export class AnalystService {
             },
           },
         },
-        activity: { select: { id: true, name: true } },
-        session: { select: { id: true, name: true } },
-        reportedBy: { select: { id: true, name: true } },
+        child: true,
+        reportedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        activity: true,
+        session: true,
       },
     });
-
-    return reports.map((r) => ({
-      reportId: r.id,
-      beneficiaryId: r.beneficiary.uid,
-      beneficiaryName: r.beneficiary.name,
-      beneficiaryDbId: r.beneficiary.id,
-      dateOfBirth: r.beneficiary.dateOfBirth ?? null,
-      guardianName: r.beneficiary.guardianName ?? null,
-      dateOfMarriage: r.beneficiary.dateOfMarriage ?? null,
-      womanAgeAtMarriage: r.beneficiary.womanAgeAtMarriage ?? null,
-      husbandAgeAtMarriage: r.beneficiary.husbandAgeAtMarriage ?? null,
-      maritalStatus: r.beneficiary.maritalStatus ?? null,
-      gender: r.beneficiary.gender ?? null,
-      state: r.beneficiary.awc?.state?.name ?? r.beneficiary.state ?? '-',
-      district: r.beneficiary.awc?.district?.name ?? r.beneficiary.district ?? '-',
-      block: r.beneficiary.awc?.block?.name ?? r.beneficiary.block ?? '-',
-      village: r.beneficiary.awc?.village?.name ?? r.beneficiary.village ?? '-',
-      awcCenter: r.beneficiary.awc?.awcName ?? r.beneficiary.awc?.locationCode ?? '-',
-      activity: r.activity.name,
-      session: r.session.name,
-      reportData: r.reportData,
-      reportingDate: r.date,
-      reportedBy: r.reportedBy.name,
-    }));
   }
 
   async getDashboardStats(
@@ -76,7 +57,14 @@ export class AnalystService {
     sessionId?: number,
     adminId?: number,
     managerId?: number,
-    workerId?: number
+    workerId?: number,
+    year?: string,
+    month?: string,
+    state?: string,
+    district?: string,
+    block?: string,
+    awc?: string,
+    unique?: boolean,
   ) {
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId },
@@ -99,12 +87,6 @@ export class AnalystService {
           infantsCfPromotion: 0,
           womenDueForDelivery30Days: 0
         },
-        episodesOfCare: {
-          adults: 0,
-          adolescents: 0,
-          childrenUnder5: 0,
-          children6To10: 0
-        },
         activities: []
       };
     }
@@ -112,16 +94,91 @@ export class AnalystService {
     const assignedProjectIds = [...new Set(assignments.map(a => a.projectId))];
     const targetProjectIds = projectId ? [projectId] : assignedProjectIds;
 
-    if (projectId && !assignedProjectIds.includes(projectId)) {
-      throw new ForbiddenException('You do not have access to this project');
-    }
+    // 1. Calculate General Stats (Registry snapshot)
+    const totalBeneficiaries = await this.prisma.beneficiary.count({
+      where: { projectId: { in: targetProjectIds } }
+    });
 
-    const conditions: Prisma.Sql[] = [
+    const assignedProjects = targetProjectIds.length;
+
+    // 2. Count Outreach Dynamics (Registry snapshot, independent of date/activity filters)
+    const pregnantGroup = await this.prisma.beneficiaryGroup.findFirst({ where: { name: 'Pregnant Women' } });
+    const lactatingGroup = await this.prisma.beneficiaryGroup.findFirst({ where: { name: 'Lactating Women' } });
+    const samGroup = await this.prisma.beneficiaryGroup.findFirst({ where: { name: 'SAM Children [0-5 Years]' } });
+    const mamGroup = await this.prisma.beneficiaryGroup.findFirst({ where: { name: 'MAM Children [0-5 Years]' } });
+    const adolescentGroup = await this.prisma.beneficiaryGroup.findFirst({ where: { name: 'Adolescent Girls' } });
+
+    const getGroupCount = async (group: any, isChild: boolean) => {
+      if (!group) return 0;
+      if (isChild) {
+        return this.prisma.childGroupMember.count({
+          where: {
+            groupId: group.id,
+            child: { beneficiary: { projectId: { in: targetProjectIds } } }
+          }
+        });
+      } else {
+        return this.prisma.groupMember.count({
+          where: {
+            groupId: group.id,
+            beneficiary: { projectId: { in: targetProjectIds } }
+          }
+        });
+      }
+    };
+
+    const activePregnantWomen = await getGroupCount(pregnantGroup, false);
+    const activeLactatingMothers = await getGroupCount(lactatingGroup, false);
+    const activeSamChildren = (await getGroupCount(samGroup, true)) + (await getGroupCount(samGroup, false));
+    const activeMamChildren = (await getGroupCount(mamGroup, true)) + (await getGroupCount(mamGroup, false));
+    const adolescentGirls = await getGroupCount(adolescentGroup, false);
+
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const infantsEbfPromotion = await this.prisma.beneficiaryChild.count({
+      where: {
+        beneficiary: { projectId: { in: targetProjectIds } },
+        dateOfBirth: { gte: sixMonthsAgo }
+      }
+    });
+
+    const twoYearsAgo = new Date();
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+    const infantsCfPromotion = await this.prisma.beneficiaryChild.count({
+      where: {
+        beneficiary: { projectId: { in: targetProjectIds } },
+        dateOfBirth: { gte: twoYearsAgo, lt: sixMonthsAgo }
+      }
+    });
+
+    const eddRaw: any[] = await this.prisma.$queryRaw`
+      WITH LatestReports AS (
+        SELECT DISTINCT ON ("beneficiaryId") "reportData", date
+        FROM "ActivityReport" r
+        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+        WHERE b."projectId" IN (${Prisma.join(targetProjectIds)})
+        ORDER BY "beneficiaryId", date DESC
+      )
+      SELECT COUNT(*) AS count
+      FROM LatestReports
+      WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant'
+        AND (
+          CASE
+            WHEN "reportData"->>'edd' ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN to_date("reportData"->>'edd', 'DD/MM/YYYY')
+            WHEN "reportData"->>'edd' ~ '^[0-9]{8}$' THEN to_date("reportData"->>'edd', 'DDMMYYYY')
+            ELSE NULL
+          END
+        ) BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days';
+    `;
+    const womenDueForDelivery30Days = Number(eddRaw[0]?.count || 0);
+
+    // 3. Coverage Dashboard Stats (Applying filters and unique toggle)
+    const rbacConditions: Prisma.Sql[] = [
       Prisma.sql`b."projectId" IN (${Prisma.join(targetProjectIds)})`
     ];
 
-    if (activityId) conditions.push(Prisma.sql`r."activityId" = ${activityId}`);
-    if (sessionId) conditions.push(Prisma.sql`r."sessionId" = ${sessionId}`);
+    if (activityId) rbacConditions.push(Prisma.sql`r."activityId" = ${activityId}`);
+    if (sessionId) rbacConditions.push(Prisma.sql`r."sessionId" = ${sessionId}`);
 
     let reporterIds: number[] = [];
     if (workerId) {
@@ -159,123 +216,88 @@ export class AnalystService {
     }
 
     if (reporterIds.length > 0) {
-      conditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(reporterIds)})`);
+      rbacConditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(reporterIds)})`);
     }
 
-    const totalBeneficiaries = await this.prisma.beneficiary.count({
-      where: { projectId: { in: targetProjectIds } }
-    });
+    if (state && state !== 'ALL') {
+      rbacConditions.push(Prisma.sql`LOWER(b.state) = LOWER(${state})`);
+    }
+    if (district && district !== 'ALL') {
+      rbacConditions.push(Prisma.sql`LOWER(b.district) = LOWER(${district})`);
+    }
+    if (block && block !== 'ALL') {
+      rbacConditions.push(Prisma.sql`LOWER(b.block) = LOWER(${block})`);
+    }
+    if (awc && awc !== 'ALL') {
+      rbacConditions.push(Prisma.sql`LOWER(a."awcName") = LOWER(${awc})`);
+    }
 
-    const assignedProjects = await this.prisma.project.count({
-      where: { id: { in: targetProjectIds } }
-    });
+    if (year && year !== 'ALL') {
+      rbacConditions.push(Prisma.sql`EXTRACT(YEAR FROM r.date) = ${Number(year)}`);
+    }
+    if (month && month !== 'ALL') {
+      const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+      const mIdx = months.indexOf(month.toLowerCase()) + 1;
+      if (mIdx > 0) {
+        rbacConditions.push(Prisma.sql`EXTRACT(MONTH FROM r.date) = ${mIdx}`);
+      }
+    }
 
-    const whereClause = Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`;
+    const rbacWhereClause = Prisma.sql`WHERE ${Prisma.join(rbacConditions, ' AND ')}`;
 
-    const statsRaw: any[] = await this.prisma.$queryRaw`
+    const countExpr = unique 
+      ? Prisma.raw(`COUNT(DISTINCT COALESCE(r."childId"::text, 'ben_' || r."beneficiaryId"::text))`) 
+      : Prisma.raw(`COUNT(*)`);
+
+    const countBenExpr = unique
+      ? Prisma.raw(`COUNT(DISTINCT r."beneficiaryId")`)
+      : Prisma.raw(`COUNT(*)`);
+
+    const countChildExpr = unique
+      ? Prisma.raw(`COUNT(DISTINCT r."childId")`)
+      : Prisma.raw(`COUNT(*)`);
+
+    const totalReportsRaw: any[] = await this.prisma.$queryRaw`
       WITH ReportData AS (
         SELECT 
           r.id,
-          r."childId" AS "childId",
+          r."beneficiaryId",
+          r."childId",
+          r.date,
           r."reportData",
           COALESCE(c.gender, b.gender) AS gender,
           b."maritalStatus",
-          b."typeof",
           EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
-          (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
-          EXISTS (
-            SELECT 1 FROM "GroupMember" gm
-            INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-            WHERE gm."beneficiaryId" = b.id AND bg.name = 'Pregnant Women'
-          ) AS "isPregnantGroup",
-          EXISTS (
-            SELECT 1 FROM "GroupMember" gm
-            INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-            WHERE gm."beneficiaryId" = b.id AND bg.name = 'Lactating Women'
-          ) AS "isLactatingGroup",
-          (
-            EXISTS (
-              SELECT 1 FROM "ChildGroupMember" cgm
-              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-              WHERE cgm."childId" = c.id AND bg.name = 'SAM Children [0-5 Years]'
-            ) OR EXISTS (
-              SELECT 1 FROM "GroupMember" gm
-              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-              WHERE gm."beneficiaryId" = b.id AND bg.name = 'SAM Children [0-5 Years]'
-            )
-          ) AS "isSamGroup",
-          (
-            EXISTS (
-              SELECT 1 FROM "ChildGroupMember" cgm
-              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-              WHERE cgm."childId" = c.id AND bg.name = 'MAM Children [0-5 Years]'
-            ) OR EXISTS (
-              SELECT 1 FROM "GroupMember" gm
-              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-              WHERE gm."beneficiaryId" = b.id AND bg.name = 'MAM Children [0-5 Years]'
-            )
-          ) AS "isMamGroup",
-          (
-            EXISTS (
-              SELECT 1 FROM "GroupMember" gm
-              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-              WHERE gm."beneficiaryId" = b.id AND bg.name = 'Adolescent Girls'
-            ) OR EXISTS (
-              SELECT 1 FROM "ChildGroupMember" cgm
-              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-              WHERE cgm."childId" = c.id AND bg.name = 'Adolescent Girls'
-            )
-          ) AS "isAdolescentGirlsGroup"
+          (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months
         FROM "ActivityReport" r
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
         LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
-        ${whereClause}
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        ${rbacWhereClause}
       )
       SELECT 
         COUNT(*) AS "totalReports",
-        COUNT(*) FILTER (WHERE "isPregnantGroup" = true AND "childId" IS NULL) AS "activePregnantWomen",
-        COUNT(*) FILTER (WHERE "isLactatingGroup" = true AND "childId" IS NULL) AS "activeLactatingMothers",
-        COUNT(*) FILTER (WHERE "isSamGroup" = true) AS "activeSamChildren",
-        COUNT(*) FILTER (WHERE "isMamGroup" = true) AS "activeMamChildren",
-        COUNT(*) FILTER (WHERE "isAdolescentGirlsGroup" = true) AS "adolescentGirls",
-        COUNT(*) FILTER (WHERE age_months <= 6) AS "infantsEbfPromotion",
-        COUNT(*) FILTER (WHERE age_months > 6 AND age_years < 2) AS "infantsCfPromotion",
-        COUNT(*) FILTER (
-          WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
-          AND (
-            CASE
-              WHEN "reportData"->>'edd' ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN to_date("reportData"->>'edd', 'DD/MM/YYYY')
-              WHEN "reportData"->>'edd' ~ '^[0-9]{8}$' THEN to_date("reportData"->>'edd', 'DDMMYYYY')
-              ELSE NULL
-            END
-          ) BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
-          AND "childId" IS NULL
-        ) AS "womenDueForDelivery30Days",
-        COUNT(*) FILTER (WHERE age_years > 19) AS "adults",
-        COUNT(*) FILTER (WHERE age_years BETWEEN 10 AND 19) AS "adolescents",
-        COUNT(*) FILTER (WHERE age_years < 6) AS "childrenUnder5",
-        COUNT(*) FILTER (WHERE age_years >= 6 AND age_years < 10) AS "children6To10",
-        COUNT(*) FILTER (WHERE "isPregnantGroup" = true AND "childId" IS NULL) AS "pregnantWomen",
-        COUNT(*) FILTER (WHERE "isLactatingGroup" = true AND "childId" IS NULL) AS "lactatingWomen",
-        COUNT(*) FILTER (WHERE "isMamGroup" = true AND age_years <= 5) AS "mam0to5",
-        COUNT(*) FILTER (WHERE "isSamGroup" = true AND age_years <= 5) AS "sam0to5",
-        COUNT(*) FILTER (
+        ${countBenExpr} FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL) AS "pregnantWomen",
+        ${countBenExpr} FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "lactatingWomen",
+        ${countChildExpr} FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
+        ${countChildExpr} FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
+        ${countExpr} FILTER (
           WHERE LOWER(TRIM(gender)) = 'female' 
           AND "maritalStatus" = 'Married' 
           AND age_years BETWEEN 15 AND 24 
           AND "childId" IS NULL
           AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
         ) AS "youngMarriedWomen",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Girls",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Boys",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Girls",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Boys",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
-        COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
-        COUNT(*) FILTER (WHERE LOWER(TRIM("typeof")) = 'stakeholder') AS "stakeholders",
-        COUNT(*) FILTER (WHERE age_years < 1) AS "infantsLessThan1",
-        COUNT(*) FILTER (WHERE age_years >= 1 AND age_years < 3) AS "toddlers1To3",
-        COUNT(*) FILTER (
+        ${countExpr} FILTER (WHERE age_years < 1) AS "infantsLessThan1",
+        ${countExpr} FILTER (WHERE age_years >= 1 AND age_years < 3) AS "toddlers1To3",
+        ${countExpr} FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Girls",
+        ${countExpr} FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Boys",
+        ${countExpr} FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Girls",
+        ${countExpr} FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Boys",
+        ${countExpr} FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
+        ${countExpr} FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
+        ${countExpr} FILTER (LOWER(TRIM("typeof")) = 'stakeholder') AS "stakeholders",
+        ${countExpr} FILTER (
           WHERE NOT (("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered') AND "childId" IS NULL)
           OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
           OR (
@@ -297,7 +319,7 @@ export class AnalystService {
       FROM ReportData;
     `;
 
-    const row = statsRaw[0] || {};
+    const row = totalReportsRaw[0] || {};
     const toNumber = (val: any) => val ? Number(val) : 0;
 
     return {
@@ -306,20 +328,14 @@ export class AnalystService {
       assignedLocations: 0,
       totalReports: toNumber(row.totalReports),
       outreachActions: {
-        activePregnantWomen: toNumber(row.activePregnantWomen),
-        activeLactatingMothers: toNumber(row.activeLactatingMothers),
-        activeSamChildren: toNumber(row.activeSamChildren),
-        activeMamChildren: toNumber(row.activeMamChildren),
-        adolescentGirls: toNumber(row.adolescentGirls),
-        infantsEbfPromotion: toNumber(row.infantsEbfPromotion),
-        infantsCfPromotion: toNumber(row.infantsCfPromotion),
-        womenDueForDelivery30Days: toNumber(row.womenDueForDelivery30Days)
-      },
-      episodesOfCare: {
-        adults: toNumber(row.adults),
-        adolescents: toNumber(row.adolescents),
-        childrenUnder5: toNumber(row.childrenUnder5),
-        children6To10: toNumber(row.children6To10)
+        activePregnantWomen: toNumber(activePregnantWomen),
+        activeLactatingMothers: toNumber(activeLactatingMothers),
+        activeSamChildren: toNumber(activeSamChildren),
+        activeMamChildren: toNumber(activeMamChildren),
+        adolescentGirls: toNumber(adolescentGirls),
+        infantsEbfPromotion: toNumber(infantsEbfPromotion),
+        infantsCfPromotion: toNumber(infantsCfPromotion),
+        womenDueForDelivery30Days: toNumber(womenDueForDelivery30Days)
       },
       activities: [
         { label: 'YOUNG MARRIED WOMEN', count: toNumber(row.youngMarriedWomen), countColor: 'text-gray-900' },
@@ -334,30 +350,172 @@ export class AnalystService {
         { label: 'ADOLESCENT BOYS', count: toNumber(row.adolescentBoys), countColor: 'text-gray-900' },
         { label: 'SAM (0-5)', count: toNumber(row.sam0to5), countColor: 'text-red-600' },
         { label: 'CHILDREN ABOVE 6 (6-9 YEARS) - BOYS', count: toNumber(row.childrenAbove6Boys), countColor: 'text-green-600' },
-        { label: 'INFANT', count: toNumber(row.infantsLessThan1), countColor: 'text-gray-900' },
-        { label: 'TODDLER', count: toNumber(row.toddlers1To3), countColor: 'text-gray-900' },
         { label: 'OTHER BENEFICIARIES', count: toNumber(row.otherBeneficiaries), countColor: 'text-gray-900' },
       ]
     };
   }
 
-  async getActionDetails(
+  async getOutreachDynamicsDetails(userId: number, groupName: string) {
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: { userId },
+      select: { projectId: true },
+    });
+
+    if (!assignments.length) return [];
+
+    const projectIds = [...new Set(assignments.map(a => a.projectId))];
+    const gName = (groupName || '').trim().toUpperCase();
+
+    let rawRecords: any[] = [];
+
+    if (['CURRENTLY ACTIVE PREGNANT WOMEN', 'PREGNANT WOMEN'].includes(gName)) {
+      rawRecords = await this.prisma.$queryRaw`
+        SELECT b.uid AS id, b.name, 'Pregnant Women' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
+               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
+        FROM "Beneficiary" b
+        INNER JOIN "GroupMember" gm ON gm."beneficiaryId" = b.id
+        INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE b."projectId" IN (${Prisma.join(projectIds)}) AND bg.name = 'Pregnant Women';
+      `;
+    } else if (['CURRENTLY ACTIVE LACTATING MOTHERS', 'LACTATING WOMEN'].includes(gName)) {
+      rawRecords = await this.prisma.$queryRaw`
+        SELECT b.uid AS id, b.name, 'Lactating Women' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
+               (
+                 SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
+                 FROM "BeneficiaryChild" c_sub
+                 WHERE c_sub."beneficiaryId" = b.id
+               ) AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
+        FROM "Beneficiary" b
+        INNER JOIN "GroupMember" gm ON gm."beneficiaryId" = b.id
+        INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE b."projectId" IN (${Prisma.join(projectIds)}) AND bg.name = 'Lactating Women';
+      `;
+    } else if (['CURRENTLY ACTIVE SAM CHILDREN', 'SAM (0-5)'].includes(gName)) {
+      rawRecords = await this.prisma.$queryRaw`
+        SELECT c.uid AS id, c.name, 'SAM Children [0-5 Years]' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
+               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
+        FROM "BeneficiaryChild" c
+        INNER JOIN "ChildGroupMember" cgm ON cgm."childId" = c.id
+        INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+        INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE b."projectId" IN (${Prisma.join(projectIds)}) AND bg.name = 'SAM Children [0-5 Years]';
+      `;
+    } else if (['CURRENTLY ACTIVE MAM CHILDREN', 'MAM (0-5)'].includes(gName)) {
+      rawRecords = await this.prisma.$queryRaw`
+        SELECT c.uid AS id, c.name, 'MAM Children [0-5 Years]' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
+               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
+        FROM "BeneficiaryChild" c
+        INNER JOIN "ChildGroupMember" cgm ON cgm."childId" = c.id
+        INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+        INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE b."projectId" IN (${Prisma.join(projectIds)}) AND bg.name = 'MAM Children [0-5 Years]';
+      `;
+    } else if (['ADOLESCENT GIRLS'].includes(gName)) {
+      rawRecords = await this.prisma.$queryRaw`
+        SELECT b.uid AS id, b.name, 'Adolescent Girls' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
+               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
+        FROM "Beneficiary" b
+        INNER JOIN "GroupMember" gm ON gm."beneficiaryId" = b.id
+        INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE b."projectId" IN (${Prisma.join(projectIds)}) AND bg.name = 'Adolescent Girls';
+      `;
+    } else if (['INFANTS FOR EBF PROMOTION (<= 6M)'].includes(gName)) {
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      rawRecords = await this.prisma.$queryRaw`
+        SELECT c.uid AS id, c.name, 'Infants for EBF' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
+               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
+        FROM "BeneficiaryChild" c
+        INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE b."projectId" IN (${Prisma.join(projectIds)}) AND c."dateOfBirth" >= ${sixMonthsAgo};
+      `;
+    } else if (['INFANTS FOR CF PROMOTION(2YEAR<CHILD AGE<6MONTHS)'].includes(gName)) {
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      const twoYearsAgo = new Date();
+      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+      rawRecords = await this.prisma.$queryRaw`
+        SELECT c.uid AS id, c.name, 'Infants for CF' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
+               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
+        FROM "BeneficiaryChild" c
+        INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE b."projectId" IN (${Prisma.join(projectIds)}) AND c."dateOfBirth" >= ${twoYearsAgo} AND c."dateOfBirth" < ${sixMonthsAgo};
+      `;
+    } else if (['WOMEN DUE FOR DELIVERY IN NEXT 30 DAYS'].includes(gName)) {
+      rawRecords = await this.prisma.$queryRaw`
+        WITH LatestReports AS (
+          SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", date
+          FROM "ActivityReport" r
+          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+          WHERE b."projectId" IN (${Prisma.join(projectIds)})
+          ORDER BY "beneficiaryId", date DESC
+        )
+        SELECT b.uid AS id, b.name, 'Due for Delivery' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
+               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
+        FROM "Beneficiary" b
+        INNER JOIN LatestReports lr ON b.id = lr."beneficiaryId"
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE lr."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
+          AND (
+            CASE
+              WHEN lr."reportData"->>'edd' ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN to_date(lr."reportData"->>'edd', 'DD/MM/YYYY')
+              WHEN lr."reportData"->>'edd' ~ '^[0-9]{8}$' THEN to_date(lr."reportData"->>'edd', 'DDMMYYYY')
+              ELSE NULL
+            END
+          ) BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days';
+      `;
+    }
+
+    return rawRecords.map(record => ({
+      id: record.id,
+      name: record.name,
+      group: record.group,
+      awc: record.awc,
+      activity: record.activity,
+      session: record.session,
+      reportingDate: record.reportingDate,
+      age: record.age,
+      childNameAndAge: record.childNameAndAge || 'N/A'
+    }));
+  }
+
+  async getActivityDemographicsDetails(
     userId: number,
     groupName: string,
     activityId?: number,
     sessionId?: number,
     adminId?: number,
     managerId?: number,
-    workerId?: number
+    workerId?: number,
+    year?: string,
+    month?: string,
+    state?: string,
+    district?: string,
+    block?: string,
+    awc?: string,
+    unique?: boolean,
   ) {
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId },
       select: { projectId: true },
     });
 
-    if (!assignments.length) {
-      return [];
-    }
+    if (!assignments.length) return [];
 
     const projectIds = [...new Set(assignments.map(a => a.projectId))];
 
@@ -407,51 +565,56 @@ export class AnalystService {
       rbacConditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(reporterIds)})`);
     }
 
+    if (state && state !== 'ALL') {
+      rbacConditions.push(Prisma.sql`LOWER(b.state) = LOWER(${state})`);
+    }
+    if (district && district !== 'ALL') {
+      rbacConditions.push(Prisma.sql`LOWER(b.district) = LOWER(${district})`);
+    }
+    if (block && block !== 'ALL') {
+      rbacConditions.push(Prisma.sql`LOWER(b.block) = LOWER(${block})`);
+    }
+    if (awc && awc !== 'ALL') {
+      rbacConditions.push(Prisma.sql`LOWER(a."awcName") = LOWER(${awc})`);
+    }
+
+    if (year && year !== 'ALL') {
+      rbacConditions.push(Prisma.sql`EXTRACT(YEAR FROM r.date) = ${Number(year)}`);
+    }
+    if (month && month !== 'ALL') {
+      const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+      const mIdx = months.indexOf(month.toLowerCase()) + 1;
+      if (mIdx > 0) {
+        rbacConditions.push(Prisma.sql`EXTRACT(MONTH FROM r.date) = ${mIdx}`);
+      }
+    }
+
     let groupCondition: Prisma.Sql;
     const gName = (groupName || '').trim().toUpperCase();
 
     switch (gName) {
       case 'CURRENTLY ACTIVE PREGNANT WOMEN':
       case 'PREGNANT WOMEN':
-        groupCondition = Prisma.sql`"isPregnantGroup" = true AND "childIntId" IS NULL`;
+        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childIntId" IS NULL`;
         break;
       case 'CURRENTLY ACTIVE LACTATING MOTHERS':
       case 'LACTATING WOMEN':
-        groupCondition = Prisma.sql`"isLactatingGroup" = true AND "childIntId" IS NULL`;
+        groupCondition = Prisma.sql`"reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childIntId" IS NULL`;
         break;
       case 'CURRENTLY ACTIVE SAM CHILDREN':
-        groupCondition = Prisma.sql`"isSamGroup" = true`;
+        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM'`;
         break;
       case 'SAM (0-5)':
-        groupCondition = Prisma.sql`"isSamGroup" = true AND age_years <= 5`;
+        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5`;
         break;
       case 'CURRENTLY ACTIVE MAM CHILDREN':
-        groupCondition = Prisma.sql`"isMamGroup" = true`;
+        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'MAM'`;
         break;
       case 'MAM (0-5)':
-        groupCondition = Prisma.sql`"isMamGroup" = true AND age_years <= 5`;
+        groupCondition = Prisma.sql`"reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5`;
         break;
       case 'ADOLESCENT GIRLS':
-        groupCondition = Prisma.sql`"isAdolescentGirlsGroup" = true`;
-        break;
-      case 'INFANTS FOR EBF PROMOTION (<= 6M)':
-        groupCondition = Prisma.sql`age_months <= 6`;
-        break;
-      case 'INFANTS FOR CF PROMOTION(2YEAR<CHILD AGE<6MONTHS)':
-        groupCondition = Prisma.sql`age_months > 6 AND age_years < 2`;
-        break;
-      case 'WOMEN DUE FOR DELIVERY IN NEXT 30 DAYS':
-        groupCondition = Prisma.sql`
-          "reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
-          AND (
-            CASE
-              WHEN "reportData"->>'edd' ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN to_date("reportData"->>'edd', 'DD/MM/YYYY')
-              WHEN "reportData"->>'edd' ~ '^[0-9]{8}$' THEN to_date("reportData"->>'edd', 'DDMMYYYY')
-              ELSE NULL
-            END
-          ) BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days' 
-          AND "childIntId" IS NULL
-        `;
+        groupCondition = Prisma.sql`LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19`;
         break;
       case 'YOUNG MARRIED WOMEN':
         groupCondition = Prisma.sql`
@@ -514,111 +677,137 @@ export class AnalystService {
 
     const rbacWhereClause = Prisma.sql`WHERE ${Prisma.join(rbacConditions, ' AND ')}`;
 
-    const rawRecords: any[] = await this.prisma.$queryRaw`
-      WITH ReportData AS (
+    let rawRecords: any[] = [];
+    if (unique) {
+      rawRecords = await this.prisma.$queryRaw`
+        WITH ReportData AS (
+          SELECT 
+            r.id AS "reportId",
+            r."beneficiaryId" AS "benIntId",
+            r."childId" AS "childIntId",
+            r.date AS "reportingDate",
+            COALESCE(c.uid, b.uid) AS "beneficiaryId",
+            COALESCE(c.name, b.name) AS "beneficiaryName",
+            b."typeof",
+            a."awcName" AS awc,
+            act.name AS activity,
+            sess.name AS session,
+            r."reportData",
+            COALESCE(c.gender, b.gender) AS gender,
+            b."maritalStatus",
+            EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
+            (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
+            (
+              SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(r.date, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
+              FROM "BeneficiaryChild" c_sub
+              WHERE c_sub."beneficiaryId" = b.id
+            ) AS "childNameAndAge",
+            CASE 
+              WHEN r."childId" IS NOT NULL THEN (
+                SELECT STRING_AGG(bg.name, ', ')
+                FROM "ChildGroupMember" cgm
+                INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+                WHERE cgm."childId" = c.id
+              )
+              ELSE (
+                SELECT STRING_AGG(bg.name, ', ')
+                FROM "GroupMember" gm
+                INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+                WHERE gm."beneficiaryId" = b.id
+              )
+            END AS "actualGroups"
+          FROM "ActivityReport" r
+          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+          LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
+          LEFT JOIN "Awc" a ON b."awcId" = a.id
+          LEFT JOIN "Activity" act ON r."activityId" = act.id
+          LEFT JOIN "Session" sess ON r."sessionId" = sess.id
+          ${rbacWhereClause}
+        ),
+        FilteredReportData AS (
+          SELECT * FROM ReportData
+          WHERE ${groupCondition}
+        )
+        SELECT DISTINCT ON (COALESCE("childIntId", "benIntId"))
+          "reportId",
+          "beneficiaryId" AS id,
+          "beneficiaryName" AS name,
+          COALESCE("actualGroups", 'N/A') AS group,
+          COALESCE(awc, 'N/A') AS awc,
+          COALESCE(activity, 'N/A') AS activity,
+          COALESCE(session, 'N/A') AS session,
+          "reportingDate",
+          age_years,
+          age_months,
+          "childNameAndAge"
+        FROM FilteredReportData
+        ORDER BY COALESCE("childIntId", "benIntId"), "reportingDate" DESC
+        LIMIT 100;
+      `;
+    } else {
+      rawRecords = await this.prisma.$queryRaw`
+        WITH ReportData AS (
+          SELECT 
+            r.id AS "reportId",
+            r."beneficiaryId" AS "benIntId",
+            r."childId" AS "childIntId",
+            r.date AS "reportingDate",
+            COALESCE(c.uid, b.uid) AS "beneficiaryId",
+            COALESCE(c.name, b.name) AS "beneficiaryName",
+            b."typeof",
+            a."awcName" AS awc,
+            act.name AS activity,
+            sess.name AS session,
+            r."reportData",
+            COALESCE(c.gender, b.gender) AS gender,
+            b."maritalStatus",
+            EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
+            (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
+            (
+              SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(r.date, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
+              FROM "BeneficiaryChild" c_sub
+              WHERE c_sub."beneficiaryId" = b.id
+            ) AS "childNameAndAge",
+            CASE 
+              WHEN r."childId" IS NOT NULL THEN (
+                SELECT STRING_AGG(bg.name, ', ')
+                FROM "ChildGroupMember" cgm
+                INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
+                WHERE cgm."childId" = c.id
+              )
+              ELSE (
+                SELECT STRING_AGG(bg.name, ', ')
+                FROM "GroupMember" gm
+                INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+                WHERE gm."beneficiaryId" = b.id
+              )
+            END AS "actualGroups"
+          FROM "ActivityReport" r
+          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+          LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
+          LEFT JOIN "Awc" a ON b."awcId" = a.id
+          LEFT JOIN "Activity" act ON r."activityId" = act.id
+          LEFT JOIN "Session" sess ON r."sessionId" = sess.id
+          ${rbacWhereClause}
+        )
         SELECT 
-          r.id AS "reportId",
-          r."beneficiaryId" AS "benIntId",
-          r."childId" AS "childIntId",
-          r.date AS "reportingDate",
-          COALESCE(c.uid, b.uid) AS "beneficiaryId",
-          COALESCE(c.name, b.name) AS "beneficiaryName",
-          b."typeof",
-          a."awcName" AS awc,
-          act.name AS activity,
-          sess.name AS session,
-          r."reportData",
-          COALESCE(c.gender, b.gender) AS gender,
-          b."maritalStatus",
-          EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
-          (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
-          EXISTS (
-            SELECT 1 FROM "GroupMember" gm
-            INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-            WHERE gm."beneficiaryId" = b.id AND bg.name = 'Pregnant Women'
-          ) AS "isPregnantGroup",
-          EXISTS (
-            SELECT 1 FROM "GroupMember" gm
-            INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-            WHERE gm."beneficiaryId" = b.id AND bg.name = 'Lactating Women'
-          ) AS "isLactatingGroup",
-          (
-            EXISTS (
-              SELECT 1 FROM "ChildGroupMember" cgm
-              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-              WHERE cgm."childId" = c.id AND bg.name = 'SAM Children [0-5 Years]'
-            ) OR EXISTS (
-              SELECT 1 FROM "GroupMember" gm
-              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-              WHERE gm."beneficiaryId" = b.id AND bg.name = 'SAM Children [0-5 Years]'
-            )
-          ) AS "isSamGroup",
-          (
-            EXISTS (
-              SELECT 1 FROM "ChildGroupMember" cgm
-              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-              WHERE cgm."childId" = c.id AND bg.name = 'MAM Children [0-5 Years]'
-            ) OR EXISTS (
-              SELECT 1 FROM "GroupMember" gm
-              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-              WHERE gm."beneficiaryId" = b.id AND bg.name = 'MAM Children [0-5 Years]'
-            )
-          ) AS "isMamGroup",
-          (
-            EXISTS (
-              SELECT 1 FROM "GroupMember" gm
-              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-              WHERE gm."beneficiaryId" = b.id AND bg.name = 'Adolescent Girls'
-            ) OR EXISTS (
-              SELECT 1 FROM "ChildGroupMember" cgm
-              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-              WHERE cgm."childId" = c.id AND bg.name = 'Adolescent Girls'
-            )
-          ) AS "isAdolescentGirlsGroup",
-          (
-            SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(r.date, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
-            FROM "BeneficiaryChild" c_sub
-            WHERE c_sub."beneficiaryId" = b.id
-          ) AS "childNameAndAge",
-          CASE 
-            WHEN r."childId" IS NOT NULL THEN (
-              SELECT STRING_AGG(bg.name, ', ')
-              FROM "ChildGroupMember" cgm
-              INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-              WHERE cgm."childId" = c.id
-            )
-            ELSE (
-              SELECT STRING_AGG(bg.name, ', ')
-              FROM "GroupMember" gm
-              INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-              WHERE gm."beneficiaryId" = b.id
-            )
-          END AS "actualGroups"
-        FROM "ActivityReport" r
-        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-        LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        LEFT JOIN "Activity" act ON r."activityId" = act.id
-        LEFT JOIN "Session" sess ON r."sessionId" = sess.id
-        ${rbacWhereClause}
-      )
-      SELECT 
-        "reportId",
-        "beneficiaryId" AS id,
-        "beneficiaryName" AS name,
-        COALESCE("actualGroups", 'N/A') AS group,
-        COALESCE(awc, 'N/A') AS awc,
-        COALESCE(activity, 'N/A') AS activity,
-        COALESCE(session, 'N/A') AS session,
-        "reportingDate",
-        age_years,
-        age_months,
-        "childNameAndAge"
-      FROM ReportData
-      WHERE ${groupCondition}
-      ORDER BY "reportingDate" DESC
-      LIMIT 100;
-    `;
+          "reportId",
+          "beneficiaryId" AS id,
+          "beneficiaryName" AS name,
+          COALESCE("actualGroups", 'N/A') AS group,
+          COALESCE(awc, 'N/A') AS awc,
+          COALESCE(activity, 'N/A') AS activity,
+          COALESCE(session, 'N/A') AS session,
+          "reportingDate",
+          age_years,
+          age_months,
+          "childNameAndAge"
+        FROM ReportData
+        WHERE ${groupCondition}
+        ORDER BY "reportingDate" DESC
+        LIMIT 100;
+      `;
+    }
 
     return rawRecords.map(record => {
       let ageStr = 'N/A';
@@ -678,23 +867,23 @@ export class AnalystService {
         roles: {
           select: {
             role: {
-              select: { name: true }
+              select: {
+                name: true
+              }
             }
           }
         }
-      },
-      orderBy: { name: 'asc' }
+      }
     });
 
     const admins: any[] = [];
     const managers: any[] = [];
     const workers: any[] = [];
 
-    users.forEach((u) => {
-      const rolesList = u.roles.map(r => r.role.name);
-      const isOutreach = rolesList.includes('OUTREACH');
-      const isManager = rolesList.includes('MANAGER');
-      const isAdmin = rolesList.includes('ADMIN');
+    users.forEach(u => {
+      const isOutreach = u.roles.some(ur => ur.role.name === 'OUTREACH');
+      const isManager = u.roles.some(ur => ur.role.name === 'MANAGER');
+      const isAdmin = u.roles.some(ur => ur.role.name === 'ADMIN');
 
       const mappedUser = {
         id: u.id,
@@ -731,21 +920,13 @@ export class AnalystService {
       });
       finalAssignedStates = projectStates.map(ps => ps.state);
     } else {
-      finalAssignedStates = assignments.map(a => a.state).filter(Boolean);
-    }
-
-    const finalAssignedStateIds = finalAssignedStates.map(s => s.id);
-
-    const where: any = {
-      projectId,
-    };
-
-    if (!hasFullProjectAccess && finalAssignedStateIds.length > 0) {
-      where.stateId = { in: finalAssignedStateIds };
+      finalAssignedStates = await this.prisma.state.findMany({
+        where: { id: { in: assignedStateIds } }
+      });
     }
 
     const awcs = await this.prisma.awc.findMany({
-      where,
+      where: { projectId },
       include: {
         state: true,
         district: true,
@@ -779,111 +960,122 @@ export class AnalystService {
     }
 
     const where: any = {
-      projectId: { in: targetProjectIds }
+      projectId: { in: targetProjectIds },
     };
 
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
         { uid: { contains: search, mode: 'insensitive' } },
-        { mobileNumber: { contains: search, mode: 'insensitive' } },
-        { block: { contains: search, mode: 'insensitive' } },
-        { village: { contains: search, mode: 'insensitive' } },
-        { state: { contains: search, mode: 'insensitive' } },
-        { district: { contains: search, mode: 'insensitive' } },
       ];
     }
 
     return this.prisma.beneficiary.findMany({
       where,
+      orderBy: { name: 'asc' },
       include: {
-        project: true,
         awc: {
           include: {
             state: true,
             district: true,
             block: true,
-            village: true
-          }
+            village: true,
+          },
         },
-        children: {
-          include: {
-            childGroups: {
-              include: { group: true }
-            }
-          }
-        },
-        groups: { include: { group: true } },
-        activities: { include: { activity: true, session: true } }
       },
-      orderBy: { name: 'asc' }
     });
   }
 
-  async getBeneficiary(id: number) {
-    const ben = await this.prisma.beneficiary.findUnique({
-      where: { id },
-      include: {
-        project: true,
-        awc: true,
-        children: {
-          include: {
-            childGroups: {
-              include: { group: true }
-            }
-          }
-        },
-        groups: { include: { group: true } },
-        activities: { include: { activity: true, session: true } }
-      }
-    });
-
-    if (!ben) throw new NotFoundException('Beneficiary not found');
-    return ben;
-  }
-
-  async getFamilyMembers(id: number) {
-    return this.prisma.beneficiaryChild.findMany({
-      where: { beneficiaryId: id },
-      include: {
-        childGroups: {
-          include: { group: true }
-        }
-      }
-    });
-  }
-
-  async getReportsByBeneficiary(id: number, userId: number) {
+  async getBeneficiary(id: number, userId: number) {
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId },
       select: { projectId: true },
     });
 
-    const projectIds = [...new Set(assignments.map(a => a.projectId))];
-    const ben = await this.prisma.beneficiary.findUnique({
-      where: { id },
-      select: { projectId: true }
-    });
-
-    if (!ben || !projectIds.includes(ben.projectId)) {
-      throw new ForbiddenException('Access denied or beneficiary not found');
+    if (!assignments.length) {
+      throw new ForbiddenException('You do not have access to this project');
     }
 
-    return this.prisma.activityReport.findMany({
-      where: { beneficiaryId: id },
-      include: {
-        activity: { select: { name: true } },
-        session: { select: { name: true } },
-        child: {
-          select: {
-            name: true,
-            uid: true,
-            dateOfBirth: true,
-            gender: true
-          }
-        }
+    const projectIds = [...new Set(assignments.map(a => a.projectId))];
+
+    const beneficiary = await this.prisma.beneficiary.findFirst({
+      where: {
+        id,
+        projectId: { in: projectIds },
       },
-      orderBy: { date: 'desc' }
+      include: {
+        awc: {
+          include: {
+            state: true,
+            district: true,
+            block: true,
+            village: true,
+          },
+        },
+        children: true,
+      },
     });
+
+    if (!beneficiary) {
+      throw new NotFoundException('Beneficiary not found');
+    }
+
+    return beneficiary;
+  }
+
+  async getFamilyMembers(beneficiaryId: number, userId: number) {
+    const beneficiary = await this.getBeneficiary(beneficiaryId, userId);
+    return beneficiary.children || [];
+  }
+
+  async getReportsByBeneficiary(beneficiaryId: number, userId: number) {
+    // Check access first
+    await this.getBeneficiary(beneficiaryId, userId);
+
+    return this.prisma.activityReport.findMany({
+      where: { beneficiaryId },
+      orderBy: { date: 'desc' },
+      include: {
+        activity: true,
+        session: true,
+        child: true,
+        reportedBy: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+  }
+
+  async getAssignedProjects(userId: number) {
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: { userId },
+      include: {
+        project: true
+      }
+    });
+    return [...new Map(assignments.map(a => [a.projectId, a.project])).values()].filter(Boolean);
+  }
+
+  async getProjectAssignments(projectId: number) {
+    const projectStates = await this.prisma.projectState.findMany({
+      where: { projectId },
+      include: { state: true }
+    });
+    const awcs = await this.prisma.awc.findMany({
+      where: { projectId },
+      include: {
+        state: true,
+        district: true,
+        block: true,
+        village: true
+      }
+    });
+    return {
+      states: projectStates.map(ps => ps.state),
+      awcs: awcs
+    };
   }
 }

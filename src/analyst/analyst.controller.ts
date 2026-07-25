@@ -31,6 +31,13 @@ export class AnalystController {
     @Query('adminId') adminId?: string,
     @Query('managerId') managerId?: string,
     @Query('workerId') workerId?: string,
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+    @Query('state') state?: string,
+    @Query('district') district?: string,
+    @Query('block') block?: string,
+    @Query('awc') awc?: string,
+    @Query('unique') unique?: string,
   ) {
     return this.analystService.getDashboardStats(
       req.user.userId,
@@ -40,6 +47,24 @@ export class AnalystController {
       adminId ? +adminId : undefined,
       managerId ? +managerId : undefined,
       workerId ? +workerId : undefined,
+      year,
+      month,
+      state,
+      district,
+      block,
+      awc,
+      unique === 'true',
+    );
+  }
+
+  @Get('dashboard/outreach-dynamics-details')
+  getOutreachDynamicsDetails(
+    @Req() req,
+    @Query('group') group: string,
+  ) {
+    return this.analystService.getOutreachDynamicsDetails(
+      req.user.userId,
+      group,
     );
   }
 
@@ -52,8 +77,15 @@ export class AnalystController {
     @Query('adminId') adminId?: string,
     @Query('managerId') managerId?: string,
     @Query('workerId') workerId?: string,
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+    @Query('state') state?: string,
+    @Query('district') district?: string,
+    @Query('block') block?: string,
+    @Query('awc') awc?: string,
+    @Query('unique') unique?: string,
   ) {
-    return this.analystService.getActionDetails(
+    return this.analystService.getActivityDemographicsDetails(
       req.user.userId,
       group,
       activityId ? +activityId : undefined,
@@ -61,6 +93,13 @@ export class AnalystController {
       adminId ? +adminId : undefined,
       managerId ? +managerId : undefined,
       workerId ? +workerId : undefined,
+      year,
+      month,
+      state,
+      district,
+      block,
+      awc,
+      unique === 'true',
     );
   }
 
@@ -98,13 +137,13 @@ export class AnalystController {
   }
 
   @Get('beneficiary/:id')
-  getBeneficiary(@Param('id') id: string) {
-    return this.analystService.getBeneficiary(+id);
+  getBeneficiary(@Param('id') id: string, @Req() req) {
+    return this.analystService.getBeneficiary(+id, req.user.userId);
   }
 
   @Get('beneficiary/:id/family-members')
-  getFamilyMembers(@Param('id') id: string) {
-    return this.analystService.getFamilyMembers(+id);
+  getFamilyMembers(@Param('id') id: string, @Req() req) {
+    return this.analystService.getFamilyMembers(+id, req.user.userId);
   }
 
   @Get('beneficiary/:id/reports')
