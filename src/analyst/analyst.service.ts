@@ -508,21 +508,24 @@ export class AnalystService {
           WHERE b."projectId" IN (${projectIdsStr})
           ORDER BY "beneficiaryId", r.date DESC
         )
-        SELECT b.uid AS id, b.name, 'Pregnant Women' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT b.uid AS id, b.id AS "benId", b.name, 'Pregnant Women' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
         FROM "Beneficiary" b
         INNER JOIN LatestReports lr ON b.id = lr."beneficiaryId"
         LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         WHERE lr."childId" IS NULL
           AND lr."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
           AND (lr."reportData"->>'pregnancyOutcome' IS NULL OR lr."reportData"->>'pregnancyOutcome' = 'null' OR lr."reportData"->>'pregnancyOutcome' = '');
       `;
     } else if (clean.includes('LACTATING') || clean.includes('MOTHER')) {
       queryStr = `
-        SELECT DISTINCT id, name, 'Lactating Mothers' AS group, awc, age, "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
+        SELECT DISTINCT id, "benId", name, 'Lactating Mothers' AS group, awc, project, gender, "guardianName", age, "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
         FROM (
-          SELECT b.uid AS id, b.name, COALESCE(a."awcName", 'N/A') AS awc,
+          SELECT b.uid AS id, b.id AS "benId", b.name, COALESCE(a."awcName", 'N/A') AS awc,
+                 p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                  EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
                  (
                    SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
@@ -532,10 +535,12 @@ export class AnalystService {
           FROM "Beneficiary" b
           INNER JOIN "BeneficiaryChild" c ON c."beneficiaryId" = b.id
           LEFT JOIN "Awc" a ON b."awcId" = a.id
+          LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
           WHERE b."projectId" IN (${projectIdsStr})
             AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
           UNION
-          SELECT b.uid AS id, b.name, COALESCE(a."awcName", 'N/A') AS awc,
+          SELECT b.uid AS id, b.id AS "benId", b.name, COALESCE(a."awcName", 'N/A') AS awc,
+                 p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                  EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
                  (
                    SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
@@ -551,6 +556,7 @@ export class AnalystService {
             ORDER BY "beneficiaryId", r.date DESC
           ) lr ON b.id = lr."beneficiaryId"
           LEFT JOIN "Awc" a ON b."awcId" = a.id
+          LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
           WHERE lr."childId" IS NULL
             AND lr."reportData"->>'pregnancyStatus' = 'Baby Delivered'
             AND lr.date >= CURRENT_DATE - INTERVAL '2 years'
@@ -565,13 +571,15 @@ export class AnalystService {
           WHERE b."projectId" IN (${projectIdsStr}) AND r."childId" IS NOT NULL
           ORDER BY "childId", r.date DESC
         )
-        SELECT c.uid AS id, c.name, 'SAM Children [0-5 Years]' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT c.uid AS id, b.id AS "benId", c.name, 'SAM Children [0-5 Years]' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
         FROM LatestReports lr
         INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
         INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         WHERE lr."reportData"->>'samMamStatus' = 'SAM'
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years';
       `;
@@ -584,46 +592,54 @@ export class AnalystService {
           WHERE b."projectId" IN (${projectIdsStr}) AND r."childId" IS NOT NULL
           ORDER BY "childId", r.date DESC
         )
-        SELECT c.uid AS id, c.name, 'MAM Children [0-5 Years]' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT c.uid AS id, b.id AS "benId", c.name, 'MAM Children [0-5 Years]' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
         FROM LatestReports lr
         INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
         INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         WHERE lr."reportData"->>'samMamStatus' = 'MAM'
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years';
       `;
     } else if (clean.includes('ADOLESCENT')) {
       queryStr = `
-        SELECT b.uid AS id, b.name, 'Adolescent Girls' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT b.uid AS id, b.id AS "benId", b.name, 'Adolescent Girls' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
         FROM "Beneficiary" b
         LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         WHERE b."projectId" IN (${projectIdsStr})
           AND LOWER(TRIM(b.gender)) = 'female'
           AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) BETWEEN 10 AND 19;
       `;
     } else if (clean.includes('EBF')) {
       queryStr = `
-        SELECT c.uid AS id, c.name, 'Infants for EBF' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT c.uid AS id, b.id AS "benId", c.name, 'Infants for EBF' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
         FROM "BeneficiaryChild" c
         INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         WHERE b."projectId" IN (${projectIdsStr})
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '6 months';
       `;
     } else if (clean.includes('CF')) {
       queryStr = `
-        SELECT c.uid AS id, c.name, 'Infants for CF' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT c.uid AS id, b.id AS "benId", c.name, 'Infants for CF' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
         FROM "BeneficiaryChild" c
         INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         WHERE b."projectId" IN (${projectIdsStr})
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
           AND c."dateOfBirth" < CURRENT_DATE - INTERVAL '6 months';
@@ -637,12 +653,14 @@ export class AnalystService {
           WHERE b."projectId" IN (${projectIdsStr})
           ORDER BY "beneficiaryId", r.date DESC
         )
-        SELECT b.uid AS id, b.name, 'Due for Delivery' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+        SELECT b.uid AS id, b.id AS "benId", b.name, 'Due for Delivery' AS group, COALESCE(a."awcName", 'N/A') AS awc,
+               p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
                'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, 'N/A' AS "reportingDate"
         FROM "Beneficiary" b
         INNER JOIN LatestReports lr ON b.id = lr."beneficiaryId"
         LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         WHERE lr."childId" IS NULL
           AND lr."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
           AND (
@@ -661,9 +679,13 @@ export class AnalystService {
 
     return rawRecords.map(record => ({
       id: record.id,
+      benId: record.benId ? Number(record.benId) : null,
       name: record.name,
       group: record.group,
       awc: record.awc,
+      project: record.project || 'N/A',
+      gender: record.gender || 'N/A',
+      guardianName: record.guardianName || 'N/A',
       activity: record.activity,
       session: record.session,
       reportingDate: record.reportingDate,
