@@ -524,6 +524,201 @@ export class OutreachService {
     else if (isAdmin || isAnalyst) assignedProjects = await this.prisma.project.count({ where: projWhere });
     else assignedProjects = await this.prisma.userProjectLocation.count({ where: { userId: user.userId } });
 
+    // ----------------------------------------------------
+    // Outreach Dynamics Unique Counts (Analyst Logic Port)
+    // ----------------------------------------------------
+    let targetProjectIds: number[] = [];
+    if (projectId) {
+      targetProjectIds = [projectId];
+    } else {
+      const assignments = await this.prisma.userProjectLocation.findMany({
+        where: { userId: user.userId },
+        select: { projectId: true }
+      });
+      targetProjectIds = [...new Set(assignments.map(a => a.projectId))];
+      if (targetProjectIds.length === 0) {
+        const projects = await this.prisma.project.findMany({ select: { id: true } });
+        targetProjectIds = projects.map(p => p.id);
+      }
+    }
+    const targetProjectIdsStr = targetProjectIds.join(',') || '0';
+
+    let reporterIds: number[] = [];
+    if (isSuperAdmin || isAdmin || isAnalyst) {
+      // No filter by default
+    } else if (isManager) {
+      const managedUsers = await this.prisma.user.findMany({
+        where: { createdByAdminId: user.userId },
+        select: { id: true }
+      });
+      reporterIds = [user.userId, ...managedUsers.map(u => u.id)];
+    } else {
+      reporterIds = [user.userId];
+    }
+
+    const hasReporterFilter = reporterIds.length > 0;
+    const reporterFilterStr = hasReporterFilter ? `AND r."reportedById" IN (${reporterIds.join(',')})` : '';
+    const creatorFilterStr = hasReporterFilter ? `AND b."createdById" IN (${reporterIds.join(',')})` : '';
+    const locFilterStr = '';
+
+    // a. Currently Pregnant Women
+    const pregnantCountQuery = `
+      WITH LatestReports AS (
+        SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId", r.date
+        FROM "ActivityReport" r
+        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE b."projectId" IN (${targetProjectIdsStr})
+          ${reporterFilterStr}
+          ${locFilterStr}
+        ORDER BY "beneficiaryId", r.date DESC
+      )
+      SELECT COUNT(*) AS count
+      FROM LatestReports
+      WHERE "childId" IS NULL
+        AND "reportData"->>'pregnancyStatus' = 'Currently Pregnant'
+        AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '');
+    `;
+    const pregnantRaw: any[] = await this.prisma.$queryRawUnsafe(pregnantCountQuery);
+    const activePregnantWomen = Number(pregnantRaw[0]?.count || 0);
+
+    // b. Currently Lactating Mothers
+    const lactatingCountQuery = `
+      SELECT COUNT(DISTINCT id) AS count FROM (
+        SELECT b.id
+        FROM "Beneficiary" b
+        INNER JOIN "BeneficiaryChild" c ON c."beneficiaryId" = b.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE b."projectId" IN (${targetProjectIdsStr})
+          AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
+          ${creatorFilterStr}
+          ${locFilterStr}
+        UNION
+        SELECT "beneficiaryId" AS id
+        FROM (
+          SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", date, "childId"
+          FROM "ActivityReport" r
+          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+          LEFT JOIN "Awc" a ON b."awcId" = a.id
+          WHERE b."projectId" IN (${targetProjectIdsStr})
+            ${reporterFilterStr}
+            ${locFilterStr}
+          ORDER BY "beneficiaryId", r.date DESC
+        ) lr
+        WHERE lr."childId" IS NULL
+          AND lr."reportData"->>'pregnancyStatus' = 'Baby Delivered'
+          AND lr.date >= CURRENT_DATE - INTERVAL '2 years'
+      ) combined;
+    `;
+    const lactatingRaw: any[] = await this.prisma.$queryRawUnsafe(lactatingCountQuery);
+    const activeLactatingMothers = Number(lactatingRaw[0]?.count || 0);
+
+    // c. SAM Children
+    const samCountQuery = `
+      WITH LatestReports AS (
+        SELECT DISTINCT ON ("childId") "childId", "reportData"
+        FROM "ActivityReport" r
+        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE b."projectId" IN (${targetProjectIdsStr}) AND r."childId" IS NOT NULL
+          ${reporterFilterStr}
+          ${locFilterStr}
+        ORDER BY "childId", r.date DESC
+      )
+      SELECT COUNT(*) AS count
+      FROM LatestReports lr
+      INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
+      WHERE lr."reportData"->>'samMamStatus' = 'SAM'
+        AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years';
+    `;
+    const samRaw: any[] = await this.prisma.$queryRawUnsafe(samCountQuery);
+    const activeSamChildren = Number(samRaw[0]?.count || 0);
+
+    // d. MAM Children
+    const mamCountQuery = `
+      WITH LatestReports AS (
+        SELECT DISTINCT ON ("childId") "childId", "reportData"
+        FROM "ActivityReport" r
+        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE b."projectId" IN (${targetProjectIdsStr}) AND r."childId" IS NOT NULL
+          ${reporterFilterStr}
+          ${locFilterStr}
+        ORDER BY "childId", r.date DESC
+      )
+      SELECT COUNT(*) AS count
+      FROM LatestReports lr
+      INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
+      WHERE lr."reportData"->>'samMamStatus' = 'MAM'
+        AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years';
+    `;
+    const mamRaw: any[] = await this.prisma.$queryRawUnsafe(mamCountQuery);
+    const activeMamChildren = Number(mamRaw[0]?.count || 0);
+
+    // e. Adolescent Girls
+    const adolescentCountQuery = `
+      SELECT COUNT(*) AS count
+      FROM "Beneficiary" b
+      LEFT JOIN "Awc" a ON b."awcId" = a.id
+      WHERE b."projectId" IN (${targetProjectIdsStr})
+        AND LOWER(TRIM(b.gender)) = 'female'
+        AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) BETWEEN 10 AND 19
+        ${creatorFilterStr}
+        ${locFilterStr};
+    `;
+    const adolescentRaw: any[] = await this.prisma.$queryRawUnsafe(adolescentCountQuery);
+    const adolescentGirls = Number(adolescentRaw[0]?.count || 0);
+
+    // f. Infants for EBF Promotion
+    const ebfCountQuery = `
+      SELECT COUNT(*) AS count
+      FROM "BeneficiaryChild" c
+      INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
+      LEFT JOIN "Awc" a ON b."awcId" = a.id
+      WHERE b."projectId" IN (${targetProjectIdsStr})
+        AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '6 months'
+        ${creatorFilterStr}
+        ${locFilterStr};
+    `;
+    const ebfRaw: any[] = await this.prisma.$queryRawUnsafe(ebfCountQuery);
+    const infantsEbfPromotion = Number(ebfRaw[0]?.count || 0);
+
+    // g. Infants for CF Promotion
+    const cfCountQuery = `
+      SELECT COUNT(*) AS count
+      FROM "BeneficiaryChild" c
+      INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
+      LEFT JOIN "Awc" a ON b."awcId" = a.id
+      WHERE b."projectId" IN (${targetProjectIdsStr})
+        AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
+        AND c."dateOfBirth" < CURRENT_DATE - INTERVAL '6 months'
+        ${creatorFilterStr}
+        ${locFilterStr};
+    `;
+    const cfRaw: any[] = await this.prisma.$queryRawUnsafe(cfCountQuery);
+    const infantsCfPromotion = Number(cfRaw[0]?.count || 0);
+
+    // h. Women due for delivery in next 30 days
+    const dueCountQuery = `
+      SELECT COUNT(DISTINCT r."beneficiaryId") AS count
+      FROM "ActivityReport" r
+      INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+      LEFT JOIN "Awc" a ON b."awcId" = a.id
+      WHERE b."projectId" IN (${targetProjectIdsStr})
+        ${reporterFilterStr}
+        ${locFilterStr}
+        AND r."childId" IS NULL
+        AND r."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
+        AND r."reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
+        AND r."reportData"->>'edd' IS NOT NULL
+        AND r."reportData"->>'edd' != '' 
+        AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') >= CURRENT_DATE
+        AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days';
+    `;
+    const dueRaw: any[] = await this.prisma.$queryRawUnsafe(dueCountQuery);
+    const womenDueForDelivery30Days = Number(dueRaw[0]?.count || 0);
+    // ----------------------------------------------------
+
     const whereClause = conditions.length > 0 ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}` : Prisma.empty;
 
     const statsRaw: any[] = await this.prisma.$queryRaw`
@@ -624,14 +819,14 @@ export class OutreachService {
       assignedLocations: 0,
       totalReports: toNumber(row.totalReports),
       outreachActions: {
-        activePregnantWomen: toNumber(row.activePregnantWomen),
-        activeLactatingMothers: toNumber(row.activeLactatingMothers),
-        activeSamChildren: toNumber(row.activeSamChildren),
-        activeMamChildren: toNumber(row.activeMamChildren),
-        adolescentGirls: toNumber(row.adolescentGirls),
-        infantsEbfPromotion: toNumber(row.infantsEbfPromotion),
-        infantsCfPromotion: toNumber(row.infantsCfPromotion),
-        womenDueForDelivery30Days: toNumber(row.womenDueForDelivery30Days)
+        activePregnantWomen: activePregnantWomen,
+        activeLactatingMothers: activeLactatingMothers,
+        activeSamChildren: activeSamChildren,
+        activeMamChildren: activeMamChildren,
+        adolescentGirls: adolescentGirls,
+        infantsEbfPromotion: infantsEbfPromotion,
+        infantsCfPromotion: infantsCfPromotion,
+        womenDueForDelivery30Days: womenDueForDelivery30Days
       },
       episodesOfCare: {
         adults: toNumber(row.adults),
