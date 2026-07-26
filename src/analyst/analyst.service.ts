@@ -459,7 +459,7 @@ export class AnalystService {
       reportingDate: record.reportingDate ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A',
       age: record.age,
       childNameAndAge: record.childNameAndAge || 'N/A',
-      typeof: record.typeof || 'N/A'
+      beneficiaryType: record.beneficiaryType || 'N/A'
     }));
   }
 

@@ -241,7 +241,7 @@ export class OutreachDynamicsService {
     if (clean.includes('PREGNANT') && !clean.includes('DUE') && !clean.includes('DELIVERY')) {
       queryStr = `
         WITH LatestReports AS (
-          SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId", r.date
+          SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId", r.date, r."activityId", r."sessionId"
           FROM "ActivityReport" r
           INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
           LEFT JOIN "Awc" a ON b."awcId" = a.id
@@ -260,11 +260,16 @@ export class OutreachDynamicsService {
                COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, lr.date AS "reportingDate"
+               'N/A' AS "childNameAndAge", 
+               COALESCE(act.name, 'N/A') AS activity, 
+               COALESCE(sess.name, 'N/A') AS session, 
+               lr.date AS "reportingDate"
         FROM "Beneficiary" b
         INNER JOIN LatestReports lr ON b.id = lr."beneficiaryId"
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
+        LEFT JOIN "Activity" act ON lr."activityId" = act.id
+        LEFT JOIN "Session" sess ON lr."sessionId" = sess.id
         WHERE lr."childId" IS NULL
           AND lr."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
           AND (lr."reportData"->>'pregnancyOutcome' IS NULL OR lr."reportData"->>'pregnancyOutcome' = 'null' OR lr."reportData"->>'pregnancyOutcome' = '')
@@ -279,7 +284,10 @@ export class OutreachDynamicsService {
                  INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
                  WHERE gm."beneficiaryId" = "benId"
                ), 'N/A') AS group,
-               awc, project, gender, "guardianName", age, "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, latest_date AS "reportingDate"
+               awc, project, gender, "guardianName", age, "childNameAndAge", 
+               COALESCE(activity, 'N/A') AS activity, 
+               COALESCE(session, 'N/A') AS session, 
+               latest_date AS "reportingDate"
         FROM (
           SELECT b.uid AS id, b.id AS "benId", b.name, COALESCE(a."awcName", 'N/A') AS awc,
                  p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
@@ -290,7 +298,9 @@ export class OutreachDynamicsService {
                    WHERE c_sub."beneficiaryId" = b.id
                  ) AS "childNameAndAge",
                  MAX(c."dateOfBirth") AS latest_date,
-                 b."typeof" AS typeof
+                 b."typeof" AS typeof,
+                 'N/A' AS activity,
+                 'N/A' AS session
           FROM "Beneficiary" b
           INNER JOIN "BeneficiaryChild" c ON c."beneficiaryId" = b.id
           LEFT JOIN "Awc" a ON b."awcId" = a.id
@@ -310,10 +320,12 @@ export class OutreachDynamicsService {
                    WHERE c_sub."beneficiaryId" = b.id
                  ) AS "childNameAndAge",
                  lr.date AS latest_date,
-                 b."typeof" AS typeof
+                 b."typeof" AS typeof,
+                 act.name AS activity,
+                 sess.name AS session
           FROM "Beneficiary" b
           INNER JOIN (
-            SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", date, "childId"
+            SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", date, "childId", "activityId", "sessionId"
             FROM "ActivityReport" r
             INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
             LEFT JOIN "Awc" a ON b."awcId" = a.id
@@ -324,6 +336,8 @@ export class OutreachDynamicsService {
           ) lr ON b.id = lr."beneficiaryId"
           LEFT JOIN "Awc" a ON b."awcId" = a.id
           LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
+          LEFT JOIN "Activity" act ON lr."activityId" = act.id
+          LEFT JOIN "Session" sess ON lr."sessionId" = sess.id
           WHERE lr."childId" IS NULL
             AND lr."reportData"->>'pregnancyStatus' = 'Baby Delivered'
             AND lr.date >= CURRENT_DATE - INTERVAL '2 years'
@@ -333,7 +347,7 @@ export class OutreachDynamicsService {
     } else if (clean.includes('SAM')) {
       queryStr = `
         WITH LatestReports AS (
-          SELECT DISTINCT ON ("childId") "childId", "reportData", r.date
+          SELECT DISTINCT ON ("childId") "childId", "reportData", r.date, r."activityId", r."sessionId"
           FROM "ActivityReport" r
           INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
           LEFT JOIN "Awc" a ON b."awcId" = a.id
@@ -352,12 +366,17 @@ export class OutreachDynamicsService {
                COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, lr.date AS "reportingDate"
+               'N/A' AS "childNameAndAge", 
+               COALESCE(act.name, 'N/A') AS activity, 
+               COALESCE(sess.name, 'N/A') AS session, 
+               lr.date AS "reportingDate"
         FROM LatestReports lr
         INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
         INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
+        LEFT JOIN "Activity" act ON lr."activityId" = act.id
+        LEFT JOIN "Session" sess ON lr."sessionId" = sess.id
         WHERE lr."reportData"->>'samMamStatus' = 'SAM'
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years'
         ORDER BY lr.date DESC;
@@ -365,7 +384,7 @@ export class OutreachDynamicsService {
     } else if (clean.includes('MAM')) {
       queryStr = `
         WITH LatestReports AS (
-          SELECT DISTINCT ON ("childId") "childId", "reportData", r.date
+          SELECT DISTINCT ON ("childId") "childId", "reportData", r.date, r."activityId", r."sessionId"
           FROM "ActivityReport" r
           INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
           LEFT JOIN "Awc" a ON b."awcId" = a.id
@@ -384,12 +403,17 @@ export class OutreachDynamicsService {
                COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, lr.date AS "reportingDate"
+               'N/A' AS "childNameAndAge", 
+               COALESCE(act.name, 'N/A') AS activity, 
+               COALESCE(sess.name, 'N/A') AS session, 
+               lr.date AS "reportingDate"
         FROM LatestReports lr
         INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
         INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
+        LEFT JOIN "Activity" act ON lr."activityId" = act.id
+        LEFT JOIN "Session" sess ON lr."sessionId" = sess.id
         WHERE lr."reportData"->>'samMamStatus' = 'MAM'
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years'
         ORDER BY lr.date DESC;
@@ -468,7 +492,7 @@ export class OutreachDynamicsService {
       queryStr = `
         WITH MatchingReports AS (
           SELECT DISTINCT ON (r."beneficiaryId") 
-            r."beneficiaryId", r."reportData", r."childId", r.date
+            r."beneficiaryId", r."reportData", r."childId", r.date, r."activityId", r."sessionId"
           FROM "ActivityReport" r
           INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
           LEFT JOIN "Awc" a ON b."awcId" = a.id
@@ -494,11 +518,16 @@ export class OutreachDynamicsService {
                COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, mr.date AS "reportingDate"
+               'N/A' AS "childNameAndAge", 
+               COALESCE(act.name, 'N/A') AS activity, 
+               COALESCE(sess.name, 'N/A') AS session, 
+               mr.date AS "reportingDate"
         FROM "Beneficiary" b
         INNER JOIN MatchingReports mr ON b.id = mr."beneficiaryId"
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
+        LEFT JOIN "Activity" act ON mr."activityId" = act.id
+        LEFT JOIN "Session" sess ON mr."sessionId" = sess.id
         ORDER BY mr.date DESC;
       `;
     }
@@ -521,7 +550,7 @@ export class OutreachDynamicsService {
       reportingDate: record.reportingDate,
       age: record.age || 'N/A',
       childNameAndAge: record.childNameAndAge || 'N/A',
-      typeof: record.typeof || 'N/A'
+      beneficiaryType: record.typeof || 'N/A'
     }));
   }
 }
