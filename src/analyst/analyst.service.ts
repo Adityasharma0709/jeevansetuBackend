@@ -306,27 +306,22 @@ export class AnalystService {
     const cfRaw: any[] = await this.prisma.$queryRawUnsafe(cfCountQuery);
     const infantsCfPromotion = Number(cfRaw[0]?.count || 0);
 
-    // h. Women due pregnancy: Activity table,
+    // h. Women due pregnancy: Activity table
     const dueCountQuery = `
-      WITH LatestReports AS (
-        SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId"
-        FROM "ActivityReport" r
-        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        WHERE b."projectId" IN (${targetProjectIdsStr})
-          ${reporterFilterStr}
-          ${locFilterStr}
-        ORDER BY "beneficiaryId", r.date DESC
-      )
-      SELECT COUNT(*) AS count
-      FROM LatestReports
-      WHERE "childId" IS NULL
-        AND "reportData"->>'pregnancyStatus' = 'Currently Pregnant'
-        AND "reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
-        AND "reportData"->>'edd' IS NOT NULL
-        AND "reportData"->>'edd' != '' 
-        AND to_date("reportData"->>'edd', 'DD/MM/YYYY') >= CURRENT_DATE
-        AND to_date("reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days';
+      SELECT COUNT(DISTINCT r."beneficiaryId") AS count
+      FROM "ActivityReport" r
+      INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+      LEFT JOIN "Awc" a ON b."awcId" = a.id
+      WHERE b."projectId" IN (${targetProjectIdsStr})
+        ${reporterFilterStr}
+        ${locFilterStr}
+        AND r."childId" IS NULL
+        AND r."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
+        AND r."reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
+        AND r."reportData"->>'edd' IS NOT NULL
+        AND r."reportData"->>'edd' != '' 
+        AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') >= CURRENT_DATE
+        AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days';
     `;
     const dueRaw: any[] = await this.prisma.$queryRawUnsafe(dueCountQuery);
     const womenDueForDelivery30Days = Number(dueRaw[0]?.count || 0);
@@ -844,15 +839,23 @@ export class AnalystService {
       `;
     } else if (clean.includes('DUE') || clean.includes('DELIVERY')) {
       queryStr = `
-        WITH LatestReports AS (
-          SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId", r.date
+        WITH MatchingReports AS (
+          SELECT DISTINCT ON (r."beneficiaryId") 
+            r."beneficiaryId", r."reportData", r."childId", r.date
           FROM "ActivityReport" r
           INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
           LEFT JOIN "Awc" a ON b."awcId" = a.id
           WHERE b."projectId" IN (${projectIdsStr})
             ${reporterFilterStr}
             ${locFilterStr}
-          ORDER BY "beneficiaryId", r.date DESC
+            AND r."childId" IS NULL
+            AND r."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
+            AND r."reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
+            AND r."reportData"->>'edd' IS NOT NULL
+            AND r."reportData"->>'edd' != ''
+            AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') >= CURRENT_DATE
+            AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days'
+          ORDER BY r."beneficiaryId", r.date DESC
         )
         SELECT b.uid AS id, b.id AS "benId", b.name,
                COALESCE((
@@ -864,19 +867,12 @@ export class AnalystService {
                COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, lr.date AS "reportingDate"
+               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, mr.date AS "reportingDate"
         FROM "Beneficiary" b
-        INNER JOIN LatestReports lr ON b.id = lr."beneficiaryId"
+        INNER JOIN MatchingReports mr ON b.id = mr."beneficiaryId"
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
-        WHERE lr."childId" IS NULL
-          AND lr."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
-          AND lr."reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
-          AND lr."reportData"->>'edd' IS NOT NULL
-          AND lr."reportData"->>'edd' != ''
-          AND to_date(lr."reportData"->>'edd', 'DD/MM/YYYY') >= CURRENT_DATE
-          AND to_date(lr."reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days'
-        ORDER BY lr.date DESC;
+        ORDER BY mr.date DESC;
       `;
     }
 

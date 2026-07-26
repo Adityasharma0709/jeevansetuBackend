@@ -536,6 +536,7 @@ export class OutreachService {
       WITH ReportData AS (
         SELECT 
           r.id,
+          r."beneficiaryId" AS "beneficiaryId",
           r."childId" AS "childId",
           r."reportData",
           COALESCE(c.gender, b.gender) AS gender,
@@ -559,7 +560,7 @@ export class OutreachService {
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
         COUNT(*) FILTER (WHERE age_months <= 6) AS "infantsEbfPromotion",
         COUNT(*) FILTER (WHERE age_months > 6 AND age_years < 2) AS "infantsCfPromotion",
-        COUNT(*) FILTER (
+        COUNT(DISTINCT "beneficiaryId") FILTER (
           WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
           AND "reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
           AND "reportData"->>'edd' IS NOT NULL
@@ -818,6 +819,7 @@ export class OutreachService {
           r.id AS "reportId",
           r."beneficiaryId" AS "benIntId",
           r."childId" AS "childIntId",
+          COALESCE(r."childId", r."beneficiaryId") AS "uniqueEntityId",
           r.date AS "reportingDate",
           COALESCE(c.uid, b.uid) AS "beneficiaryId",
           COALESCE(c.name, b.name) AS "beneficiaryName",
@@ -852,19 +854,22 @@ export class OutreachService {
         LEFT JOIN "Session" sess ON r."sessionId" = sess.id
         ${rbacWhereClause}
       )
-      SELECT 
-        "reportId",
-        "beneficiaryId" AS id,
-        "beneficiaryName" AS name,
-        COALESCE("actualGroups", 'N/A') AS group,
-        COALESCE(awc, 'N/A') AS awc,
-        COALESCE(activity, 'N/A') AS activity,
-        COALESCE(session, 'N/A') AS session,
-        "reportingDate",
-        age_years,
-        age_months
-      FROM ReportData
-      WHERE ${groupCondition}
+      SELECT * FROM (
+        SELECT DISTINCT ON ("uniqueEntityId")
+          "reportId",
+          "beneficiaryId" AS id,
+          "beneficiaryName" AS name,
+          COALESCE("actualGroups", 'N/A') AS group,
+          COALESCE(awc, 'N/A') AS awc,
+          COALESCE(activity, 'N/A') AS activity,
+          COALESCE(session, 'N/A') AS session,
+          "reportingDate",
+          age_years,
+          age_months
+        FROM ReportData
+        WHERE ${groupCondition}
+        ORDER BY "uniqueEntityId", "reportingDate" DESC
+      ) AS unique_records
       ORDER BY "reportingDate" DESC
       LIMIT 100;
     `;
