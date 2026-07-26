@@ -852,6 +852,7 @@ export class OutreachService {
         SELECT DISTINCT ON ("uniqueEntityId")
           "reportId",
           "beneficiaryId" AS id,
+          "benIntId" AS "benId",
           "beneficiaryName" AS name,
           COALESCE("actualGroups", 'N/A') AS group,
           COALESCE(awc, 'N/A') AS awc,
