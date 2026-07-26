@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { OutreachDynamicsService } from '../dashboard/outreach-dynamics/outreach-dynamics.service';
 import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto';
 import { CreateReportDto } from './dto/create-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
@@ -16,7 +17,10 @@ import { AddFamilyMemberDto } from './dto/add-family-member.dto';
 
 @Injectable()
 export class OutreachService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private outreachDynamics: OutreachDynamicsService,
+  ) { }
 
   private assertIsActive(status: string | null | undefined, label: string) {
     if ((status ?? '').toString().toUpperCase() !== 'ACTIVE') {
@@ -541,7 +545,6 @@ export class OutreachService {
         targetProjectIds = projects.map(p => p.id);
       }
     }
-    const targetProjectIdsStr = targetProjectIds.join(',') || '0';
 
     let reporterIds: number[] = [];
     if (isSuperAdmin || isAdmin || isAnalyst) {
@@ -556,167 +559,16 @@ export class OutreachService {
       reporterIds = [user.userId];
     }
 
-    const hasReporterFilter = reporterIds.length > 0;
-    const reporterFilterStr = hasReporterFilter ? `AND r."reportedById" IN (${reporterIds.join(',')})` : '';
-    const creatorFilterStr = hasReporterFilter ? `AND b."createdById" IN (${reporterIds.join(',')})` : '';
-    const locFilterStr = '';
-
-    // a. Currently Pregnant Women
-    const pregnantCountQuery = `
-      WITH LatestReports AS (
-        SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId", r.date
-        FROM "ActivityReport" r
-        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        WHERE b."projectId" IN (${targetProjectIdsStr})
-          ${reporterFilterStr}
-          ${locFilterStr}
-        ORDER BY "beneficiaryId", r.date DESC
-      )
-      SELECT COUNT(*) AS count
-      FROM LatestReports
-      WHERE "childId" IS NULL
-        AND "reportData"->>'pregnancyStatus' = 'Currently Pregnant'
-        AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '');
-    `;
-    const pregnantRaw: any[] = await this.prisma.$queryRawUnsafe(pregnantCountQuery);
-    const activePregnantWomen = Number(pregnantRaw[0]?.count || 0);
-
-    // b. Currently Lactating Mothers
-    const lactatingCountQuery = `
-      SELECT COUNT(DISTINCT id) AS count FROM (
-        SELECT b.id
-        FROM "Beneficiary" b
-        INNER JOIN "BeneficiaryChild" c ON c."beneficiaryId" = b.id
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        WHERE b."projectId" IN (${targetProjectIdsStr})
-          AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
-          ${creatorFilterStr}
-          ${locFilterStr}
-        UNION
-        SELECT "beneficiaryId" AS id
-        FROM (
-          SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", date, "childId"
-          FROM "ActivityReport" r
-          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-          LEFT JOIN "Awc" a ON b."awcId" = a.id
-          WHERE b."projectId" IN (${targetProjectIdsStr})
-            ${reporterFilterStr}
-            ${locFilterStr}
-          ORDER BY "beneficiaryId", r.date DESC
-        ) lr
-        WHERE lr."childId" IS NULL
-          AND lr."reportData"->>'pregnancyStatus' = 'Baby Delivered'
-          AND lr.date >= CURRENT_DATE - INTERVAL '2 years'
-      ) combined;
-    `;
-    const lactatingRaw: any[] = await this.prisma.$queryRawUnsafe(lactatingCountQuery);
-    const activeLactatingMothers = Number(lactatingRaw[0]?.count || 0);
-
-    // c. SAM Children
-    const samCountQuery = `
-      WITH LatestReports AS (
-        SELECT DISTINCT ON ("childId") "childId", "reportData"
-        FROM "ActivityReport" r
-        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        WHERE b."projectId" IN (${targetProjectIdsStr}) AND r."childId" IS NOT NULL
-          ${reporterFilterStr}
-          ${locFilterStr}
-        ORDER BY "childId", r.date DESC
-      )
-      SELECT COUNT(*) AS count
-      FROM LatestReports lr
-      INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
-      WHERE lr."reportData"->>'samMamStatus' = 'SAM'
-        AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years';
-    `;
-    const samRaw: any[] = await this.prisma.$queryRawUnsafe(samCountQuery);
-    const activeSamChildren = Number(samRaw[0]?.count || 0);
-
-    // d. MAM Children
-    const mamCountQuery = `
-      WITH LatestReports AS (
-        SELECT DISTINCT ON ("childId") "childId", "reportData"
-        FROM "ActivityReport" r
-        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        WHERE b."projectId" IN (${targetProjectIdsStr}) AND r."childId" IS NOT NULL
-          ${reporterFilterStr}
-          ${locFilterStr}
-        ORDER BY "childId", r.date DESC
-      )
-      SELECT COUNT(*) AS count
-      FROM LatestReports lr
-      INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
-      WHERE lr."reportData"->>'samMamStatus' = 'MAM'
-        AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years';
-    `;
-    const mamRaw: any[] = await this.prisma.$queryRawUnsafe(mamCountQuery);
-    const activeMamChildren = Number(mamRaw[0]?.count || 0);
-
-    // e. Adolescent Girls
-    const adolescentCountQuery = `
-      SELECT COUNT(*) AS count
-      FROM "Beneficiary" b
-      LEFT JOIN "Awc" a ON b."awcId" = a.id
-      WHERE b."projectId" IN (${targetProjectIdsStr})
-        AND LOWER(TRIM(b.gender)) = 'female'
-        AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) BETWEEN 10 AND 19
-        ${creatorFilterStr}
-        ${locFilterStr};
-    `;
-    const adolescentRaw: any[] = await this.prisma.$queryRawUnsafe(adolescentCountQuery);
-    const adolescentGirls = Number(adolescentRaw[0]?.count || 0);
-
-    // f. Infants for EBF Promotion
-    const ebfCountQuery = `
-      SELECT COUNT(*) AS count
-      FROM "BeneficiaryChild" c
-      INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
-      LEFT JOIN "Awc" a ON b."awcId" = a.id
-      WHERE b."projectId" IN (${targetProjectIdsStr})
-        AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '6 months'
-        ${creatorFilterStr}
-        ${locFilterStr};
-    `;
-    const ebfRaw: any[] = await this.prisma.$queryRawUnsafe(ebfCountQuery);
-    const infantsEbfPromotion = Number(ebfRaw[0]?.count || 0);
-
-    // g. Infants for CF Promotion
-    const cfCountQuery = `
-      SELECT COUNT(*) AS count
-      FROM "BeneficiaryChild" c
-      INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
-      LEFT JOIN "Awc" a ON b."awcId" = a.id
-      WHERE b."projectId" IN (${targetProjectIdsStr})
-        AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
-        AND c."dateOfBirth" < CURRENT_DATE - INTERVAL '6 months'
-        ${creatorFilterStr}
-        ${locFilterStr};
-    `;
-    const cfRaw: any[] = await this.prisma.$queryRawUnsafe(cfCountQuery);
-    const infantsCfPromotion = Number(cfRaw[0]?.count || 0);
-
-    // h. Women due for delivery in next 30 days
-    const dueCountQuery = `
-      SELECT COUNT(DISTINCT r."beneficiaryId") AS count
-      FROM "ActivityReport" r
-      INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-      LEFT JOIN "Awc" a ON b."awcId" = a.id
-      WHERE b."projectId" IN (${targetProjectIdsStr})
-        ${reporterFilterStr}
-        ${locFilterStr}
-        AND r."childId" IS NULL
-        AND r."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
-        AND r."reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
-        AND r."reportData"->>'edd' IS NOT NULL
-        AND r."reportData"->>'edd' != '' 
-        AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') >= CURRENT_DATE
-        AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days';
-    `;
-    const dueRaw: any[] = await this.prisma.$queryRawUnsafe(dueCountQuery);
-    const womenDueForDelivery30Days = Number(dueRaw[0]?.count || 0);
+    // Outreach Dynamics Unique Counts (Delegated to shared service)
+    const outreachActions = await this.outreachDynamics.getStats({
+      projectIds: targetProjectIds,
+      reporterIds,
+      creatorIds: reporterIds,
+      state: undefined,
+      district: undefined,
+      block: undefined,
+      awc: undefined
+    });
     // ----------------------------------------------------
 
     const whereClause = conditions.length > 0 ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}` : Prisma.empty;
@@ -818,16 +670,7 @@ export class OutreachService {
       assignedProjects,
       assignedLocations: 0,
       totalReports: toNumber(row.totalReports),
-      outreachActions: {
-        activePregnantWomen: activePregnantWomen,
-        activeLactatingMothers: activeLactatingMothers,
-        activeSamChildren: activeSamChildren,
-        activeMamChildren: activeMamChildren,
-        adolescentGirls: adolescentGirls,
-        infantsEbfPromotion: infantsEbfPromotion,
-        infantsCfPromotion: infantsCfPromotion,
-        womenDueForDelivery30Days: womenDueForDelivery30Days
-      },
+      outreachActions,
       episodesOfCare: {
         adults: toNumber(row.adults),
         adolescents: toNumber(row.adolescents),
@@ -883,286 +726,26 @@ export class OutreachService {
         where: { createdByAdminId: user.userId },
         select: { id: true }
       });
-      reporterIds = [user.userId, ...managedUsers.map(u => u.id)];
+        reporterIds = [user.userId, ...managedUsers.map(u => u.id)];
     } else {
       reporterIds = [user.userId];
     }
 
-    const hasReporterFilter = reporterIds.length > 0;
-    const reporterFilterStr = hasReporterFilter ? `AND r."reportedById" IN (${reporterIds.join(',')})` : '';
-    const creatorFilterStr = hasReporterFilter ? `AND b."createdById" IN (${reporterIds.join(',')})` : '';
-    const locFilterStr = '';
-
     const clean = (groupName || '').trim().toUpperCase();
 
+    // Check if it is one of the 8 dynamic categories
+    const isDynamic = clean.includes('PREGNANT') || clean.includes('LACTATING') || clean.includes('MOTHER') ||
+                     clean.includes('SAM') || clean.includes('MAM') || clean.includes('ADOLESCENT') ||
+                     clean.includes('EBF') || clean.includes('CF') || clean.includes('DUE') || clean.includes('DELIVERY');
+
     let rawRecords: any[] = [];
-    let queryStr = '';
 
-    if (clean.includes('PREGNANT') && !clean.includes('DUE') && !clean.includes('DELIVERY')) {
-      queryStr = `
-        WITH LatestReports AS (
-          SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId", r.date
-          FROM "ActivityReport" r
-          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-          LEFT JOIN "Awc" a ON b."awcId" = a.id
-          WHERE b."projectId" IN (${projectIdsStr})
-            ${reporterFilterStr}
-            ${locFilterStr}
-          ORDER BY "beneficiaryId", r.date DESC
-        )
-        SELECT b.uid AS id, b.id AS "benId", b.name,
-               COALESCE((
-                 SELECT STRING_AGG(bg.name, ', ')
-                 FROM "GroupMember" gm
-                 INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-                 WHERE gm."beneficiaryId" = b.id
-               ), 'N/A') AS group,
-               COALESCE(a."awcName", 'N/A') AS awc,
-               p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
-               EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, lr.date AS "reportingDate"
-        FROM "Beneficiary" b
-        INNER JOIN LatestReports lr ON b.id = lr."beneficiaryId"
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
-        WHERE lr."childId" IS NULL
-          AND lr."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
-          AND (lr."reportData"->>'pregnancyOutcome' IS NULL OR lr."reportData"->>'pregnancyOutcome' = 'null' OR lr."reportData"->>'pregnancyOutcome' = '')
-        ORDER BY lr.date DESC;
-      `;
-    } else if (clean.includes('LACTATING') || clean.includes('MOTHER')) {
-      queryStr = `
-        SELECT DISTINCT id, "benId", name,
-               COALESCE((
-                 SELECT STRING_AGG(bg.name, ', ')
-                 FROM "GroupMember" gm
-                 INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-                 WHERE gm."beneficiaryId" = "benId"
-               ), 'N/A') AS group,
-               awc, project, gender, "guardianName", age, "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, latest_date AS "reportingDate"
-        FROM (
-          SELECT b.uid AS id, b.id AS "benId", b.name, COALESCE(a."awcName", 'N/A') AS awc,
-                 p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
-                 EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
-                 (
-                   SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
-                   FROM "BeneficiaryChild" c_sub
-                   WHERE c_sub."beneficiaryId" = b.id
-                 ) AS "childNameAndAge",
-                 MAX(c."dateOfBirth") AS latest_date
-          FROM "Beneficiary" b
-          INNER JOIN "BeneficiaryChild" c ON c."beneficiaryId" = b.id
-          LEFT JOIN "Awc" a ON b."awcId" = a.id
-          LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
-          WHERE b."projectId" IN (${projectIdsStr})
-            AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
-            ${creatorFilterStr}
-            ${locFilterStr}
-          GROUP BY b.uid, b.id, b.name, a."awcName", p_proj.name, b.gender, b."guardianName", b."dateOfBirth"
-          UNION
-          SELECT b.uid AS id, b.id AS "benId", b.name, COALESCE(a."awcName", 'N/A') AS awc,
-                 p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
-                 EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
-                 (
-                   SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
-                   FROM "BeneficiaryChild" c_sub
-                   WHERE c_sub."beneficiaryId" = b.id
-                 ) AS "childNameAndAge",
-                 lr.date AS latest_date
-          FROM "Beneficiary" b
-          INNER JOIN (
-            SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", date, "childId"
-            FROM "ActivityReport" r
-            INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-            LEFT JOIN "Awc" a ON b."awcId" = a.id
-            WHERE b."projectId" IN (${projectIdsStr})
-              ${reporterFilterStr}
-              ${locFilterStr}
-            ORDER BY "beneficiaryId", r.date DESC
-          ) lr ON b.id = lr."beneficiaryId"
-          LEFT JOIN "Awc" a ON b."awcId" = a.id
-          LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
-          WHERE lr."childId" IS NULL
-            AND lr."reportData"->>'pregnancyStatus' = 'Baby Delivered'
-            AND lr.date >= CURRENT_DATE - INTERVAL '2 years'
-        ) combined
-        ORDER BY latest_date DESC;
-      `;
-    } else if (clean.includes('SAM')) {
-      queryStr = `
-        WITH LatestReports AS (
-          SELECT DISTINCT ON ("childId") "childId", "reportData", r.date
-          FROM "ActivityReport" r
-          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-          LEFT JOIN "Awc" a ON b."awcId" = a.id
-          WHERE b."projectId" IN (${projectIdsStr}) AND r."childId" IS NOT NULL
-            ${reporterFilterStr}
-            ${locFilterStr}
-          ORDER BY "childId", r.date DESC
-        )
-        SELECT c.uid AS id, b.id AS "benId", c.name,
-               COALESCE((
-                 SELECT STRING_AGG(bg.name, ', ')
-                 FROM "ChildGroupMember" cgm
-                 INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-                 WHERE cgm."childId" = c.id
-               ), 'N/A') AS group,
-               COALESCE(a."awcName", 'N/A') AS awc,
-               p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
-               EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, lr.date AS "reportingDate"
-        FROM LatestReports lr
-        INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
-        INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
-        WHERE lr."reportData"->>'samMamStatus' = 'SAM'
-          AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years'
-        ORDER BY lr.date DESC;
-      `;
-    } else if (clean.includes('MAM')) {
-      queryStr = `
-        WITH LatestReports AS (
-          SELECT DISTINCT ON ("childId") "childId", "reportData", r.date
-          FROM "ActivityReport" r
-          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-          LEFT JOIN "Awc" a ON b."awcId" = a.id
-          WHERE b."projectId" IN (${projectIdsStr}) AND r."childId" IS NOT NULL
-            ${reporterFilterStr}
-            ${locFilterStr}
-          ORDER BY "childId", r.date DESC
-        )
-        SELECT c.uid AS id, b.id AS "benId", c.name,
-               COALESCE((
-                 SELECT STRING_AGG(bg.name, ', ')
-                 FROM "ChildGroupMember" cgm
-                 INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-                 WHERE cgm."childId" = c.id
-               ), 'N/A') AS group,
-               COALESCE(a."awcName", 'N/A') AS awc,
-               p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
-               EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, lr.date AS "reportingDate"
-        FROM LatestReports lr
-        INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
-        INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
-        WHERE lr."reportData"->>'samMamStatus' = 'MAM'
-          AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years'
-        ORDER BY lr.date DESC;
-      `;
-    } else if (clean.includes('ADOLESCENT')) {
-      queryStr = `
-        SELECT b.uid AS id, b.id AS "benId", b.name,
-               COALESCE((
-                 SELECT STRING_AGG(bg.name, ', ')
-                 FROM "GroupMember" gm
-                 INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-                 WHERE gm."beneficiaryId" = b.id
-               ), 'N/A') AS group,
-               COALESCE(a."awcName", 'N/A') AS awc,
-               p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
-               EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, b."createdAt" AS "reportingDate"
-        FROM "Beneficiary" b
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
-        WHERE b."projectId" IN (${projectIdsStr})
-          AND LOWER(TRIM(b.gender)) = 'female'
-          AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) BETWEEN 10 AND 19
-          ${creatorFilterStr}
-          ${locFilterStr}
-        ORDER BY b."createdAt" DESC;
-      `;
-    } else if (clean.includes('EBF')) {
-      queryStr = `
-        SELECT c.uid AS id, b.id AS "benId", c.name,
-               COALESCE((
-                 SELECT STRING_AGG(bg.name, ', ')
-                 FROM "ChildGroupMember" cgm
-                 INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-                 WHERE cgm."childId" = c.id
-               ), 'N/A') AS group,
-               COALESCE(a."awcName", 'N/A') AS awc,
-               p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
-               EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, c."dateOfBirth" AS "reportingDate"
-        FROM "BeneficiaryChild" c
-        INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
-        WHERE b."projectId" IN (${projectIdsStr})
-          AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '6 months'
-          ${creatorFilterStr}
-          ${locFilterStr}
-        ORDER BY c."dateOfBirth" DESC;
-      `;
-    } else if (clean.includes('CF')) {
-      queryStr = `
-        SELECT c.uid AS id, b.id AS "benId", c.name,
-               COALESCE((
-                 SELECT STRING_AGG(bg.name, ', ')
-                 FROM "ChildGroupMember" cgm
-                 INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
-                 WHERE cgm."childId" = c.id
-               ), 'N/A') AS group,
-               COALESCE(a."awcName", 'N/A') AS awc,
-               p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
-               EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, c."dateOfBirth" AS "reportingDate"
-        FROM "BeneficiaryChild" c
-        INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
-        WHERE b."projectId" IN (${projectIdsStr})
-          AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
-          AND c."dateOfBirth" < CURRENT_DATE - INTERVAL '6 months'
-          ${creatorFilterStr}
-          ${locFilterStr}
-        ORDER BY c."dateOfBirth" DESC;
-      `;
-    } else if (clean.includes('DUE') || clean.includes('DELIVERY')) {
-      queryStr = `
-        WITH MatchingReports AS (
-          SELECT DISTINCT ON (r."beneficiaryId") 
-            r."beneficiaryId", r."reportData", r."childId", r.date
-          FROM "ActivityReport" r
-          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-          LEFT JOIN "Awc" a ON b."awcId" = a.id
-          WHERE b."projectId" IN (${projectIdsStr})
-            ${reporterFilterStr}
-            ${locFilterStr}
-            AND r."childId" IS NULL
-            AND r."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
-            AND r."reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
-            AND r."reportData"->>'edd' IS NOT NULL
-            AND r."reportData"->>'edd' != ''
-            AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') >= CURRENT_DATE
-            AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days'
-          ORDER BY r."beneficiaryId", r.date DESC
-        )
-        SELECT b.uid AS id, b.id AS "benId", b.name,
-               COALESCE((
-                 SELECT STRING_AGG(bg.name, ', ')
-                 FROM "GroupMember" gm
-                 INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
-                 WHERE gm."beneficiaryId" = b.id
-               ), 'N/A') AS group,
-               COALESCE(a."awcName", 'N/A') AS awc,
-               p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
-               EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, mr.date AS "reportingDate"
-        FROM "Beneficiary" b
-        INNER JOIN MatchingReports mr ON b.id = mr."beneficiaryId"
-        LEFT JOIN "Awc" a ON b."awcId" = a.id
-        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
-        ORDER BY mr.date DESC;
-      `;
-    }
-
-    if (queryStr) {
-      rawRecords = await this.prisma.$queryRawUnsafe(queryStr);
+    if (isDynamic) {
+      rawRecords = await this.outreachDynamics.getDetails(groupName, {
+        projectIds: targetProjectIds,
+        reporterIds,
+        creatorIds: reporterIds
+      });
     } else {
       let groupCondition: Prisma.Sql;
       switch (clean) {
