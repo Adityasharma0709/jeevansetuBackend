@@ -509,14 +509,8 @@ export class OutreachService {
           conditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(managedIds)})`);
         }
       } else {
-        const shares = await this.prisma.accountShare.findMany({
-          where: { toUserId: user.userId },
-          select: { fromUserId: true }
-        });
-        const sharedFromUserIds = shares.map(s => s.fromUserId);
-        const allIds = [user.userId, ...sharedFromUserIds];
-        benWhere.createdById = { in: allIds };
-        conditions.push(Prisma.sql`r."reportedById" IN (${Prisma.join(allIds)})`);
+        benWhere.createdById = user.userId;
+        conditions.push(Prisma.sql`r."reportedById" = ${user.userId}`);
       }
     }
 
