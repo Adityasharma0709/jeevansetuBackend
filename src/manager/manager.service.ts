@@ -197,13 +197,67 @@ export class ManagerService {
   }
 
   async updateWorker(id: number, dto: UpdateWorkerDto, managerId: number) {
+    const worker = await this.prisma.user.findFirst({
+      where: {
+        id,
+        roles: { some: { role: { name: 'OUTREACH' } } }
+      }
+    });
+
+    if (!worker) {
+      throw new NotFoundException('Outreach worker not found');
+    }
+
+    if (worker.createdByAdminId !== managerId) {
+      throw new ForbiddenException('You can only update outreach workers created by you');
+    }
+
+    const data: any = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.email !== undefined) data.email = dto.email;
+    if (dto.mobileNumber !== undefined) data.mobileNumber = dto.mobileNumber;
+    if (dto.mobile !== undefined) data.mobileNumber = dto.mobile;
+
+    if (dto.password) {
+      data.password = await bcrypt.hash(dto.password, 10);
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data,
+    });
+
     if (dto.projectId && dto.locationId) {
       const assigned = await this.prisma.userProjectLocation.findFirst({
         where: { userId: managerId, projectId: dto.projectId }
       });
       if (!assigned) throw new ForbiddenException('Not assigned area');
+
+      const existingAssignment = await this.prisma.userProjectLocation.findFirst({
+        where: { userId: id, projectId: dto.projectId }
+      });
+
+      if (existingAssignment) {
+        await this.prisma.userProjectLocation.update({
+          where: { id: existingAssignment.id },
+          data: { stateId: dto.locationId }
+        });
+      } else {
+        await this.prisma.userProjectLocation.create({
+          data: {
+            userId: id,
+            projectId: dto.projectId,
+            stateId: dto.locationId
+          }
+        });
+      }
     }
-    return this.prisma.user.update({ where: { id }, data: dto });
+
+    const { password, ...safe } = updated;
+    return {
+      message: 'Outreach worker credentials updated successfully',
+      user: safe,
+    };
   }
 
   async activateWorker(workerId: number, managerId: number) {

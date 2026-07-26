@@ -161,7 +161,7 @@ export class UsersController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
   @Put('manager/:id')
   updateManager(
     @Param('id') id: string,
@@ -217,89 +217,6 @@ export class UsersController {
     @Req() req
   ) {
     return this.usersService.assignOutreachManager(+outreachId, +managerId, req.user);
-  }
-
-  // =========================
-  // ANALYST ENDPOINTS
-  // =========================
-
-  // ⚠ Static routes MUST come before dynamic :id routes
-  // =========================
-  // ANALYST DASHBOARD (static — keep above analyst/:id routes)
-  // =========================
-
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ANALYST')
-  @Get('analyst/dashboard/reports')
-  getAnalystDashboardReports(@Req() req) {
-    return this.usersService.getAnalystDashboardReports(req.user.userId);
-  }
-
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ANALYST')
-  @Get('analyst/dashboard/stats')
-  getAnalystDashboardStats(
-    @Req() req,
-    @Query('projectId') projectId?: string,
-    @Query('activityId') activityId?: string,
-    @Query('sessionId') sessionId?: string,
-    @Query('adminId') adminId?: string,
-    @Query('managerId') managerId?: string,
-    @Query('workerId') workerId?: string
-  ) {
-    return this.usersService.getAnalystDashboardStats(
-      req.user.userId,
-      projectId ? +projectId : undefined,
-      activityId ? +activityId : undefined,
-      sessionId ? +sessionId : undefined,
-      adminId ? +adminId : undefined,
-      managerId ? +managerId : undefined,
-      workerId ? +workerId : undefined
-    );
-  }
-
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ANALYST')
-  @Get('analyst/dashboard/action-details')
-  getAnalystActionDetails(
-    @Req() req,
-    @Query('group') group: string,
-    @Query('activityId') activityId?: string,
-    @Query('sessionId') sessionId?: string,
-    @Query('adminId') adminId?: string,
-    @Query('managerId') managerId?: string,
-    @Query('workerId') workerId?: string
-  ) {
-    return this.usersService.getAnalystActionDetails(
-      req.user.userId,
-      group,
-      activityId ? +activityId : undefined,
-      sessionId ? +sessionId : undefined,
-      adminId ? +adminId : undefined,
-      managerId ? +managerId : undefined,
-      workerId ? +workerId : undefined
-    );
-  }
-
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ANALYST')
-  @Get('analyst/dashboard/users')
-  getAnalystDashboardUsers() {
-    return this.usersService.getAnalystDashboardUsers();
-  }
-
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ANALYST')
-  @Get('analyst/dashboard/activities')
-  getAnalystActivities() {
-    return this.usersService.getAnalystActivities();
-  }
-
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ANALYST')
-  @Get('analyst/dashboard/activity/:id/sessions')
-  getAnalystSessions(@Param('id') id: string) {
-    return this.usersService.getAnalystSessions(+id);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
