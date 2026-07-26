@@ -560,7 +560,7 @@ export class OutreachService {
         COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
         COUNT(*) FILTER (WHERE age_months <= 6) AS "infantsEbfPromotion",
         COUNT(*) FILTER (WHERE age_months > 6 AND age_years < 2) AS "infantsCfPromotion",
-        COUNT(DISTINCT "beneficiaryId") FILTER (
+        COUNT(*) FILTER (
           WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
           AND "reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
           AND "reportData"->>'edd' IS NOT NULL
