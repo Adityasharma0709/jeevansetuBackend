@@ -306,7 +306,7 @@ export class AnalystService {
     const cfRaw: any[] = await this.prisma.$queryRawUnsafe(cfCountQuery);
     const infantsCfPromotion = Number(cfRaw[0]?.count || 0);
 
-    // h. Women due pregnancy: Activity table, LMP + 280 days
+    // h. Women due pregnancy: Activity table,
     const dueCountQuery = `
       WITH LatestReports AS (
         SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId"
@@ -322,13 +322,11 @@ export class AnalystService {
       FROM LatestReports
       WHERE "childId" IS NULL
         AND "reportData"->>'pregnancyStatus' = 'Currently Pregnant'
-        AND (
-          CASE
-            WHEN "reportData"->>'lmp' ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN to_date("reportData"->>'lmp', 'DD/MM/YYYY')
-            WHEN "reportData"->>'lmp' ~ '^[0-9]{8}$' THEN to_date("reportData"->>'lmp', 'DDMMYYYY')
-            ELSE NULL
-          END
-        ) + INTERVAL '280 days' BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days';
+        AND "reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
+        AND "reportData"->>'edd' IS NOT NULL
+        AND "reportData"->>'edd' != '' 
+        AND to_date("reportData"->>'edd', 'DD/MM/YYYY') >= CURRENT_DATE
+        AND to_date("reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days';
     `;
     const dueRaw: any[] = await this.prisma.$queryRawUnsafe(dueCountQuery);
     const womenDueForDelivery30Days = Number(dueRaw[0]?.count || 0);
@@ -873,13 +871,11 @@ export class AnalystService {
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         WHERE lr."childId" IS NULL
           AND lr."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
-          AND (
-            CASE
-              WHEN lr."reportData"->>'lmp' ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN to_date(lr."reportData"->>'lmp', 'DD/MM/YYYY')
-              WHEN lr."reportData"->>'lmp' ~ '^[0-9]{8}$' THEN to_date(lr."reportData"->>'lmp', 'DDMMYYYY')
-              ELSE NULL
-            END
-          ) + INTERVAL '280 days' BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+          AND lr."reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
+          AND lr."reportData"->>'edd' IS NOT NULL
+          AND lr."reportData"->>'edd' != ''
+          AND to_date(lr."reportData"->>'edd', 'DD/MM/YYYY') >= CURRENT_DATE
+          AND to_date(lr."reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days'
         ORDER BY lr.date DESC;
       `;
     }
