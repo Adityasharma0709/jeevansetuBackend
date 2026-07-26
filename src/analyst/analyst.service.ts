@@ -454,11 +454,12 @@ export class AnalystService {
       project: record.project || 'N/A',
       gender: record.gender || 'N/A',
       guardianName: record.guardianName || 'N/A',
-      activity: 'N/A', // Omit/replace with N/A for Analyst
-      session: 'N/A',  // Omit/replace with N/A for Analyst
+      activity: 'N/A',
+      session: 'N/A',
       reportingDate: record.reportingDate ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A',
       age: record.age,
-      childNameAndAge: record.childNameAndAge || 'N/A'
+      childNameAndAge: record.childNameAndAge || 'N/A',
+      typeof: record.typeof || 'N/A'
     }));
   }
 

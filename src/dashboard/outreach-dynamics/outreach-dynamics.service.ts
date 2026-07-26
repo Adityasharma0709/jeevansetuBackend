@@ -250,7 +250,7 @@ export class OutreachDynamicsService {
             ${locFilterStr}
           ORDER BY "beneficiaryId", r.date DESC
         )
-        SELECT b.uid AS id, b.id AS "benId", b.name,
+        SELECT b.uid AS id, b.id AS "benId", b.name, b."typeof" AS typeof,
                COALESCE((
                  SELECT STRING_AGG(bg.name, ', ')
                  FROM "GroupMember" gm
@@ -272,7 +272,7 @@ export class OutreachDynamicsService {
       `;
     } else if (clean.includes('LACTATING') || clean.includes('MOTHER')) {
       queryStr = `
-        SELECT DISTINCT id, "benId", name,
+        SELECT DISTINCT id, "benId", name, typeof,
                COALESCE((
                  SELECT STRING_AGG(bg.name, ', ')
                  FROM "GroupMember" gm
@@ -289,7 +289,8 @@ export class OutreachDynamicsService {
                    FROM "BeneficiaryChild" c_sub
                    WHERE c_sub."beneficiaryId" = b.id
                  ) AS "childNameAndAge",
-                 MAX(c."dateOfBirth") AS latest_date
+                 MAX(c."dateOfBirth") AS latest_date,
+                 b."typeof" AS typeof
           FROM "Beneficiary" b
           INNER JOIN "BeneficiaryChild" c ON c."beneficiaryId" = b.id
           LEFT JOIN "Awc" a ON b."awcId" = a.id
@@ -298,7 +299,7 @@ export class OutreachDynamicsService {
             AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
             ${creatorFilterStr}
             ${locFilterStr}
-          GROUP BY b.uid, b.id, b.name, a."awcName", p_proj.name, b.gender, b."guardianName", b."dateOfBirth"
+          GROUP BY b.uid, b.id, b.name, a."awcName", p_proj.name, b.gender, b."guardianName", b."dateOfBirth", b."typeof"
           UNION
           SELECT b.uid AS id, b.id AS "benId", b.name, COALESCE(a."awcName", 'N/A') AS awc,
                  p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
@@ -308,7 +309,8 @@ export class OutreachDynamicsService {
                    FROM "BeneficiaryChild" c_sub
                    WHERE c_sub."beneficiaryId" = b.id
                  ) AS "childNameAndAge",
-                 lr.date AS latest_date
+                 lr.date AS latest_date,
+                 b."typeof" AS typeof
           FROM "Beneficiary" b
           INNER JOIN (
             SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", date, "childId"
@@ -340,7 +342,7 @@ export class OutreachDynamicsService {
             ${locFilterStr}
           ORDER BY "childId", r.date DESC
         )
-        SELECT c.uid AS id, b.id AS "benId", c.name,
+        SELECT c.uid AS id, b.id AS "benId", c.name, 'Child' AS typeof,
                COALESCE((
                  SELECT STRING_AGG(bg.name, ', ')
                  FROM "ChildGroupMember" cgm
@@ -372,7 +374,7 @@ export class OutreachDynamicsService {
             ${locFilterStr}
           ORDER BY "childId", r.date DESC
         )
-        SELECT c.uid AS id, b.id AS "benId", c.name,
+        SELECT c.uid AS id, b.id AS "benId", c.name, 'Child' AS typeof,
                COALESCE((
                  SELECT STRING_AGG(bg.name, ', ')
                  FROM "ChildGroupMember" cgm
@@ -394,7 +396,7 @@ export class OutreachDynamicsService {
       `;
     } else if (clean.includes('ADOLESCENT')) {
       queryStr = `
-        SELECT b.uid AS id, b.id AS "benId", b.name,
+        SELECT b.uid AS id, b.id AS "benId", b.name, b."typeof" AS typeof,
                COALESCE((
                  SELECT STRING_AGG(bg.name, ', ')
                  FROM "GroupMember" gm
@@ -417,7 +419,7 @@ export class OutreachDynamicsService {
       `;
     } else if (clean.includes('EBF')) {
       queryStr = `
-        SELECT c.uid AS id, b.id AS "benId", c.name,
+        SELECT c.uid AS id, b.id AS "benId", c.name, 'Child' AS typeof,
                COALESCE((
                  SELECT STRING_AGG(bg.name, ', ')
                  FROM "ChildGroupMember" cgm
@@ -440,7 +442,7 @@ export class OutreachDynamicsService {
       `;
     } else if (clean.includes('CF')) {
       queryStr = `
-        SELECT c.uid AS id, b.id AS "benId", c.name,
+        SELECT c.uid AS id, b.id AS "benId", c.name, 'Child' AS typeof,
                COALESCE((
                  SELECT STRING_AGG(bg.name, ', ')
                  FROM "ChildGroupMember" cgm
@@ -482,7 +484,7 @@ export class OutreachDynamicsService {
             AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days'
           ORDER BY r."beneficiaryId", r.date DESC
         )
-        SELECT b.uid AS id, b.id AS "benId", b.name,
+        SELECT b.uid AS id, b.id AS "benId", b.name, b."typeof" AS typeof,
                COALESCE((
                  SELECT STRING_AGG(bg.name, ', ')
                  FROM "GroupMember" gm
@@ -518,7 +520,8 @@ export class OutreachDynamicsService {
       session: record.session || 'N/A',
       reportingDate: record.reportingDate,
       age: record.age || 'N/A',
-      childNameAndAge: record.childNameAndAge || 'N/A'
+      childNameAndAge: record.childNameAndAge || 'N/A',
+      typeof: record.typeof || 'N/A'
     }));
   }
 }
