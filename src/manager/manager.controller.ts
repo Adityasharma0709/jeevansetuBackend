@@ -130,4 +130,23 @@ export class ManagerController {
   updateRequestStatus(@Param('id', ParseIntPipe) id: number, @Body('status') status: 'APPROVED' | 'REJECTED', @Req() req) {
     return this.managerService.updateRequestStatus(id, status, Number(req.user.userId));
   }
+
+  @Get('account-shares')
+  getAccountShares(@Req() req) {
+    return this.managerService.getActiveShares(Number(req.user.userId));
+  }
+
+  @Post('account-share')
+  shareAccount(@Body() body: { fromWorkerId: number; toWorkerId: number }, @Req() req) {
+    return this.managerService.shareAccount(
+      Number(body.fromWorkerId),
+      Number(body.toWorkerId),
+      Number(req.user.userId)
+    );
+  }
+
+  @Delete('account-share/:id')
+  revokeShare(@Param('id', ParseIntPipe) id: number, @Req() req) {
+    return this.managerService.revokeShare(id, Number(req.user.userId));
+  }
 }

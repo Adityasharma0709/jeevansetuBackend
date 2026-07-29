@@ -21,6 +21,8 @@ import { AssignUserDto } from 'src/projects/dto/assign-user.dto';
 import { CreateManagerDto } from './dto/create-manager.dto';
 import { UpdateManagerDto } from './dto/update-manager.dto';
 import { AssignProjectDto } from './dto/assign-project.dto';
+import { CreateAnalystDto } from './dto/create-analyst.dto';
+import { UpdateAnalystDto } from './dto/update-analyst.dto';
 @Controller('users')
 export class UsersController {
   constructor(private usersService: UsersService) { }
@@ -63,6 +65,13 @@ export class UsersController {
   @Delete('admin/:id/project/:projectId')
   removeAdminFromProject(@Param('id') id: string, @Param('projectId') projectId: string) {
     return this.usersService.removeAdminFromProject(+id, +projectId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Delete('analyst/:id/project/:projectId')
+  removeAnalystFromProject(@Param('id') id: string, @Param('projectId') projectId: string) {
+    return this.usersService.removeAnalystFromProject(+id, +projectId);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -152,7 +161,7 @@ export class UsersController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
   @Put('manager/:id')
   updateManager(
     @Param('id') id: string,
@@ -208,6 +217,44 @@ export class UsersController {
     @Req() req
   ) {
     return this.usersService.assignOutreachManager(+outreachId, +managerId, req.user);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Post('create-analyst')
+  createAnalyst(@Body() dto: CreateAnalystDto) {
+    return this.usersService.createAnalyst(dto);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Get('analysts')
+  getAllAnalysts() {
+    return this.usersService.getAllAnalysts();
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Get('analysts/:id')
+  getAnalystById(@Param('id') id: string) {
+    return this.usersService.getAnalystById(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Put('analyst/:id')
+  updateAnalyst(@Param('id') id: string, @Body() dto: UpdateAnalystDto) {
+    return this.usersService.updateAnalyst(+id, dto);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('SUPER_ADMIN')
+  @Patch('analyst/:id/status')
+  updateAnalystStatus(
+    @Param('id') id: string,
+    @Body('status') status: string,
+  ) {
+    return this.usersService.updateAnalystStatus(+id, status);
   }
 
 }

@@ -10,15 +10,28 @@ export class ReportDataDto {
 
   /**
    * Pregnancy status — only applicable for female beneficiaries aged 14+.
-   * Only allowed value: 'Yes' (optional field).
    */
   @IsOptional()
-  @IsIn(['Yes'])
+  @IsIn(['Yes', 'No', 'Currently Pregnant', 'Still Birth', 'Miscarriage/Aborted', 'Baby Delivered'])
   pregnancyStatus?: string;
 
   /**
+   * Pregnancy outcome — only applicable if previously pregnant.
+   */
+  @IsOptional()
+  @IsIn(['Still Birth', 'Miscarriage/Aborted', 'Baby Delivered'])
+  pregnancyOutcome?: string;
+
+  /**
+   * Expected Date of Delivery in DD/MM/YYYY format.
+   */
+  @IsOptional()
+  @IsString()
+  edd?: string;
+
+  /**
    * Last Menstrual Period date in DD/MM/YYYY format.
-   * Present only when pregnancyStatus = 'Yes'.
+   * Present only when pregnancyStatus = 'Currently Pregnant'.
    */
   @IsOptional()
   @IsString()

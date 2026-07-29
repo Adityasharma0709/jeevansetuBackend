@@ -197,13 +197,67 @@ export class ManagerService {
   }
 
   async updateWorker(id: number, dto: UpdateWorkerDto, managerId: number) {
+    const worker = await this.prisma.user.findFirst({
+      where: {
+        id,
+        roles: { some: { role: { name: 'OUTREACH' } } }
+      }
+    });
+
+    if (!worker) {
+      throw new NotFoundException('Outreach worker not found');
+    }
+
+    if (worker.createdByAdminId !== managerId) {
+      throw new ForbiddenException('You can only update outreach workers created by you');
+    }
+
+    const data: any = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.email !== undefined) data.email = dto.email;
+    if (dto.mobileNumber !== undefined) data.mobileNumber = dto.mobileNumber;
+    if (dto.mobile !== undefined) data.mobileNumber = dto.mobile;
+
+    if (dto.password) {
+      data.password = await bcrypt.hash(dto.password, 10);
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data,
+    });
+
     if (dto.projectId && dto.locationId) {
       const assigned = await this.prisma.userProjectLocation.findFirst({
         where: { userId: managerId, projectId: dto.projectId }
       });
       if (!assigned) throw new ForbiddenException('Not assigned area');
+
+      const existingAssignment = await this.prisma.userProjectLocation.findFirst({
+        where: { userId: id, projectId: dto.projectId }
+      });
+
+      if (existingAssignment) {
+        await this.prisma.userProjectLocation.update({
+          where: { id: existingAssignment.id },
+          data: { stateId: dto.locationId }
+        });
+      } else {
+        await this.prisma.userProjectLocation.create({
+          data: {
+            userId: id,
+            projectId: dto.projectId,
+            stateId: dto.locationId
+          }
+        });
+      }
     }
-    return this.prisma.user.update({ where: { id }, data: dto });
+
+    const { password, ...safe } = updated;
+    return {
+      message: 'Outreach worker credentials updated successfully',
+      user: safe,
+    };
   }
 
   async activateWorker(workerId: number, managerId: number) {
@@ -617,6 +671,84 @@ export class ManagerService {
     return this.prisma.approvalRequest.update({
       where: { id: requestId },
       data: { status: 'CANCELLED' }
+    });
+  }
+
+  async getActiveShares(managerId: number) {
+    return this.prisma.accountShare.findMany({
+      where: { managerId },
+      include: {
+        fromUser: {
+          select: { id: true, name: true, email: true, usercode: true }
+        },
+        toUser: {
+          select: { id: true, name: true, email: true, usercode: true }
+        }
+      }
+    });
+  }
+
+  async shareAccount(fromWorkerId: number, toWorkerId: number, managerId: number) {
+    if (fromWorkerId === toWorkerId) {
+      throw new BadRequestException('Cannot share account with oneself');
+    }
+
+    // Verify both users exist
+    const [fromUser, toUser] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: fromWorkerId } }),
+      this.prisma.user.findUnique({ where: { id: toWorkerId } })
+    ]);
+
+    if (!fromUser || !toUser) {
+      throw new NotFoundException('One or both outreach workers not found');
+    }
+
+    // Check if share already exists
+    const existing = await this.prisma.accountShare.findUnique({
+      where: {
+        fromUserId_toUserId: {
+          fromUserId: fromWorkerId,
+          toUserId: toWorkerId
+        }
+      }
+    });
+
+    if (existing) {
+      throw new ConflictException('This account sharing relationship already exists');
+    }
+
+    return this.prisma.accountShare.create({
+      data: {
+        fromUserId: fromWorkerId,
+        toUserId: toWorkerId,
+        managerId
+      },
+      include: {
+        fromUser: {
+          select: { id: true, name: true, email: true, usercode: true }
+        },
+        toUser: {
+          select: { id: true, name: true, email: true, usercode: true }
+        }
+      }
+    });
+  }
+
+  async revokeShare(shareId: number, managerId: number) {
+    const share = await this.prisma.accountShare.findUnique({
+      where: { id: shareId }
+    });
+
+    if (!share) {
+      throw new NotFoundException('Account sharing relationship not found');
+    }
+
+    if (share.managerId !== managerId) {
+      throw new ForbiddenException('You cannot revoke sharing relationship created by another manager');
+    }
+
+    return this.prisma.accountShare.delete({
+      where: { id: shareId }
     });
   }
 }

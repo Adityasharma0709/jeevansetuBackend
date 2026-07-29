@@ -84,6 +84,10 @@ model User {
 
   activityReports ActivityReport[]
   auditLogs       AuditLog[]
+
+  sharesFrom  AccountShare[] @relation("ShareFrom")
+  sharesTo    AccountShare[] @relation("ShareTo")
+  sharesManaged AccountShare[] @relation("ShareManager")
 }
 
 model Role {
@@ -282,6 +286,20 @@ model BeneficiaryChild {
 
   beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
   reports     ActivityReport[]
+  childGroups ChildGroupMember[]
+}
+
+model ChildGroupMember {
+  id            Int @id @default(autoincrement())
+  childId       Int
+  groupId       Int
+
+  child         BeneficiaryChild @relation(fields: [childId], references: [id])
+  group         BeneficiaryGroup @relation(fields: [groupId], references: [id])
+
+  assignedAt    DateTime @default(now())
+
+  @@unique([childId, groupId])
 }
 
 /**
@@ -293,14 +311,13 @@ model BeneficiaryChild {
 model BeneficiaryGroup {
   id     Int    @id @default(autoincrement())
    name String @unique
-  minAge Int
-  maxAge Int
 status String @default("ACTIVE") 
   createdById Int
   creator     User @relation(fields: [createdById], references: [id])
 
   activities GroupActivity[]
   members    GroupMember[]
+  childMembers ChildGroupMember[]
 
   createdAt DateTime @default(now())
 }
@@ -405,4 +422,18 @@ model AuditLog {
 
   performedById Int
   performedBy   User @relation(fields: [performedById], references: [id])
+}
+
+model AccountShare {
+  id          Int      @id @default(autoincrement())
+  fromUserId  Int
+  toUserId    Int
+  managerId   Int
+  createdAt   DateTime @default(now())
+
+  fromUser    User     @relation("ShareFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser      User     @relation("ShareTo", fields: [toUserId], references: [id], onDelete: Cascade)
+  manager     User     @relation("ShareManager", fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([fromUserId, toUserId])
 }
