@@ -738,6 +738,48 @@ export class AdminService {
       orderBy: { name: 'asc' },
     });
   }
+
+  async getBeneficiary(id: number) {
+    const beneficiary = await this.prisma.beneficiary.findUnique({
+      where: { id },
+      include: {
+        awc: {
+          include: {
+            state: true,
+            district: true,
+            block: true,
+            village: true,
+          },
+        },
+        children: true,
+      },
+    });
+    if (!beneficiary) {
+      throw new NotFoundException('Beneficiary not found');
+    }
+    return beneficiary;
+  }
+
+  async getFamilyMembers(beneficiaryId: number) {
+    await this.getBeneficiary(beneficiaryId);
+    return this.prisma.beneficiaryChild.findMany({
+      where: { beneficiaryId },
+      orderBy: { id: 'asc' },
+    });
+  }
+
+  async getReportsByBeneficiary(beneficiaryId: number) {
+    await this.getBeneficiary(beneficiaryId);
+    return this.prisma.activityReport.findMany({
+      where: { beneficiaryId },
+      include: {
+        activity: true,
+        session: true,
+        child: true,
+      },
+      orderBy: { date: 'desc' },
+    });
+  }
 }
 
 
