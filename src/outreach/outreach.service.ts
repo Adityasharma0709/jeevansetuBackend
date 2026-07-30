@@ -1384,6 +1384,24 @@ export class OutreachService {
     });
   }
 
+  async getReportsByBeneficiary(beneficiaryId: number) {
+    const beneficiary = await this.prisma.beneficiary.findUnique({
+      where: { id: beneficiaryId },
+      select: { id: true },
+    });
+    if (!beneficiary) throw new NotFoundException('Beneficiary not found');
+
+    return this.prisma.activityReport.findMany({
+      where: { beneficiaryId },
+      include: {
+        activity: true,
+        session: true,
+        child: true,
+      },
+      orderBy: { date: 'desc' },
+    });
+  }
+
   async updateFamilyMember(memberId: number, dto: any, user: any) {
     const userId = Number(user?.userId);
     if (!Number.isFinite(userId)) throw new BadRequestException('Invalid user');

@@ -149,4 +149,19 @@ export class ManagerController {
   revokeShare(@Param('id', ParseIntPipe) id: number, @Req() req) {
     return this.managerService.revokeShare(id, Number(req.user.userId));
   }
+
+  @Get('beneficiary/:id')
+  getBeneficiary(@Param('id', ParseIntPipe) id: number) {
+    return this.managerService.getBeneficiary(id);
+  }
+
+  @Get('beneficiary/:id/family-members')
+  getFamilyMembers(@Param('id', ParseIntPipe) id: number) {
+    return this.managerService.getFamilyMembers(id);
+  }
+
+  @Get('beneficiary/:id/reports')
+  getReportsByBeneficiary(@Param('id', ParseIntPipe) id: number) {
+    return this.managerService.getReportsByBeneficiary(id);
+  }
 }

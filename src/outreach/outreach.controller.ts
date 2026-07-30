@@ -211,6 +211,13 @@ export class OutreachController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN')
+  @Get('beneficiary/:id/reports')
+  getReportsByBeneficiary(@Param('id') id: string) {
+    return this.outreachService.getReportsByBeneficiary(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Patch('family-member/:id')
   updateFamilyMember(

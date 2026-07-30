@@ -230,4 +230,25 @@ export class AdminController {
       reason,
     );
   }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Get('beneficiary/:id')
+  getBeneficiary(@Param('id') id: string) {
+    return this.adminService.getBeneficiary(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Get('beneficiary/:id/family-members')
+  getFamilyMembers(@Param('id') id: string) {
+    return this.adminService.getFamilyMembers(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Get('beneficiary/:id/reports')
+  getReportsByBeneficiary(@Param('id') id: string) {
+    return this.adminService.getReportsByBeneficiary(+id);
+  }
 }
