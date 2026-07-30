@@ -11,7 +11,6 @@ import { OutreachDynamicsService } from '../dashboard/outreach-dynamics/outreach
 import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto';
 import { CreateReportDto } from './dto/create-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
-import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
 import { RequestBeneficiaryUpdateDto } from './dto/request-beneficiary-update.dto';
 import { AddFamilyMemberDto } from './dto/add-family-member.dto';
 
@@ -21,6 +20,40 @@ export class OutreachService {
     private prisma: PrismaService,
     private outreachDynamics: OutreachDynamicsService,
   ) { }
+
+  private parseDateRobust(dateVal: any): Date {
+    if (!dateVal) return new Date();
+    if (dateVal instanceof Date) {
+      return isNaN(dateVal.getTime()) ? new Date() : dateVal;
+    }
+    if (typeof dateVal !== 'string') {
+      return new Date();
+    }
+    
+    const trimmed = dateVal.trim();
+    
+    // Check if format is DD-MM-YYYY or DD/MM/YYYY
+    const ddmmyyyyPattern = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/;
+    const match = ddmmyyyyPattern.exec(trimmed);
+    if (match) {
+      const day = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10) - 1; // 0-indexed
+      const year = parseInt(match[3], 10);
+      const date = new Date(year, month, day);
+      if (!isNaN(date.getTime())) {
+        return date;
+      }
+    }
+
+    // Fallback to standard parser
+    const parsed = new Date(trimmed);
+    if (!isNaN(parsed.getTime())) {
+      return parsed;
+    }
+
+    return new Date();
+  }
+
 
   private assertIsActive(status: string | null | undefined, label: string) {
     if ((status ?? '').toString().toUpperCase() !== 'ACTIVE') {
@@ -336,7 +369,7 @@ export class OutreachService {
     const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
     if (!session) throw new NotFoundException('Session not found');
 
-    const reportDate = dto.sessionDate ? new Date(dto.sessionDate) : new Date();
+    const reportDate = this.parseDateRobust(dto.sessionDate);
 
     // Check for duplicate report on the same date
     const startOfDay = new Date(reportDate);
@@ -427,7 +460,7 @@ export class OutreachService {
       }
     };
 
-    if (dto.sessionDate) dataToUpdate.date = new Date(dto.sessionDate);
+    if (dto.sessionDate) dataToUpdate.date = this.parseDateRobust(dto.sessionDate);
     if (dto.activityId) dataToUpdate.activityId = dto.activityId;
     if (dto.sessionId) dataToUpdate.sessionId = dto.sessionId;
     if (dto.beneficiaryId) dataToUpdate.beneficiaryId = dto.beneficiaryId;

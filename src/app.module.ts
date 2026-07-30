@@ -3,7 +3,6 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
-import { RolesModule } from './roles/roles.module';
 import { ProjectsModule } from './projects/projects.module';
 import { LocationsModule } from './locations/locations.module';
 import { ConfigModule } from '@nestjs/config';
@@ -18,7 +17,6 @@ import { OutreachDynamicsModule } from './dashboard/outreach-dynamics/outreach-d
   imports: [
     AuthModule,
     UsersModule,
-    RolesModule,
     ProjectsModule,
     LocationsModule,
     PrismaModule,
