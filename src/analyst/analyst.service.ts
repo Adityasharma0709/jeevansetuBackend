@@ -449,7 +449,7 @@ export class AnalystService {
       benId: record.benId ? Number(record.benId) : null,
       name: record.name,
       group: record.group,
-      awc: record.awc,
+      awc: record.awc || 'N/A',
       project: record.project || 'N/A',
       gender: record.gender || 'N/A',
       guardianName: record.guardianName || 'N/A',
@@ -464,7 +464,7 @@ export class AnalystService {
       district: record.district || 'N/A',
       block: record.block || 'N/A',
       village: record.village || 'N/A',
-      school: record.school || 'N/A',
+      school: 'N/A',
       motherName: record.motherName || 'N/A',
     }));
   }
