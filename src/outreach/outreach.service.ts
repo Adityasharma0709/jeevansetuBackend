@@ -176,16 +176,46 @@ export class OutreachService {
     }
     this.assertIsActive(project.status, 'Project');
 
-    // 4. Count existing beneficiaries in project
-    const count = await this.prisma.beneficiary.count({
-      where: { projectId: dto.projectId }
+    // 4. Generate a robust and unique UID
+    const lastBen = await this.prisma.beneficiary.findFirst({
+      where: {
+        projectId: dto.projectId,
+        uid: { startsWith: project.projectCode }
+      },
+      orderBy: { uid: 'desc' },
+      select: { uid: true }
     });
 
-    // 4. Generate UID
-    const next = count + 1;
-    const padded = String(next).padStart(6, '0');
+    let nextVal = 1;
+    if (lastBen && lastBen.uid) {
+      const suffixStr = lastBen.uid.substring(project.projectCode.length);
+      const parsed = parseInt(suffixStr, 10);
+      if (!isNaN(parsed)) {
+        nextVal = parsed + 1;
+      }
+    }
 
-    const uid = `${project.projectCode}${padded}`;
+    let uid = '';
+    let isUnique = false;
+    let attempts = 0;
+    while (!isUnique && attempts < 100) {
+      const padded = String(nextVal).padStart(6, '0');
+      uid = `${project.projectCode}${padded}`;
+      const existing = await this.prisma.beneficiary.findUnique({
+        where: { uid },
+        select: { id: true }
+      });
+      if (!existing) {
+        isUnique = true;
+      } else {
+        nextVal++;
+        attempts++;
+      }
+    }
+
+    if (!isUnique) {
+      throw new BadRequestException('Unable to generate a unique UID for the beneficiary');
+    }
 
     // 5. Create beneficiary
     const ben = await this.prisma.beneficiary.create({
