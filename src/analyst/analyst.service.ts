@@ -422,7 +422,7 @@ export class AnalystService {
     switch (gName) {
       case 'CURRENTLY ACTIVE PREGNANT WOMEN':
       case 'PREGNANT WOMEN':
-        groupCondition = `"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childIntId" IS NULL`;
+        groupCondition = `"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childIntId" IS NULL AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')`;
         break;
       case 'CURRENTLY ACTIVE LACTATING MOTHERS':
       case 'LACTATING WOMEN':
@@ -505,8 +505,8 @@ export class AnalystService {
     let rawRecords: any[] = [];
     if (unique) {
       const uniqueQuery = `
-        WITH ReportData AS (
-          SELECT 
+        WITH LatestReports AS (
+          SELECT DISTINCT ON (COALESCE(r."childId", r."beneficiaryId"))
             r.id AS "reportId",
             r."beneficiaryId" AS "benIntId",
             r."childId" AS "childIntId",
@@ -553,12 +553,9 @@ export class AnalystService {
           LEFT JOIN "Activity" act ON r."activityId" = act.id
           LEFT JOIN "Session" sess ON r."sessionId" = sess.id
           ${whereClause}
-        ),
-        FilteredReportData AS (
-          SELECT * FROM ReportData
-          WHERE ${groupCondition}
+          ORDER BY COALESCE(r."childId", r."beneficiaryId"), r.date DESC
         )
-        SELECT DISTINCT ON (COALESCE("childIntId", "benIntId"))
+        SELECT 
           "reportId",
           "beneficiaryId" AS id,
           "benIntId" AS "benId",
@@ -575,9 +572,11 @@ export class AnalystService {
           block,
           village,
           school,
-          "motherName"
-        FROM FilteredReportData
-        ORDER BY COALESCE("childIntId", "benIntId"), "reportingDate" DESC
+          "motherName",
+          "typeof"
+        FROM LatestReports
+        WHERE ${groupCondition}
+        ORDER BY "reportingDate" DESC
         LIMIT 100;
       `;
       rawRecords = await this.prisma.$queryRawUnsafe(uniqueQuery);
@@ -649,7 +648,8 @@ export class AnalystService {
           block,
           village,
           school,
-          "motherName"
+          "motherName",
+          "typeof"
         FROM ReportData
         WHERE ${groupCondition}
         ORDER BY "reportingDate" DESC
@@ -687,6 +687,7 @@ export class AnalystService {
         village: record.village || 'N/A',
         school: record.school || 'N/A',
         motherName: record.motherName || 'N/A',
+        beneficiaryType: record.typeof || 'N/A',
       };
     });
   }
