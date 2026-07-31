@@ -426,7 +426,7 @@ export class AnalystService {
         break;
       case 'CURRENTLY ACTIVE LACTATING MOTHERS':
       case 'LACTATING WOMEN':
-        groupCondition = `"reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childIntId" IS NULL`;
+        groupCondition = `("reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childIntId" IS NULL) OR EXISTS (SELECT 1 FROM "BeneficiaryChild" bc WHERE bc."beneficiaryId" = "benIntId" AND bc."dateOfBirth" >= "reportingDate" - INTERVAL '2 years' AND bc."dateOfBirth" <= "reportingDate")`;
         break;
       case 'CURRENTLY ACTIVE SAM CHILDREN':
         groupCondition = `"reportData"->>'samMamStatus' = 'SAM'`;

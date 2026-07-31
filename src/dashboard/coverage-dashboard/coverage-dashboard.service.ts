@@ -92,7 +92,7 @@ export class CoverageDashboardService {
  
           -- Outreach Actions
           COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')) AS "activePregnantWomen",
-          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "activeLactatingMothers",
+          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) OR EXISTS (SELECT 1 FROM "BeneficiaryChild" bc WHERE bc."beneficiaryId" = "beneficiaryId" AND bc."dateOfBirth" >= date - INTERVAL '2 years' AND bc."dateOfBirth" <= date)) AS "activeLactatingMothers",
           COUNT(DISTINCT "childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM') AS "activeSamChildren",
           COUNT(DISTINCT "childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM') AS "activeMamChildren",
           COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
@@ -116,7 +116,7 @@ export class CoverageDashboardService {
  
           -- Activity Session Demographics
           COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')) AS "pregnantWomen",
-          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "lactatingWomen",
+          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) OR EXISTS (SELECT 1 FROM "BeneficiaryChild" bc WHERE bc."beneficiaryId" = "beneficiaryId" AND bc."dateOfBirth" >= date - INTERVAL '2 years' AND bc."dateOfBirth" <= date)) AS "lactatingWomen",
           COUNT(DISTINCT "childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
           COUNT(DISTINCT "childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
           COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (
@@ -182,7 +182,7 @@ export class CoverageDashboardService {
 
           -- Outreach Actions
           COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')) AS "activePregnantWomen",
-          COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "activeLactatingMothers",
+          COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) OR EXISTS (SELECT 1 FROM "BeneficiaryChild" bc WHERE bc."beneficiaryId" = "beneficiaryId" AND bc."dateOfBirth" >= date - INTERVAL '2 years' AND bc."dateOfBirth" <= date)) AS "activeLactatingMothers",
           COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM') AS "activeSamChildren",
           COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM') AS "activeMamChildren",
           COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
@@ -206,7 +206,7 @@ export class CoverageDashboardService {
 
           -- Activity Session Demographics
           COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')) AS "pregnantWomen",
-          COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "lactatingWomen",
+          COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) OR EXISTS (SELECT 1 FROM "BeneficiaryChild" bc WHERE bc."beneficiaryId" = "beneficiaryId" AND bc."dateOfBirth" >= date - INTERVAL '2 years' AND bc."dateOfBirth" <= date)) AS "lactatingWomen",
           COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
           COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
           COUNT(*) FILTER (
