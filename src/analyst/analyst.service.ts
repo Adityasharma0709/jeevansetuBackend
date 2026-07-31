@@ -444,7 +444,6 @@ export class AnalystService {
       awc
     });
 
-    // Option B: Post-processing to omit activity and session details for Analyst
     return rawRecords.map(record => ({
       id: record.id,
       benId: record.benId ? Number(record.benId) : null,
@@ -454,12 +453,19 @@ export class AnalystService {
       project: record.project || 'N/A',
       gender: record.gender || 'N/A',
       guardianName: record.guardianName || 'N/A',
-      activity: 'N/A',
-      session: 'N/A',
-      reportingDate: record.reportingDate ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A',
+      activity: record.activity || 'N/A',
+      session: record.session || 'N/A',
+      reportingDate: record.reportingDate && !isNaN(Date.parse(record.reportingDate))
+        ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : 'N/A',
       age: record.age,
       childNameAndAge: record.childNameAndAge || 'N/A',
-      beneficiaryType: record.beneficiaryType || 'N/A'
+      beneficiaryType: record.beneficiaryType || 'N/A',
+      district: record.district || 'N/A',
+      block: record.block || 'N/A',
+      village: record.village || 'N/A',
+      school: record.school || 'N/A',
+      motherName: record.motherName || 'N/A',
     }));
   }
 

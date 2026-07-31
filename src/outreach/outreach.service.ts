@@ -890,8 +890,14 @@ export class OutreachService {
             r."reportData",
             COALESCE(c.gender, b.gender) AS gender,
             b."maritalStatus",
+            EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) || ' Y' AS age,
             EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
             (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
+            COALESCE(b.district, 'N/A') AS district,
+            COALESCE(b.block, 'N/A') AS block,
+            COALESCE(b.village, 'N/A') AS village,
+            'N/A' AS school,
+            CASE WHEN r."childId" IS NOT NULL THEN b.name ELSE 'N/A' END AS "motherName",
             CASE 
               WHEN r."childId" IS NOT NULL THEN (
                 SELECT STRING_AGG(bg.name, ', ')
@@ -925,8 +931,15 @@ export class OutreachService {
             COALESCE(activity, 'N/A') AS activity,
             COALESCE(session, 'N/A') AS session,
             "reportingDate",
+            age,
             age_years,
-            age_months
+            age_months,
+            district,
+            block,
+            village,
+            school,
+            "motherName",
+            "typeof"
           FROM ReportData
           WHERE ${groupCondition}
           ORDER BY "uniqueEntityId", "reportingDate" DESC
@@ -948,9 +961,17 @@ export class OutreachService {
       guardianName: record.guardianName || 'N/A',
       activity: record.activity || 'N/A',
       session: record.session || 'N/A',
-      reportingDate: record.reportingDate ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A',
+      reportingDate: record.reportingDate && !isNaN(Date.parse(record.reportingDate))
+        ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : 'N/A',
       age: record.age || 'N/A',
-      childNameAndAge: record.childNameAndAge || 'N/A'
+      childNameAndAge: record.childNameAndAge || 'N/A',
+      beneficiaryType: record.typeof || 'N/A',
+      district: record.district || 'N/A',
+      block: record.block || 'N/A',
+      village: record.village || 'N/A',
+      school: record.school || 'N/A',
+      motherName: record.motherName || 'N/A',
     }));
   }
 
