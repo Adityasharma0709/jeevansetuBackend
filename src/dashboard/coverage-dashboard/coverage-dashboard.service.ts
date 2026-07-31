@@ -91,8 +91,8 @@ export class CoverageDashboardService {
           COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) AS "totalReports",
  
           -- Outreach Actions
-          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')) AS "activePregnantWomen",
-          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) OR EXISTS (SELECT 1 FROM "BeneficiaryChild" bc WHERE bc."beneficiaryId" = "beneficiaryId" AND bc."dateOfBirth" >= date - INTERVAL '2 years' AND bc."dateOfBirth" <= date)) AS "activeLactatingMothers",
+          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "childId" IS NULL AND EXISTS (SELECT 1 FROM "GroupMember" gm INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id WHERE gm."beneficiaryId" = "beneficiaryId" AND bg.name = 'Pregnant Women')) AS "activePregnantWomen",
+          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "childId" IS NULL AND EXISTS (SELECT 1 FROM "GroupMember" gm INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id WHERE gm."beneficiaryId" = "beneficiaryId" AND bg.name = 'Lactating Women')) AS "activeLactatingMothers",
           COUNT(DISTINCT "childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM') AS "activeSamChildren",
           COUNT(DISTINCT "childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM') AS "activeMamChildren",
           COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
@@ -115,8 +115,8 @@ export class CoverageDashboardService {
           COUNT(DISTINCT "childId") FILTER (WHERE age_years >= 6 AND age_years < 10) AS "children6To10",
  
           -- Activity Session Demographics
-          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')) AS "pregnantWomen",
-          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) OR EXISTS (SELECT 1 FROM "BeneficiaryChild" bc WHERE bc."beneficiaryId" = "beneficiaryId" AND bc."dateOfBirth" >= date - INTERVAL '2 years' AND bc."dateOfBirth" <= date)) AS "lactatingWomen",
+          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "childId" IS NULL AND EXISTS (SELECT 1 FROM "GroupMember" gm INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id WHERE gm."beneficiaryId" = "beneficiaryId" AND bg.name = 'Pregnant Women')) AS "pregnantWomen",
+          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "childId" IS NULL AND EXISTS (SELECT 1 FROM "GroupMember" gm INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id WHERE gm."beneficiaryId" = "beneficiaryId" AND bg.name = 'Lactating Women')) AS "lactatingWomen",
           COUNT(DISTINCT "childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
           COUNT(DISTINCT "childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
           COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (
@@ -181,8 +181,8 @@ export class CoverageDashboardService {
           COUNT(*) AS "totalReports",
 
           -- Outreach Actions
-          COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')) AS "activePregnantWomen",
-          COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) OR EXISTS (SELECT 1 FROM "BeneficiaryChild" bc WHERE bc."beneficiaryId" = "beneficiaryId" AND bc."dateOfBirth" >= date - INTERVAL '2 years' AND bc."dateOfBirth" <= date)) AS "activeLactatingMothers",
+          COUNT(*) FILTER (WHERE "childId" IS NULL AND EXISTS (SELECT 1 FROM "GroupMember" gm INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id WHERE gm."beneficiaryId" = "beneficiaryId" AND bg.name = 'Pregnant Women')) AS "activePregnantWomen",
+          COUNT(*) FILTER (WHERE "childId" IS NULL AND EXISTS (SELECT 1 FROM "GroupMember" gm INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id WHERE gm."beneficiaryId" = "beneficiaryId" AND bg.name = 'Lactating Women')) AS "activeLactatingMothers",
           COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM') AS "activeSamChildren",
           COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM') AS "activeMamChildren",
           COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls",
@@ -205,8 +205,8 @@ export class CoverageDashboardService {
           COUNT(*) FILTER (WHERE age_years >= 6 AND age_years < 10) AS "children6To10",
 
           -- Activity Session Demographics
-          COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')) AS "pregnantWomen",
-          COUNT(*) FILTER (WHERE ("reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) OR EXISTS (SELECT 1 FROM "BeneficiaryChild" bc WHERE bc."beneficiaryId" = "beneficiaryId" AND bc."dateOfBirth" >= date - INTERVAL '2 years' AND bc."dateOfBirth" <= date)) AS "lactatingWomen",
+          COUNT(*) FILTER (WHERE "childId" IS NULL AND EXISTS (SELECT 1 FROM "GroupMember" gm INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id WHERE gm."beneficiaryId" = "beneficiaryId" AND bg.name = 'Pregnant Women')) AS "pregnantWomen",
+          COUNT(*) FILTER (WHERE "childId" IS NULL AND EXISTS (SELECT 1 FROM "GroupMember" gm INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id WHERE gm."beneficiaryId" = "beneficiaryId" AND bg.name = 'Lactating Women')) AS "lactatingWomen",
           COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
           COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
           COUNT(*) FILTER (

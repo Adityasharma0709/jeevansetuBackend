@@ -422,11 +422,11 @@ export class AnalystService {
     switch (gName) {
       case 'CURRENTLY ACTIVE PREGNANT WOMEN':
       case 'PREGNANT WOMEN':
-        groupCondition = `"reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childIntId" IS NULL AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')`;
+        groupCondition = `"childIntId" IS NULL AND EXISTS (SELECT 1 FROM "GroupMember" gm INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id WHERE gm."beneficiaryId" = "benIntId" AND bg.name = 'Pregnant Women')`;
         break;
       case 'CURRENTLY ACTIVE LACTATING MOTHERS':
       case 'LACTATING WOMEN':
-        groupCondition = `("reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childIntId" IS NULL) OR EXISTS (SELECT 1 FROM "BeneficiaryChild" bc WHERE bc."beneficiaryId" = "benIntId" AND bc."dateOfBirth" >= "reportingDate" - INTERVAL '2 years' AND bc."dateOfBirth" <= "reportingDate")`;
+        groupCondition = `"childIntId" IS NULL AND EXISTS (SELECT 1 FROM "GroupMember" gm INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id WHERE gm."beneficiaryId" = "benIntId" AND bg.name = 'Lactating Women')`;
         break;
       case 'CURRENTLY ACTIVE SAM CHILDREN':
         groupCondition = `"reportData"->>'samMamStatus' = 'SAM'`;
