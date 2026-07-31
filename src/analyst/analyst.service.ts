@@ -576,8 +576,7 @@ export class AnalystService {
           "typeof"
         FROM LatestReports
         WHERE ${groupCondition}
-        ORDER BY "reportingDate" DESC
-        LIMIT 100;
+        ORDER BY "reportingDate" DESC;
       `;
       rawRecords = await this.prisma.$queryRawUnsafe(uniqueQuery);
     } else {
@@ -652,8 +651,7 @@ export class AnalystService {
           "typeof"
         FROM ReportData
         WHERE ${groupCondition}
-        ORDER BY "reportingDate" DESC
-        LIMIT 100;
+        ORDER BY "reportingDate" DESC;
       `;
       rawRecords = await this.prisma.$queryRawUnsafe(nonUniqueQuery);
     }
