@@ -1196,9 +1196,19 @@ export class OutreachService {
     });
   }
 
-  async getBeneficiary(id: number) {
-    const ben = await this.prisma.beneficiary.findUnique({
-      where: { id },
+  async getBeneficiary(id: number, userId: number) {
+    const shares = await this.prisma.accountShare.findMany({
+      where: { toUserId: userId },
+      select: { fromUserId: true }
+    });
+    const sharedFromUserIds = shares.map(s => s.fromUserId);
+    const allowedUserIds = [userId, ...sharedFromUserIds];
+
+    const ben = await this.prisma.beneficiary.findFirst({
+      where: {
+        id,
+        createdById: { in: allowedUserIds }
+      },
       include: {
         project: true,
         awc: true,
@@ -1343,9 +1353,19 @@ export class OutreachService {
     return child;
   }
 
-  async getFamilyMembers(beneficiaryId: number) {
-    const beneficiary = await this.prisma.beneficiary.findUnique({
-      where: { id: beneficiaryId },
+  async getFamilyMembers(beneficiaryId: number, userId: number) {
+    const shares = await this.prisma.accountShare.findMany({
+      where: { toUserId: userId },
+      select: { fromUserId: true }
+    });
+    const sharedFromUserIds = shares.map(s => s.fromUserId);
+    const allowedUserIds = [userId, ...sharedFromUserIds];
+
+    const beneficiary = await this.prisma.beneficiary.findFirst({
+      where: {
+        id: beneficiaryId,
+        createdById: { in: allowedUserIds }
+      },
       select: { id: true },
     });
     if (!beneficiary) throw new NotFoundException('Beneficiary not found');
@@ -1356,9 +1376,19 @@ export class OutreachService {
     });
   }
 
-  async getReportsByBeneficiary(beneficiaryId: number) {
-    const beneficiary = await this.prisma.beneficiary.findUnique({
-      where: { id: beneficiaryId },
+  async getReportsByBeneficiary(beneficiaryId: number, userId: number) {
+    const shares = await this.prisma.accountShare.findMany({
+      where: { toUserId: userId },
+      select: { fromUserId: true }
+    });
+    const sharedFromUserIds = shares.map(s => s.fromUserId);
+    const allowedUserIds = [userId, ...sharedFromUserIds];
+
+    const beneficiary = await this.prisma.beneficiary.findFirst({
+      where: {
+        id: beneficiaryId,
+        createdById: { in: allowedUserIds }
+      },
       select: { id: true },
     });
     if (!beneficiary) throw new NotFoundException('Beneficiary not found');

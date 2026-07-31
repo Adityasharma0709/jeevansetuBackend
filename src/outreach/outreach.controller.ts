@@ -143,10 +143,10 @@ export class OutreachController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN')
+  @Roles('OUTREACH')
   @Get('beneficiary/:id')
-  getBeneficiary(@Param('id') id: string) {
-    return this.outreachService.getBeneficiary(+id);
+  getBeneficiary(@Param('id') id: string, @Req() req) {
+    return this.outreachService.getBeneficiary(+id, Number(req.user.userId));
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -204,17 +204,17 @@ export class OutreachController {
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN')
+  @Roles('OUTREACH')
   @Get('beneficiary/:id/family-members')
-  getFamilyMembers(@Param('id') id: string) {
-    return this.outreachService.getFamilyMembers(+id);
+  getFamilyMembers(@Param('id') id: string, @Req() req) {
+    return this.outreachService.getFamilyMembers(+id, Number(req.user.userId));
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('OUTREACH', 'MANAGER', 'SUPER_ADMIN', 'ADMIN')
+  @Roles('OUTREACH')
   @Get('beneficiary/:id/reports')
-  getReportsByBeneficiary(@Param('id') id: string) {
-    return this.outreachService.getReportsByBeneficiary(+id);
+  getReportsByBeneficiary(@Param('id') id: string, @Req() req) {
+    return this.outreachService.getReportsByBeneficiary(+id, Number(req.user.userId));
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)

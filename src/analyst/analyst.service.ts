@@ -522,6 +522,11 @@ export class AnalystService {
             b."maritalStatus",
             EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
             (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
+            COALESCE(b.district, 'N/A') AS district,
+            COALESCE(b.block, 'N/A') AS block,
+            COALESCE(b.village, 'N/A') AS village,
+            'N/A' AS school,
+            CASE WHEN r."childId" IS NOT NULL THEN b.name ELSE 'N/A' END AS "motherName",
             (
               SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(r.date, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
               FROM "BeneficiaryChild" c_sub
@@ -556,6 +561,7 @@ export class AnalystService {
         SELECT DISTINCT ON (COALESCE("childIntId", "benIntId"))
           "reportId",
           "beneficiaryId" AS id,
+          "benIntId" AS "benId",
           "beneficiaryName" AS name,
           COALESCE("actualGroups", 'N/A') AS group,
           COALESCE(awc, 'N/A') AS awc,
@@ -564,7 +570,12 @@ export class AnalystService {
           "reportingDate",
           age_years,
           age_months,
-          "childNameAndAge"
+          "childNameAndAge",
+          district,
+          block,
+          village,
+          school,
+          "motherName"
         FROM FilteredReportData
         ORDER BY COALESCE("childIntId", "benIntId"), "reportingDate" DESC
         LIMIT 100;
@@ -589,6 +600,11 @@ export class AnalystService {
             b."maritalStatus",
             EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
             (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
+            COALESCE(b.district, 'N/A') AS district,
+            COALESCE(b.block, 'N/A') AS block,
+            COALESCE(b.village, 'N/A') AS village,
+            'N/A' AS school,
+            CASE WHEN r."childId" IS NOT NULL THEN b.name ELSE 'N/A' END AS "motherName",
             (
               SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(r.date, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(r.date, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
               FROM "BeneficiaryChild" c_sub
@@ -619,6 +635,7 @@ export class AnalystService {
         SELECT 
           "reportId",
           "beneficiaryId" AS id,
+          "benIntId" AS "benId",
           "beneficiaryName" AS name,
           COALESCE("actualGroups", 'N/A') AS group,
           COALESCE(awc, 'N/A') AS awc,
@@ -627,7 +644,12 @@ export class AnalystService {
           "reportingDate",
           age_years,
           age_months,
-          "childNameAndAge"
+          "childNameAndAge",
+          district,
+          block,
+          village,
+          school,
+          "motherName"
         FROM ReportData
         WHERE ${groupCondition}
         ORDER BY "reportingDate" DESC
@@ -639,24 +661,32 @@ export class AnalystService {
     return rawRecords.map(record => {
       let ageStr = 'N/A';
       if (record.age_years !== null && record.age_years !== undefined) {
-        const yrs = Number(record.age_years);
-        const mos = Number(record.age_months);
-        if (yrs === 0) {
-          ageStr = `${mos} M`;
-        } else {
-          ageStr = `${yrs} Y`;
-        }
+         const yrs = Number(record.age_years);
+         const mos = Number(record.age_months);
+         if (yrs === 0) {
+           ageStr = `${mos} M`;
+         } else {
+           ageStr = `${yrs} Y`;
+         }
       }
       return {
         id: record.id,
+        benId: record.benId ? Number(record.benId) : null,
         name: record.name,
         group: record.group,
         awc: record.awc,
         activity: record.activity,
         session: record.session,
-        reportingDate: record.reportingDate ? new Date(record.reportingDate).toLocaleDateString() : 'N/A',
+        reportingDate: record.reportingDate && !isNaN(Date.parse(record.reportingDate))
+          ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : 'N/A',
         age: ageStr,
         childNameAndAge: record.childNameAndAge || 'N/A',
+        district: record.district || 'N/A',
+        block: record.block || 'N/A',
+        village: record.village || 'N/A',
+        school: record.school || 'N/A',
+        motherName: record.motherName || 'N/A',
       };
     });
   }
