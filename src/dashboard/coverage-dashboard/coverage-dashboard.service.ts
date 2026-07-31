@@ -68,8 +68,8 @@ export class CoverageDashboardService {
 
     if (options.unique) {
       const uniqueQuery = `
-        WITH ReportData AS (
-          SELECT 
+        WITH LatestReports AS (
+          SELECT DISTINCT ON (COALESCE(r."childId", r."beneficiaryId"))
             r.id,
             r."beneficiaryId",
             r."childId",
@@ -85,10 +85,11 @@ export class CoverageDashboardService {
           LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
           LEFT JOIN "Awc" a ON b."awcId" = a.id
           ${whereClause}
+          ORDER BY COALESCE(r."childId", r."beneficiaryId"), r.date DESC
         )
         SELECT 
           COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) AS "totalReports",
-
+ 
           -- Outreach Actions
           COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')) AS "activePregnantWomen",
           COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "activeLactatingMothers",
@@ -106,13 +107,13 @@ export class CoverageDashboardService {
             AND to_date("reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days'
             AND "childId" IS NULL
           ) AS "womenDueForDelivery30Days",
-
+ 
           -- Episodes of Care
           COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (WHERE age_years > 19) AS "adults",
           COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (WHERE age_years BETWEEN 10 AND 19) AS "adolescents",
           COUNT(DISTINCT "childId") FILTER (WHERE age_years < 6) AS "childrenUnder5",
           COUNT(DISTINCT "childId") FILTER (WHERE age_years >= 6 AND age_years < 10) AS "children6To10",
-
+ 
           -- Activity Session Demographics
           COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')) AS "pregnantWomen",
           COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "lactatingWomen",
@@ -153,7 +154,7 @@ export class CoverageDashboardService {
             OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19)
             OR LOWER(TRIM("typeof")) = 'stakeholder')
           ) AS "otherBeneficiaries"
-        FROM ReportData;
+        FROM LatestReports;
       `;
       statsRaw = await this.prisma.$queryRawUnsafe(uniqueQuery);
     } else {
