@@ -2,12 +2,14 @@ import { Injectable, BadRequestException, NotFoundException, ForbiddenException 
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { OutreachDynamicsService } from '../dashboard/outreach-dynamics/outreach-dynamics.service';
+import { CoverageDashboardService } from '../dashboard/coverage-dashboard/coverage-dashboard.service';
 
 @Injectable()
 export class AnalystService {
   constructor(
     private prisma: PrismaService,
     private outreachDynamics: OutreachDynamicsService,
+    private coverageDashboard: CoverageDashboardService,
   ) {}
 
   async getDashboardReports(userId: number) {
@@ -182,176 +184,21 @@ export class AnalystService {
       awc
     });
 
-    // 5. Coverage Dashboard Stats (Applying filters and unique toggle)
-    const conditions: string[] = [
-      `b."projectId" IN (${targetProjectIdsStr})`
-    ];
+    // 5. Coverage Dashboard Stats (Delegated to CoverageDashboardService)
+    const row = await this.coverageDashboard.getStats({
+      projectIds: targetProjectIds,
+      reporterIds: hasReporterFilter ? reporterIds : undefined,
+      activityId,
+      sessionId,
+      state,
+      district,
+      block,
+      awc,
+      year,
+      month,
+      unique
+    });
 
-    if (activityId) conditions.push(`r."activityId" = ${activityId}`);
-    if (sessionId) conditions.push(`r."sessionId" = ${sessionId}`);
-
-    if (hasReporterFilter) {
-      conditions.push(`r."reportedById" IN (${reporterIds.join(',')})`);
-    }
-
-    if (state && state !== 'ALL') {
-      conditions.push(`LOWER(b.state) = LOWER('${escapeStr(state)}')`);
-    }
-    if (district && district !== 'ALL') {
-      conditions.push(`LOWER(b.district) = LOWER('${escapeStr(district)}')`);
-    }
-    if (block && block !== 'ALL') {
-      conditions.push(`LOWER(b.block) = LOWER('${escapeStr(block)}')`);
-    }
-    if (awc && awc !== 'ALL') {
-      conditions.push(`LOWER(a."awcName") = LOWER('${escapeStr(awc)}')`);
-    }
-
-    if (year && year !== 'ALL') {
-      conditions.push(`EXTRACT(YEAR FROM r.date) = ${Number(year)}`);
-    }
-    if (month && month !== 'ALL') {
-      const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
-      const mIdx = months.indexOf(month.toLowerCase()) + 1;
-      if (mIdx > 0) {
-        conditions.push(`EXTRACT(MONTH FROM r.date) = ${mIdx}`);
-      }
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    let totalReportsRaw: any[];
-    if (unique) {
-      const uniqueQuery = `
-        WITH ReportData AS (
-          SELECT 
-            r.id,
-            r."beneficiaryId",
-            r."childId",
-            r.date,
-            r."reportData",
-            b."typeof",
-            COALESCE(c.gender, b.gender) AS gender,
-            b."maritalStatus",
-            EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
-            (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months
-          FROM "ActivityReport" r
-          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-          LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
-          LEFT JOIN "Awc" a ON b."awcId" = a.id
-          ${whereClause}
-        )
-        SELECT 
-          COUNT(*) AS "totalReports",
-          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL) AS "pregnantWomen",
-          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "lactatingWomen",
-          COUNT(DISTINCT "childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
-          COUNT(DISTINCT "childId") FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
-          COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (
-            WHERE LOWER(TRIM(gender)) = 'female' 
-            AND "maritalStatus" = 'Married' 
-            AND age_years BETWEEN 15 AND 24 
-            AND "childId" IS NULL
-            AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
-          ) AS "youngMarriedWomen",
-          COUNT(DISTINCT "childId") FILTER (WHERE age_years < 1) AS "infantsLessThan1",
-          COUNT(DISTINCT "childId") FILTER (WHERE age_years >= 1 AND age_years < 3) AS "toddlers1To3",
-          COUNT(DISTINCT "childId") FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Girls",
-          COUNT(DISTINCT "childId") FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Boys",
-          COUNT(DISTINCT "childId") FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Girls",
-          COUNT(DISTINCT "childId") FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Boys",
-          COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
-          COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
-          COUNT(DISTINCT "beneficiaryId") FILTER (WHERE LOWER(TRIM("typeof")) = 'stakeholder') AS "stakeholders",
-          COUNT(DISTINCT COALESCE("childId"::text, 'ben_' || "beneficiaryId"::text)) FILTER (
-            WHERE NOT (("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered') AND "childId" IS NULL)
-            OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
-            OR (
-              LOWER(TRIM(gender)) = 'female' 
-              AND "maritalStatus" = 'Married' 
-              AND age_years BETWEEN 15 AND 24 
-              AND "childId" IS NULL 
-              AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
-            )
-            OR (age_years < 3)
-            OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6)
-            OR (LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6)
-            OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10)
-            OR (LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10)
-            OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19)
-            OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19)
-            OR LOWER(TRIM("typeof")) = 'stakeholder')
-          ) AS "otherBeneficiaries"
-        FROM ReportData;
-      `;
-      totalReportsRaw = await this.prisma.$queryRawUnsafe(uniqueQuery);
-    } else {
-      const nonUniqueQuery = `
-        WITH ReportData AS (
-          SELECT 
-            r.id,
-            r."beneficiaryId",
-            r."childId",
-            r.date,
-            r."reportData",
-            b."typeof",
-            COALESCE(c.gender, b.gender) AS gender,
-            b."maritalStatus",
-            EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
-            (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months
-          FROM "ActivityReport" r
-          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-          LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
-          LEFT JOIN "Awc" a ON b."awcId" = a.id
-          ${whereClause}
-        )
-        SELECT 
-          COUNT(*) AS "totalReports",
-          COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Currently Pregnant' AND "childId" IS NULL) AS "pregnantWomen",
-          COUNT(*) FILTER (WHERE "reportData"->>'pregnancyStatus' = 'Baby Delivered' AND "childId" IS NULL) AS "lactatingWomen",
-          COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'MAM' AND age_years <= 5) AS "mam0to5",
-          COUNT(*) FILTER (WHERE "reportData"->>'samMamStatus' = 'SAM' AND age_years <= 5) AS "sam0to5",
-          COUNT(*) FILTER (
-            WHERE LOWER(TRIM(gender)) = 'female' 
-            AND "maritalStatus" = 'Married' 
-            AND age_years BETWEEN 15 AND 24 
-            AND "childId" IS NULL
-            AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
-          ) AS "youngMarriedWomen",
-          COUNT(*) FILTER (WHERE age_years < 1) AS "infantsLessThan1",
-          COUNT(*) FILTER (WHERE age_years >= 1 AND age_years < 3) AS "toddlers1To3",
-          COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Girls",
-          COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6) AS "childrenBelow6Boys",
-          COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Girls",
-          COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10) AS "childrenAbove6Boys",
-          COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19) AS "adolescentGirls2",
-          COUNT(*) FILTER (WHERE LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19) AS "adolescentBoys",
-          COUNT(*) FILTER (WHERE LOWER(TRIM("typeof")) = 'stakeholder') AS "stakeholders",
-          COUNT(*) FILTER (
-            WHERE NOT (("reportData"->>'pregnancyStatus' IN ('Currently Pregnant', 'Baby Delivered') AND "childId" IS NULL)
-            OR ("reportData"->>'samMamStatus' IN ('MAM', 'SAM') AND age_years <= 5)
-            OR (
-              LOWER(TRIM(gender)) = 'female' 
-              AND "maritalStatus" = 'Married' 
-              AND age_years BETWEEN 15 AND 24 
-              AND "childId" IS NULL 
-              AND ("reportData"->>'pregnancyStatus' IS NULL OR "reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
-            )
-            OR (age_years < 3)
-            OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 3 AND age_years < 6)
-            OR (LOWER(TRIM(gender)) = 'male' AND age_years >= 3 AND age_years < 6)
-            OR (LOWER(TRIM(gender)) = 'female' AND age_years >= 6 AND age_years < 10)
-            OR (LOWER(TRIM(gender)) = 'male' AND age_years >= 6 AND age_years < 10)
-            OR (LOWER(TRIM(gender)) = 'female' AND age_years BETWEEN 10 AND 19)
-            OR (LOWER(TRIM(gender)) = 'male' AND age_years BETWEEN 10 AND 19)
-            OR LOWER(TRIM("typeof")) = 'stakeholder')
-          ) AS "otherBeneficiaries"
-        FROM ReportData;
-      `;
-      totalReportsRaw = await this.prisma.$queryRawUnsafe(nonUniqueQuery);
-    }
-
-    const row = totalReportsRaw[0] || {};
     const toNumber = (val: any) => val ? Number(val) : 0;
 
     return {

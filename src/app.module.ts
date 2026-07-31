@@ -12,6 +12,7 @@ import { ManagerModule } from './manager/manager.module';
 import { OutreachModule } from './outreach/outreach.module';
 import { AnalystModule } from './analyst/analyst.module';
 import { OutreachDynamicsModule } from './dashboard/outreach-dynamics/outreach-dynamics.module';
+import { CoverageDashboardModule } from './dashboard/coverage-dashboard/coverage-dashboard.module';
 
 @Module({
   imports: [
@@ -25,7 +26,8 @@ import { OutreachDynamicsModule } from './dashboard/outreach-dynamics/outreach-d
     ManagerModule,
     OutreachModule,
     AnalystModule,
-    OutreachDynamicsModule
+    OutreachDynamicsModule,
+    CoverageDashboardModule
   ],
   controllers: [AppController],
   providers: [AppService],
