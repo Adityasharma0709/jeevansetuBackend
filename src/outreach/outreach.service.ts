@@ -875,8 +875,9 @@ export class OutreachService {
     }
 
     return rawRecords.map(record => ({
-      id: record.id || record.reportId,
+      id: record.id || record.beneficiaryId,
       benId: record.benId ? Number(record.benId) : (record.benIntId ? Number(record.benIntId) : null),
+      reportId: record.reportId,
       name: record.name || record.beneficiaryName,
       group: record.group || groupName,
       awc: record.awc || 'N/A',

@@ -564,8 +564,9 @@ export class AnalystService {
          }
       }
       return {
-        id: record.reportId,
+        id: record.beneficiaryId,
         benId: record.benIntId ? Number(record.benIntId) : null,
+        reportId: record.reportId,
         name: record.beneficiaryName,
         group: groupName,
         awc: record.awc,
