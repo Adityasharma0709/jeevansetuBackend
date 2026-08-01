@@ -515,39 +515,42 @@ export class AnalystService {
     }
 
     const selectQuery = `
-      SELECT ${unique ? 'DISTINCT ON (COALESCE(r."childId", r."beneficiaryId"))' : ''}
-        r.id AS "reportId",
-        r."beneficiaryId" AS "benIntId",
-        r."childId" AS "childIntId",
-        COALESCE(r."childId", r."beneficiaryId") AS "uniqueEntityId",
-        r.date AS "reportingDate",
-        COALESCE(c.uid, b.uid) AS "beneficiaryId",
-        COALESCE(c.name, b.name) AS "beneficiaryName",
-        b."typeof",
-        a."awcName" AS awc,
-        p.name AS project,
-        act.name AS activity,
-        sess.name AS session,
-        r."reportData",
-        COALESCE(c.gender, b.gender) AS gender,
-        b."maritalStatus",
-        EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
-        (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
-        COALESCE(b.district, 'N/A') AS district,
-        COALESCE(b.block, 'N/A') AS block,
-        COALESCE(b.village, 'N/A') AS village,
-        'N/A' AS school,
-        CASE WHEN r."childId" IS NOT NULL THEN b.name ELSE 'N/A' END AS "motherName"
-      FROM "ActivityReport" r
-      INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-      LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
-      LEFT JOIN "Awc" a ON b."awcId" = a.id
-      LEFT JOIN "Project" p ON b."projectId" = p.id
-      LEFT JOIN "Activity" act ON r."activityId" = act.id
-      LEFT JOIN "Session" sess ON r."sessionId" = sess.id
-      ${whereClause}
-      ${whereClause ? 'AND' : 'WHERE'} ${groupCondition}
-      ORDER BY ${unique ? 'COALESCE(r."childId", r."beneficiaryId"), r.date DESC' : 'r.date DESC'};
+      SELECT * FROM (
+        SELECT ${unique ? 'DISTINCT ON (COALESCE(r."childId", r."beneficiaryId"))' : ''}
+          r.id AS "reportId",
+          r."beneficiaryId" AS "benIntId",
+          r."childId" AS "childIntId",
+          COALESCE(r."childId", r."beneficiaryId") AS "uniqueEntityId",
+          r.date AS "reportingDate",
+          COALESCE(c.uid, b.uid) AS "beneficiaryId",
+          COALESCE(c.name, b.name) AS "beneficiaryName",
+          b."typeof",
+          a."awcName" AS awc,
+          p.name AS project,
+          act.name AS activity,
+          sess.name AS session,
+          r."reportData",
+          COALESCE(c.gender, b.gender) AS gender,
+          b."maritalStatus",
+          EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
+          (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
+          COALESCE(b.district, 'N/A') AS district,
+          COALESCE(b.block, 'N/A') AS block,
+          COALESCE(b.village, 'N/A') AS village,
+          'N/A' AS school,
+          CASE WHEN r."childId" IS NOT NULL THEN b.name ELSE 'N/A' END AS "motherName"
+        FROM "ActivityReport" r
+        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+        LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "Project" p ON b."projectId" = p.id
+        LEFT JOIN "Activity" act ON r."activityId" = act.id
+        LEFT JOIN "Session" sess ON r."sessionId" = sess.id
+        ${whereClause}
+        ${whereClause ? 'AND' : 'WHERE'} ${groupCondition}
+        ORDER BY ${unique ? 'COALESCE(r."childId", r."beneficiaryId"), r.date DESC' : 'r.date DESC'}
+      ) sub
+      ORDER BY "reportingDate" DESC;
     `;
 
     const rawRecords: any[] = await this.prisma.$queryRawUnsafe(selectQuery);
