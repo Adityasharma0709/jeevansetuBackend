@@ -138,9 +138,21 @@ export class CoverageDashboardService {
         ${countFn(stakeholdersCond)}::integer AS "stakeholders",
         ${countFn(otherBeneficiariesCond)}::integer AS "otherBeneficiaries",
         ${countFn(adultsCond)}::integer AS "adults",
+        ${countFn(`${adultsCond} AND LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'male'`)}::integer AS "adultsMale",
+        ${countFn(`${adultsCond} AND LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'female'`)}::integer AS "adultsFemale",
+        ${countFn(`${adultsCond} AND (LOWER(TRIM(COALESCE(c.gender, b.gender))) NOT IN ('male', 'female') OR COALESCE(c.gender, b.gender) IS NULL)`)}::integer AS "adultsOthers",
         ${countFn(adolescentsCond)}::integer AS "adolescents",
+        ${countFn(`${adolescentsCond} AND LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'male'`)}::integer AS "adolescentsMale",
+        ${countFn(`${adolescentsCond} AND LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'female'`)}::integer AS "adolescentsFemale",
+        ${countFn(`${adolescentsCond} AND (LOWER(TRIM(COALESCE(c.gender, b.gender))) NOT IN ('male', 'female') OR COALESCE(c.gender, b.gender) IS NULL)`)}::integer AS "adolescentsOthers",
         ${countFn(childrenUnder5Cond)}::integer AS "childrenUnder5",
-        ${countFn(children6To10Cond)}::integer AS "children6To10"
+        ${countFn(`${childrenUnder5Cond} AND LOWER(TRIM(c.gender)) = 'male'`)}::integer AS "childrenUnder5Male",
+        ${countFn(`${childrenUnder5Cond} AND LOWER(TRIM(c.gender)) = 'female'`)}::integer AS "childrenUnder5Female",
+        ${countFn(`${childrenUnder5Cond} AND (LOWER(TRIM(c.gender)) NOT IN ('male', 'female') OR c.gender IS NULL)`)}::integer AS "childrenUnder5Others",
+        ${countFn(children6To10Cond)}::integer AS "children6To10",
+        ${countFn(`${children6To10Cond} AND LOWER(TRIM(c.gender)) = 'male'`)}::integer AS "children6To10Male",
+        ${countFn(`${children6To10Cond} AND LOWER(TRIM(c.gender)) = 'female'`)}::integer AS "children6To10Female",
+        ${countFn(`${children6To10Cond} AND (LOWER(TRIM(c.gender)) NOT IN ('male', 'female') OR c.gender IS NULL)`)}::integer AS "children6To10Others"
       FROM "ActivityReport" r
       INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
       LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id

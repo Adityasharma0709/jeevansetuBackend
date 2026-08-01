@@ -653,12 +653,12 @@ export class OutreachService {
       assignedLocations: 0,
       totalReports: toNumber(row.totalReports),
       outreachActions,
-      episodesOfCare: {
-        adults: toNumber(row.adults),
-        adolescents: toNumber(row.adolescents),
-        childrenUnder5: toNumber(row.childrenUnder5),
-        children6To10: toNumber(row.children6To10)
-      },
+      episodesOfCare: [
+        { label: 'Adults (>19 Years)', male: toNumber(row.adultsMale), female: toNumber(row.adultsFemale), others: toNumber(row.adultsOthers), total: toNumber(row.adults) },
+        { label: 'Adolescents (10-19 Years)', male: toNumber(row.adolescentsMale), female: toNumber(row.adolescentsFemale), others: toNumber(row.adolescentsOthers), total: toNumber(row.adolescents) },
+        { label: 'Children (0-5 Years)', male: toNumber(row.childrenUnder5Male), female: toNumber(row.childrenUnder5Female), others: toNumber(row.childrenUnder5Others), total: toNumber(row.childrenUnder5) },
+        { label: 'Children (6-9 Years)', male: toNumber(row.children6To10Male), female: toNumber(row.children6To10Female), others: toNumber(row.children6To10Others), total: toNumber(row.children6To10) }
+      ],
       activities: [
         { label: 'YOUNG MARRIED WOMEN', count: toNumber(row.youngMarriedWomen), countColor: 'text-gray-900' },
         { label: 'PREGNANT WOMEN', count: toNumber(row.pregnantWomen), countColor: 'text-gray-900' },
