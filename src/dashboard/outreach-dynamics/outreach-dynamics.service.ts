@@ -298,30 +298,42 @@ export class OutreachDynamicsService {
           SELECT b.uid AS id, b.id AS "benId", b.name, COALESCE(a."awcName", 'N/A') AS awc,
                  p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                  EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
-                 (
-                   SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
-                   FROM "BeneficiaryChild" c_sub
-                   WHERE c_sub."beneficiaryId" = b.id
-                 ) AS "childNameAndAge",
-                 MAX(c."dateOfBirth") AS latest_date,
-                 b."typeof" AS typeof,
-                 'N/A' AS activity,
-                 'N/A' AS session,
-                 COALESCE(b.district, 'N/A') AS district,
-                 COALESCE(b.block, 'N/A') AS block,
-                 COALESCE(b.village, 'N/A') AS village,
-                 'N/A' AS school,
-                 'N/A' AS "motherName"
-          FROM "Beneficiary" b
-          INNER JOIN "BeneficiaryChild" c ON c."beneficiaryId" = b.id
-          LEFT JOIN "Awc" a ON b."awcId" = a.id
-          LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
-          WHERE b."projectId" IN (${projectIdsStr})
-            AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
-            ${creatorFilterStr}
-            ${locFilterStr}
-          GROUP BY b.uid, b.id, b.name, a."awcName", p_proj.name, b.gender, b."guardianName", b."dateOfBirth", b."typeof", b.district, b.block, b.village
-          UNION
+                  (
+                    SELECT STRING_AGG(c_sub.name || ' (' || EXTRACT(YEAR FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")) || 'y ' || (EXTRACT(MONTH FROM AGE(CURRENT_DATE, c_sub."dateOfBirth")))::integer % 12 || 'm)', ', ')
+                    FROM "BeneficiaryChild" c_sub
+                    WHERE c_sub."beneficiaryId" = b.id
+                  ) AS "childNameAndAge",
+                  (SELECT MAX(date) FROM "ActivityReport" r WHERE r."beneficiaryId" = b.id) AS latest_date,
+                  b."typeof" AS typeof,
+                  COALESCE((
+                    SELECT act.name 
+                    FROM "ActivityReport" r 
+                    INNER JOIN "Activity" act ON r."activityId" = act.id 
+                    WHERE r."beneficiaryId" = b.id 
+                    ORDER BY r.date DESC LIMIT 1
+                  ), 'N/A') AS activity,
+                  COALESCE((
+                    SELECT sess.name 
+                    FROM "ActivityReport" r 
+                    INNER JOIN "Session" sess ON r."sessionId" = sess.id 
+                    WHERE r."beneficiaryId" = b.id 
+                    ORDER BY r.date DESC LIMIT 1
+                  ), 'N/A') AS session,
+                  COALESCE(b.district, 'N/A') AS district,
+                  COALESCE(b.block, 'N/A') AS block,
+                  COALESCE(b.village, 'N/A') AS village,
+                  'N/A' AS school,
+                  'N/A' AS "motherName"
+           FROM "Beneficiary" b
+           INNER JOIN "BeneficiaryChild" c ON c."beneficiaryId" = b.id
+           LEFT JOIN "Awc" a ON b."awcId" = a.id
+           LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
+           WHERE b."projectId" IN (${projectIdsStr})
+             AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
+             ${creatorFilterStr}
+             ${locFilterStr}
+           GROUP BY b.uid, b.id, b.name, a."awcName", p_proj.name, b.gender, b."guardianName", b."dateOfBirth", b."typeof", b.district, b.block, b.village
+           UNION
           SELECT b.uid AS id, b.id AS "benId", b.name, COALESCE(a."awcName", 'N/A') AS awc,
                  p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                  EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
@@ -445,7 +457,7 @@ export class OutreachDynamicsService {
         ORDER BY lr.date DESC;
       `;
     } else if (clean.includes('ADOLESCENT')) {
-      queryStr = `
+       queryStr = `
         SELECT b.uid AS id, b.id AS "benId", b.name, b."typeof" AS typeof,
                COALESCE((
                  SELECT STRING_AGG(bg.name, ', ')
@@ -456,7 +468,27 @@ export class OutreachDynamicsService {
                COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, b."createdAt" AS "reportingDate",
+               'N/A' AS "childNameAndAge",
+               COALESCE((
+                 SELECT act.name 
+                 FROM "ActivityReport" r 
+                 INNER JOIN "Activity" act ON r."activityId" = act.id 
+                 WHERE r."beneficiaryId" = b.id 
+                 ORDER BY r.date DESC LIMIT 1
+               ), 'N/A') AS activity,
+               COALESCE((
+                 SELECT sess.name 
+                 FROM "ActivityReport" r 
+                 INNER JOIN "Session" sess ON r."sessionId" = sess.id 
+                 WHERE r."beneficiaryId" = b.id 
+                 ORDER BY r.date DESC LIMIT 1
+               ), 'N/A') AS session,
+               (
+                 SELECT r.date 
+                 FROM "ActivityReport" r 
+                 WHERE r."beneficiaryId" = b.id 
+                 ORDER BY r.date DESC LIMIT 1
+               ) AS "reportingDate",
                COALESCE(b.district, 'N/A') AS district,
                COALESCE(b.block, 'N/A') AS block,
                COALESCE(b.village, 'N/A') AS village,
@@ -470,7 +502,7 @@ export class OutreachDynamicsService {
           AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) BETWEEN 10 AND 19
           ${creatorFilterStr}
           ${locFilterStr}
-        ORDER BY b."createdAt" DESC;
+        ORDER BY (SELECT MAX(date) FROM "ActivityReport" r WHERE r."beneficiaryId" = b.id) DESC NULLS LAST, b."createdAt" DESC;
       `;
     } else if (clean.includes('EBF')) {
       queryStr = `
@@ -484,7 +516,27 @@ export class OutreachDynamicsService {
                COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, c."dateOfBirth" AS "reportingDate",
+               'N/A' AS "childNameAndAge",
+               COALESCE((
+                 SELECT act.name 
+                 FROM "ActivityReport" r 
+                 INNER JOIN "Activity" act ON r."activityId" = act.id 
+                 WHERE r."childId" = c.id 
+                 ORDER BY r.date DESC LIMIT 1
+               ), 'N/A') AS activity,
+               COALESCE((
+                 SELECT sess.name 
+                 FROM "ActivityReport" r 
+                 INNER JOIN "Session" sess ON r."sessionId" = sess.id 
+                 WHERE r."childId" = c.id 
+                 ORDER BY r.date DESC LIMIT 1
+               ), 'N/A') AS session,
+               (
+                 SELECT r.date 
+                 FROM "ActivityReport" r 
+                 WHERE r."childId" = c.id 
+                 ORDER BY r.date DESC LIMIT 1
+               ) AS "reportingDate",
                COALESCE(b.district, 'N/A') AS district,
                COALESCE(b.block, 'N/A') AS block,
                COALESCE(b.village, 'N/A') AS village,
@@ -498,7 +550,7 @@ export class OutreachDynamicsService {
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '6 months'
           ${creatorFilterStr}
           ${locFilterStr}
-        ORDER BY c."dateOfBirth" DESC;
+        ORDER BY (SELECT MAX(date) FROM "ActivityReport" r WHERE r."childId" = c.id) DESC NULLS LAST, c."dateOfBirth" DESC;
       `;
     } else if (clean.includes('CF')) {
       queryStr = `
@@ -512,7 +564,27 @@ export class OutreachDynamicsService {
                COALESCE(a."awcName", 'N/A') AS awc,
                p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
-               'N/A' AS "childNameAndAge", 'N/A' AS activity, 'N/A' AS session, c."dateOfBirth" AS "reportingDate",
+               'N/A' AS "childNameAndAge",
+               COALESCE((
+                 SELECT act.name 
+                 FROM "ActivityReport" r 
+                 INNER JOIN "Activity" act ON r."activityId" = act.id 
+                 WHERE r."childId" = c.id 
+                 ORDER BY r.date DESC LIMIT 1
+               ), 'N/A') AS activity,
+               COALESCE((
+                 SELECT sess.name 
+                 FROM "ActivityReport" r 
+                 INNER JOIN "Session" sess ON r."sessionId" = sess.id 
+                 WHERE r."childId" = c.id 
+                 ORDER BY r.date DESC LIMIT 1
+               ), 'N/A') AS session,
+               (
+                 SELECT r.date 
+                 FROM "ActivityReport" r 
+                 WHERE r."childId" = c.id 
+                 ORDER BY r.date DESC LIMIT 1
+               ) AS "reportingDate",
                COALESCE(b.district, 'N/A') AS district,
                COALESCE(b.block, 'N/A') AS block,
                COALESCE(b.village, 'N/A') AS village,
@@ -527,7 +599,7 @@ export class OutreachDynamicsService {
           AND c."dateOfBirth" < CURRENT_DATE - INTERVAL '6 months'
           ${creatorFilterStr}
           ${locFilterStr}
-        ORDER BY c."dateOfBirth" DESC;
+        ORDER BY (SELECT MAX(date) FROM "ActivityReport" r WHERE r."childId" = c.id) DESC NULLS LAST, c."dateOfBirth" DESC;
       `;
     } else if (clean.includes('DUE') || clean.includes('DELIVERY')) {
       queryStr = `

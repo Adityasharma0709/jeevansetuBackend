@@ -37,6 +37,10 @@ export class ReportDataDto {
   @IsString()
   lmpDate?: string;
 
+  @IsOptional()
+  @IsIn(['Yes', 'No'])
+  highRiskPregnant?: string;
+
   /**
    * Nutritional status for children aged 5 years and under.
    * Values: 'SAM' | 'MAM' | 'NONE'
