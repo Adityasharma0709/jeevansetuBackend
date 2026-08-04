@@ -6,6 +6,7 @@ COPY package*.json ./
 COPY prisma ./prisma/
 RUN npm ci
 COPY . .
+ENV DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
 RUN npx prisma generate
 RUN npm run build
 
@@ -15,8 +16,11 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
 COPY prisma ./prisma/
+COPY prisma.config.ts ./
 RUN npm ci --omit=dev
+ENV DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
 RUN npx prisma generate
+
 
 # Stage 3: Run the application
 FROM node:20-bookworm-slim AS runner
