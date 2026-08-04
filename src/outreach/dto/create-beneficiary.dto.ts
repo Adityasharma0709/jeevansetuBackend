@@ -37,6 +37,14 @@ export class CreateBeneficiaryDto {
   locationId?: number;
 
   @IsOptional()
+  @IsNumber()
+  schoolId?: number;
+
+  @IsOptional()
+  @IsNumber()
+  healthCenterId?: number;
+
+  @IsOptional()
   @IsString()
   state?: string;
 

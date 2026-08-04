@@ -224,6 +224,8 @@ export class OutreachService {
         typeof: dto.beneficiaryType || 'Priority',
         projectId: dto.projectId,
         awcId: dto.locationId || null,
+        schoolId: dto.schoolId || null,
+        healthCenterId: dto.healthCenterId || null,
         state: dto.state,
         district: dto.district,
         block: dto.block,

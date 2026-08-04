@@ -12,6 +12,7 @@ import {
 import { LocationsService } from './locations.service';
 import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
+import { CreateInstitutionDto } from './dto/create-institution.dto';
 
 @Controller('locations')
 export class LocationsController {
@@ -67,6 +68,73 @@ export class LocationsController {
   @Post()
   create(@Body() dto: CreateLocationDto) {
     return this.locationsService.create(dto);
+  }
+
+  // =========================
+  // CLUSTER MANAGEMENT (BLOCK & VILLAGE)
+  // =========================
+
+  @Post('blocks')
+  createBlock(@Body() dto: { districtId: number; name: string }) {
+    return this.locationsService.createBlock(dto.districtId, dto.name);
+  }
+
+  @Post('villages')
+  createVillage(@Body() dto: { blockId: number; name: string }) {
+    return this.locationsService.createVillage(dto.blockId, dto.name);
+  }
+
+  // =========================
+  // UNIFIED INSTITUTION CREATION
+  // =========================
+
+  @Post('institutions')
+  createInstitution(@Body() dto: CreateInstitutionDto) {
+    return this.locationsService.createInstitution(dto);
+  }
+
+  // =========================
+  // SCHOOL ENDPOINTS
+  // =========================
+
+  @Get('schools')
+  findAllSchools(@Query('projectId') projectId?: string) {
+    return this.locationsService.findAllSchools(projectId ? +projectId : undefined);
+  }
+
+  @Put('schools/:id')
+  updateSchool(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateLocationDto) {
+    return this.locationsService.updateSchool(id, dto);
+  }
+
+  @Patch('schools/:id/status')
+  updateSchoolStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('status') status: string,
+  ) {
+    return this.locationsService.updateSchoolStatus(id, status);
+  }
+
+  // =========================
+  // HEALTH CENTER ENDPOINTS
+  // =========================
+
+  @Get('health-centers')
+  findAllHealthCenters(@Query('projectId') projectId?: string) {
+    return this.locationsService.findAllHealthCenters(projectId ? +projectId : undefined);
+  }
+
+  @Put('health-centers/:id')
+  updateHealthCenter(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateLocationDto) {
+    return this.locationsService.updateHealthCenter(id, dto);
+  }
+
+  @Patch('health-centers/:id/status')
+  updateHealthCenterStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('status') status: string,
+  ) {
+    return this.locationsService.updateHealthCenterStatus(id, status);
   }
 
   // =========================
