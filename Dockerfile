@@ -9,11 +9,10 @@ RUN npm ci
 
 COPY . .
 
-RUN chmod +x docker/entrypoint.sh
 RUN npx prisma generate
 RUN npm run build
 
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["sh", "./docker/entrypoint.sh"]
+CMD ["npm", "run", "start:prod"]

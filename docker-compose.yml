@@ -1,9 +1,8 @@
 services:
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     container_name: jeevan-setu-backend
+    command: npm run start:prod
     env_file:
       - .env
     environment:
