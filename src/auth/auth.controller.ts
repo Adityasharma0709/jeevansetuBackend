@@ -3,7 +3,7 @@ import { AuthService } from './auth.service';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiOkResponse, ApiUnauthorizedResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { LoginDto } from './dto/login.dto';
-import { LoginResponseDto } from './dto/login-response.dto';
+import { LoginResponseDto, UserProfileDto } from './dto/login-response.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -22,7 +22,7 @@ export class AuthController {
   @Get('me')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get current user profile' })
-  @ApiOkResponse({ description: 'Returns current user details' })
+  @ApiOkResponse({ description: 'Returns current user details', type: UserProfileDto })
   @ApiUnauthorizedResponse({ description: 'Unauthorized access' })
   getProfile(@Req() req) {
     return this.authService.getProfile(req.user.userId);
