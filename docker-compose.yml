@@ -1,0 +1,13 @@
+services:
+  backend:
+    build: .
+    container_name: jeevan-setu-backend
+    command: npm run start:prod
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
