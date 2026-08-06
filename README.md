@@ -1,98 +1,141 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# JeevanSetu Backend API Service
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+JeevanSetu ("Bridge of Life") is a progressive, scalable healthcare and education outreach platform designed to coordinate and track welfare programs across rural and urban communities. The platform connects community institutions like **Anganwadi Centers (AWCs)**, **Schools**, and **Health Centers** with beneficiaries (pregnant women, infants, children, and families).
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+This backend service is built using **NestJS** and **TypeScript**, leveraging **Prisma ORM** with **PostgreSQL** for data management, **Passport.js & JWT** for Role-Based Access Control (RBAC), **Docker** for containerization, and **Nginx** as a reverse proxy with SSL certificate management.
 
-## Description
+---
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Table of Contents
+1. [Core Features](#core-features)
+2. [System Architecture & Modules](#system-architecture--modules)
+3. [Database Schema Entities](#database-schema-entities)
+4. [Role-Based Access Control (RBAC)](#role-based-access-control-rbac)
 
-## Project setup
+---
 
-```bash
-$ npm install
-```
+## Core Features
 
-## Compile and run the project
+- **Multi-Tenant / Role-Based Portals**: Tailored interfaces and API access controls for Super Admins, Admins, Managers, Analysts, and Outreach Workers.
+- **Geographic Hierarchies**: Deep mapping of Indian states, districts, blocks, and villages to organize service delivery.
+- **Institution Management**: Unified tracking and monitoring of Anganwadi Centers (AWC), Primary Health Centers, and Schools.
+- **Beneficiary Lifecycle Tracking**: Rich demographics, marital status histories, income profiling, family members, and children's welfare tracking.
+- **Outreach Workflows**: Programmed activity reporting, sessions tracking, group scheduling, and real-time beneficiary attendance.
+- **Worker Management & Auditing**:
+  - **Account Sharing (`AccountShare`)**: Enables managers to safely delegate field worker accounts to other active workers.
+  - **Approval Requests (`ApprovalRequest`)**: Administrative control over profile updates and critical database edits.
+  - **Audit Logging (`AuditLog`)**: Comprehensive tracking of data changes, storing before/after snapshots for audits.
+- **Advanced Analytics Dashboards**: In-depth analytics for Coverage Metrics, Activity Demographics, and Outreach Dynamics.
 
-```bash
-# development
-$ npm run start
+---
 
-# watch mode
-$ npm run start:dev
+## System Architecture & Modules
 
-# production mode
-$ npm run start:prod
-```
+The backend is modularized under the `src/` directory. Each module follows NestJS design patterns with custom controllers, services, modules, and DTOs:
 
-## Run tests
+### 1. Authentication Module
+- **Code Directory**: [src/auth](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/auth)
+- **Features**: 
+  - JWT-based authentication using Passport.js.
+  - Role decorators ([roles.decorator.ts](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/auth/roles.decorator.ts)) and guard ([roles.guard.ts](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/auth/roles/roles.guard.ts)) for endpoint protection.
+  - User verification, login endpoint (`/auth/login`), and profile extraction (`/auth/me`).
 
-```bash
-# unit tests
-$ npm run test
+### 2. User Management Module
+- **Code Directory**: [src/users](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/users)
+- **Features**:
+  - Administrative control over user creation (Admins, Managers, Analysts).
+  - Smart `usercode` generation based on roles.
+  - Assigning users to projects and specific states.
+  - De-allocating users and updating statuses (Active/Deactivated).
+  - Super Admin Dashboard API for platform-wide metrics.
 
-# e2e tests
-$ npm run test:e2e
+### 3. Project Management Module
+- **Code Directory**: [src/projects](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/projects)
+- **Features**:
+  - Projects configuration (Create, read, update, soft delete).
+  - Tracking project statuses (Active/Suspended).
+  - Access control for checking projects assigned to specific user IDs.
 
-# test coverage
-$ npm run test:cov
-```
+### 4. Locations & Cluster Module
+- **Code Directory**: [src/locations](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/locations)
+- **Features**:
+  - Hierarchical geolocations retrieval (States $\rightarrow$ Districts $\rightarrow$ Blocks $\rightarrow$ Villages).
+  - Support for custom block and village creation.
+  - State project mapping (Assigning states to project instances).
+  - Unified Institution creation (Anganwadi Center, School, Health Center).
+  - Institution metadata updates and status deactivation.
 
-## Deployment
+### 5. Admin Module
+- **Code Directory**: [src/admin](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/admin)
+- **Features**:
+  - Admin-specific dashboard.
+  - Activity configuration (Create, update, activate/deactivate outreach activities).
+  - Session scheduling and mapping sessions to activities.
+  - Group-Activity tagging.
+  - Review, approval, and rejection of beneficiary profile modification requests from Managers.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### 6. Manager Module
+- **Code Directory**: [src/manager](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/manager)
+- **Features**:
+  - Manager dashboard metrics (active workers, pending updates, reports).
+  - Adding, updating, activating, and deactivating Outreach Workers under their command.
+  - Assigning project-location targets to Outreach Workers.
+  - Account sharing delegation logic (`shareAccount` & `revokeShare`).
+  - Requesting beneficiary updates from higher Admins.
+  - Family member and beneficiary reports tracking.
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 7. Outreach Worker Module
+- **Code Directory**: [src/outreach](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/outreach)
+- **Features**:
+  - Field workflows: Registering new beneficiaries and their family members.
+  - Submitting activity reports (storing structured JSON dynamic telemetry data).
+  - Joining beneficiaries/children into specialized groups.
+  - Attendance check-ins for activities and sessions.
+  - Personal request trackers (raising field update queries, canceling requests).
+  - Field worker dashboard metrics.
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+### 8. Analyst Module
+- **Code Directory**: [src/analyst](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/analyst)
+- **Features**:
+  - Analytical data querying endpoints.
+  - Aggregating dashboard stats filtered by Project, Activity, Session, Admin, Manager, Worker, State/District, and Date ranges.
+  - Providing outreach dynamics details, demographics distributions, and user trends.
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### 9. Dashboard Service Components
+- **Code Directory**: [src/dashboard](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/dashboard)
+- **Sub-modules**:
+  - **Coverage Dashboard Service** ([coverage-dashboard.service.ts](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/dashboard/coverage-dashboard/coverage-dashboard.service.ts)): Computes beneficiary demographics distributions, coverage trends over months, unique participant metrics, and institutions stats.
+  - **Outreach Dynamics Service** ([outreach-dynamics.service.ts](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/src/dashboard/outreach-dynamics/outreach-dynamics.service.ts)): Analyzes active outreach patterns, worker performance logs, cohort sizes, and longitudinal interaction rates.
 
-## Resources
+---
 
-Check out a few resources that may come in handy when working with NestJS:
+## Database Schema Entities
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+The database schema ([schema.prisma](file:///c:/Users/Aditya/Desktop/PROJECTS/JeevanSetu/backend/prisma/schema.prisma)) is modeled using PostgreSQL. Key schema structures include:
 
-## Support
+- **State / District / Block / Village**: The geographical location tables.
+- **User & Roles (RBAC)**: Supports roles (`SUPER_ADMIN`, `ADMIN`, `MANAGER`, `OUTREACH`, `ANALYST`) and maps them using `UserRole` mappings.
+- **Project**: Represents a central program. Projects map to locations and institutions.
+- **Institutions (`Awc`, `School`, `HealthCenter`)**: Entities representing the physical locations of service delivery.
+- **Beneficiary & BeneficiaryChild**: Track detailed data profiles. Beneficiaries can belong to groups (`BeneficiaryGroup`) through `GroupMember` and `ChildGroupMember` associations.
+- **Activity & Session**: Programs run at institutions. Activities represent a type of program (e.g., vaccination drive, primary education sessions), and Sessions are specific occurrences.
+- **ActivityReport**: Telemetry data collected during outreach sessions, saved as dynamic JSON.
+- **ApprovalRequest**: Workflow queue for review of sensitive operations.
+- **AuditLog**: Automagically logs edits of critical resources with old and new values.
+- **AccountShare**: Tracks delegation of active credentials between outreach workers.
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+---
 
-## Stay in touch
+## Role-Based Access Control (RBAC)
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+The system enforces strict RBAC rules. Here is a matrix of general capabilities:
 
-## License
+| Role | Core Purpose & Operations |
+| :--- | :--- |
+| **SUPER_ADMIN** | System-wide configuration: Creates Admins & Analysts, assigns projects, global status management. |
+| **ADMIN** | Program administration: Creates Managers, configures Activities/Sessions, approves/rejects manager-forwarded profile updates. |
+| **MANAGER** | Regional management: Creates and monitors Outreach Workers, assigns field tasks, handles worker account sharing, requests beneficiary edits. |
+| **OUTREACH** | Field execution: Performs registrations, records session attendance, logs dynamic JSON activity reports. |
+| **ANALYST** | Read-only analytics: Inspects coverage, generates demographic cohorts, reviews outreach dynamics. |
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+---
