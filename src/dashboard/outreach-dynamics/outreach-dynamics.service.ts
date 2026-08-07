@@ -62,6 +62,28 @@ export class OutreachDynamicsService {
     const pregnantRaw: any[] = await this.prisma.$queryRawUnsafe(pregnantCountQuery);
     const activePregnantWomen = Number(pregnantRaw[0]?.count || 0);
 
+    // a_hrp. High Risk Pregnant Women
+    const hrpCountQuery = `
+      WITH LatestReports AS (
+        SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId", r.date
+        FROM "ActivityReport" r
+        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        WHERE b."projectId" IN (${projectIdsStr})
+          ${reporterFilterStr}
+          ${locFilterStr}
+        ORDER BY "beneficiaryId", r.date DESC
+      )
+      SELECT COUNT(*) AS count
+      FROM LatestReports
+      WHERE "childId" IS NULL
+        AND "reportData"->>'pregnancyStatus' = 'Currently Pregnant'
+        AND ("reportData"->>'pregnancyOutcome' IS NULL OR "reportData"->>'pregnancyOutcome' = 'null' OR "reportData"->>'pregnancyOutcome' = '')
+        AND "reportData"->>'highRiskPregnant' = 'Yes';
+    `;
+    const hrpRaw: any[] = await this.prisma.$queryRawUnsafe(hrpCountQuery);
+    const activeHighRiskPregnantWomen = Number(hrpRaw[0]?.count || 0);
+
     // b. Currently Lactating Mothers
     const lactatingCountQuery = `
       SELECT COUNT(DISTINCT id) AS count FROM (
@@ -200,6 +222,7 @@ export class OutreachDynamicsService {
 
     return {
       activePregnantWomen,
+      activeHighRiskPregnantWomen,
       activeLactatingMothers,
       activeSamChildren,
       activeMamChildren,
@@ -238,7 +261,7 @@ export class OutreachDynamicsService {
     let rawRecords: any[] = [];
     let queryStr = '';
 
-    if (clean.includes('PREGNANT') && !clean.includes('DUE') && !clean.includes('DELIVERY')) {
+    if (clean.includes('HIGH RISK') || clean.includes('HRP')) {
       queryStr = `
         WITH LatestReports AS (
           SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId", r.date, r."activityId", r."sessionId"
@@ -268,13 +291,60 @@ export class OutreachDynamicsService {
                COALESCE(b.block, 'N/A') AS block,
                COALESCE(b.village, 'N/A') AS village,
                'N/A' AS school,
-               'N/A' AS "motherName"
+               'N/A' AS "motherName",
+               COALESCE(hc.name, 'N/A') AS "healthCenter"
         FROM "Beneficiary" b
         INNER JOIN LatestReports lr ON b.id = lr."beneficiaryId"
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         LEFT JOIN "Activity" act ON lr."activityId" = act.id
         LEFT JOIN "Session" sess ON lr."sessionId" = sess.id
+        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
+        WHERE lr."childId" IS NULL
+          AND lr."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
+          AND (lr."reportData"->>'pregnancyOutcome' IS NULL OR lr."reportData"->>'pregnancyOutcome' = 'null' OR lr."reportData"->>'pregnancyOutcome' = '')
+          AND lr."reportData"->>'highRiskPregnant' = 'Yes'
+        ORDER BY lr.date DESC;
+      `;
+    } else if (clean.includes('PREGNANT') && !clean.includes('DUE') && !clean.includes('DELIVERY')) {
+      queryStr = `
+        WITH LatestReports AS (
+          SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", "childId", r.date, r."activityId", r."sessionId"
+          FROM "ActivityReport" r
+          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+          LEFT JOIN "Awc" a ON b."awcId" = a.id
+          WHERE b."projectId" IN (${projectIdsStr})
+            ${reporterFilterStr}
+            ${locFilterStr}
+          ORDER BY "beneficiaryId", r.date DESC
+        )
+        SELECT b.uid AS id, b.id AS "benId", b.name, b."typeof" AS typeof,
+               COALESCE((
+                 SELECT STRING_AGG(bg.name, ', ')
+                 FROM "GroupMember" gm
+                 INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+                 WHERE gm."beneficiaryId" = b.id
+               ), 'N/A') AS group,
+               COALESCE(a."awcName", 'N/A') AS awc,
+               p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
+               EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) || ' Y' AS age,
+               'N/A' AS "childNameAndAge", 
+               COALESCE(act.name, 'N/A') AS activity, 
+               COALESCE(sess.name, 'N/A') AS session, 
+               lr.date AS "reportingDate",
+               COALESCE(b.district, 'N/A') AS district,
+               COALESCE(b.block, 'N/A') AS block,
+               COALESCE(b.village, 'N/A') AS village,
+               'N/A' AS school,
+               'N/A' AS "motherName",
+               COALESCE(hc.name, 'N/A') AS "healthCenter"
+        FROM "Beneficiary" b
+        INNER JOIN LatestReports lr ON b.id = lr."beneficiaryId"
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
+        LEFT JOIN "Activity" act ON lr."activityId" = act.id
+        LEFT JOIN "Session" sess ON lr."sessionId" = sess.id
+        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
         WHERE lr."childId" IS NULL
           AND lr."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
           AND (lr."reportData"->>'pregnancyOutcome' IS NULL OR lr."reportData"->>'pregnancyOutcome' = 'null' OR lr."reportData"->>'pregnancyOutcome' = '')
@@ -293,7 +363,7 @@ export class OutreachDynamicsService {
                COALESCE(activity, 'N/A') AS activity, 
                COALESCE(session, 'N/A') AS session, 
                latest_date AS "reportingDate",
-               district, block, village, school, "motherName"
+               district, block, village, school, "motherName", "healthCenter"
         FROM (
           SELECT b.uid AS id, b.id AS "benId", b.name, COALESCE(a."awcName", 'N/A') AS awc,
                  p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
@@ -323,16 +393,18 @@ export class OutreachDynamicsService {
                   COALESCE(b.block, 'N/A') AS block,
                   COALESCE(b.village, 'N/A') AS village,
                   'N/A' AS school,
-                  'N/A' AS "motherName"
+                  'N/A' AS "motherName",
+                  COALESCE(hc.name, 'N/A') AS "healthCenter"
            FROM "Beneficiary" b
            INNER JOIN "BeneficiaryChild" c ON c."beneficiaryId" = b.id
            LEFT JOIN "Awc" a ON b."awcId" = a.id
            LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
+           LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
            WHERE b."projectId" IN (${projectIdsStr})
              AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
              ${creatorFilterStr}
              ${locFilterStr}
-           GROUP BY b.uid, b.id, b.name, a."awcName", p_proj.name, b.gender, b."guardianName", b."dateOfBirth", b."typeof", b.district, b.block, b.village
+           GROUP BY b.uid, b.id, b.name, a."awcName", p_proj.name, b.gender, b."guardianName", b."dateOfBirth", b."typeof", b.district, b.block, b.village, hc.name
            UNION
           SELECT b.uid AS id, b.id AS "benId", b.name, COALESCE(a."awcName", 'N/A') AS awc,
                  p_proj.name AS project, b.gender AS gender, COALESCE(b."guardianName", 'N/A') AS "guardianName",
@@ -350,7 +422,8 @@ export class OutreachDynamicsService {
                  COALESCE(b.block, 'N/A') AS block,
                  COALESCE(b.village, 'N/A') AS village,
                  'N/A' AS school,
-                 'N/A' AS "motherName"
+                 'N/A' AS "motherName",
+                 COALESCE(hc.name, 'N/A') AS "healthCenter"
           FROM "Beneficiary" b
           INNER JOIN (
             SELECT DISTINCT ON ("beneficiaryId") "beneficiaryId", "reportData", date, "childId", "activityId", "sessionId"
@@ -366,6 +439,7 @@ export class OutreachDynamicsService {
           LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
           LEFT JOIN "Activity" act ON lr."activityId" = act.id
           LEFT JOIN "Session" sess ON lr."sessionId" = sess.id
+          LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
           WHERE lr."childId" IS NULL
             AND lr."reportData"->>'pregnancyStatus' = 'Baby Delivered'
             AND lr.date >= CURRENT_DATE - INTERVAL '2 years'
@@ -402,7 +476,8 @@ export class OutreachDynamicsService {
                COALESCE(b.block, 'N/A') AS block,
                COALESCE(b.village, 'N/A') AS village,
                COALESCE(c."schoolingStatus", 'N/A') AS school,
-               b.name AS "motherName"
+               b.name AS "motherName",
+               COALESCE(hc.name, 'N/A') AS "healthCenter"
         FROM LatestReports lr
         INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
         INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
@@ -410,6 +485,7 @@ export class OutreachDynamicsService {
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         LEFT JOIN "Activity" act ON lr."activityId" = act.id
         LEFT JOIN "Session" sess ON lr."sessionId" = sess.id
+        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
         WHERE lr."reportData"->>'samMamStatus' = 'SAM'
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years'
         ORDER BY lr.date DESC;
@@ -444,7 +520,8 @@ export class OutreachDynamicsService {
                COALESCE(b.block, 'N/A') AS block,
                COALESCE(b.village, 'N/A') AS village,
                COALESCE(c."schoolingStatus", 'N/A') AS school,
-               b.name AS "motherName"
+               b.name AS "motherName",
+               COALESCE(hc.name, 'N/A') AS "healthCenter"
         FROM LatestReports lr
         INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
         INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
@@ -452,6 +529,7 @@ export class OutreachDynamicsService {
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         LEFT JOIN "Activity" act ON lr."activityId" = act.id
         LEFT JOIN "Session" sess ON lr."sessionId" = sess.id
+        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
         WHERE lr."reportData"->>'samMamStatus' = 'MAM'
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years'
         ORDER BY lr.date DESC;
@@ -493,10 +571,12 @@ export class OutreachDynamicsService {
                COALESCE(b.block, 'N/A') AS block,
                COALESCE(b.village, 'N/A') AS village,
                'N/A' AS school,
-               'N/A' AS "motherName"
+               'N/A' AS "motherName",
+               COALESCE(hc.name, 'N/A') AS "healthCenter"
         FROM "Beneficiary" b
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
+        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
         WHERE b."projectId" IN (${projectIdsStr})
           AND LOWER(TRIM(b.gender)) = 'female'
           AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, b."dateOfBirth")) BETWEEN 10 AND 19
@@ -541,11 +621,13 @@ export class OutreachDynamicsService {
                COALESCE(b.block, 'N/A') AS block,
                COALESCE(b.village, 'N/A') AS village,
                COALESCE(c."schoolingStatus", 'N/A') AS school,
-               b.name AS "motherName"
+               b.name AS "motherName",
+               COALESCE(hc.name, 'N/A') AS "healthCenter"
         FROM "BeneficiaryChild" c
         INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
+        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
         WHERE b."projectId" IN (${projectIdsStr})
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '6 months'
           ${creatorFilterStr}
@@ -589,11 +671,13 @@ export class OutreachDynamicsService {
                COALESCE(b.block, 'N/A') AS block,
                COALESCE(b.village, 'N/A') AS village,
                COALESCE(c."schoolingStatus", 'N/A') AS school,
-               b.name AS "motherName"
+               b.name AS "motherName",
+               COALESCE(hc.name, 'N/A') AS "healthCenter"
         FROM "BeneficiaryChild" c
         INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
+        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
         WHERE b."projectId" IN (${projectIdsStr})
           AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '2 years'
           AND c."dateOfBirth" < CURRENT_DATE - INTERVAL '6 months'
@@ -639,13 +723,15 @@ export class OutreachDynamicsService {
                COALESCE(b.block, 'N/A') AS block,
                COALESCE(b.village, 'N/A') AS village,
                'N/A' AS school,
-               'N/A' AS "motherName"
+               'N/A' AS "motherName",
+               COALESCE(hc.name, 'N/A') AS "healthCenter"
         FROM "Beneficiary" b
         INNER JOIN MatchingReports mr ON b.id = mr."beneficiaryId"
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "Project" p_proj ON b."projectId" = p_proj.id
         LEFT JOIN "Activity" act ON mr."activityId" = act.id
         LEFT JOIN "Session" sess ON mr."sessionId" = sess.id
+        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
         ORDER BY mr.date DESC;
       `;
     }
@@ -673,7 +759,8 @@ export class OutreachDynamicsService {
       block: record.block || 'N/A',
       village: record.village || 'N/A',
       school: record.school || 'N/A',
-      motherName: record.motherName || 'N/A'
+      motherName: record.motherName || 'N/A',
+      healthCenter: record.healthCenter || 'N/A'
     }));
   }
 }
