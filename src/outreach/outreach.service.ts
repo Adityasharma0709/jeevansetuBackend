@@ -736,11 +736,35 @@ export class OutreachService {
       reporterIds = [user.userId];
     }
 
-    return this.outreachDynamics.getDetails(groupName, {
+    const rawRecords = await this.outreachDynamics.getDetails(groupName, {
       projectIds: targetProjectIds,
       reporterIds,
       creatorIds: reporterIds
     });
+
+    return rawRecords.map((record: any) => ({
+      id: record.id,
+      benId: record.benId ? Number(record.benId) : null,
+      name: record.name,
+      group: record.group,
+      awc: record.awc || 'N/A',
+      project: record.project || 'N/A',
+      gender: record.gender || 'N/A',
+      guardianName: record.guardianName || 'N/A',
+      activity: record.activity || 'N/A',
+      session: record.session || 'N/A',
+      reportingDate: record.reportingDate && !isNaN(Date.parse(record.reportingDate))
+        ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : 'N/A',
+      age: record.age,
+      childNameAndAge: record.childNameAndAge || 'N/A',
+      beneficiaryType: record.typeof || 'N/A',
+      district: record.district || 'N/A',
+      block: record.block || 'N/A',
+      village: record.village || 'N/A',
+      school: 'N/A',
+      motherName: record.motherName || 'N/A',
+    }));
   }
 
   async getActionDetails(user: any, groupName: string, activityId?: number, sessionId?: number, unique?: boolean) {
