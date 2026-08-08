@@ -776,6 +776,12 @@ export class AdminService {
         activity: true,
         session: true,
         child: true,
+        reportedBy: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
       orderBy: { date: 'desc' },
     });

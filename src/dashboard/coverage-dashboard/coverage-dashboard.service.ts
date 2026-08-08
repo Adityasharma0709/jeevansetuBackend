@@ -119,6 +119,23 @@ export class CoverageDashboardService {
     const childrenUnder5Cond = `r."childId" IS NOT NULL AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 6`;
     const children6To10Cond = `r."childId" IS NOT NULL AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) >= 6 AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 10`;
 
+    const hbCond = `r."reportData"->'screeningDetails'->>'hb' IS NOT NULL AND r."reportData"->'screeningDetails'->>'hb' <> ''`;
+    const bpCond = `r."reportData"->'screeningDetails'->>'bp' IS NOT NULL AND r."reportData"->'screeningDetails'->>'bp' <> ''`;
+    const padsAdolescentsCond = `
+      LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'female' 
+      AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) BETWEEN 10 AND 19 
+      AND r."reportData"->'screeningDetails'->>'pads' IS NOT NULL 
+      AND r."reportData"->'screeningDetails'->>'pads' <> '' 
+      AND (r."reportData"->'screeningDetails'->>'pads')::integer > 0
+    `;
+    const padsWomenCond = `
+      LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'female' 
+      AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) > 19 
+      AND r."reportData"->'screeningDetails'->>'pads' IS NOT NULL 
+      AND r."reportData"->'screeningDetails'->>'pads' <> '' 
+      AND (r."reportData"->'screeningDetails'->>'pads')::integer > 0
+    `;
+
     const query = `
       SELECT 
         COUNT(*)::integer AS "totalReports",
@@ -152,7 +169,22 @@ export class CoverageDashboardService {
         ${countFn(children6To10Cond)}::integer AS "children6To10",
         ${countFn(`${children6To10Cond} AND LOWER(TRIM(c.gender)) = 'male'`)}::integer AS "children6To10Male",
         ${countFn(`${children6To10Cond} AND LOWER(TRIM(c.gender)) = 'female'`)}::integer AS "children6To10Female",
-        ${countFn(`${children6To10Cond} AND (LOWER(TRIM(c.gender)) NOT IN ('male', 'female') OR c.gender IS NULL)`)}::integer AS "children6To10Others"
+        ${countFn(`${children6To10Cond} AND (LOWER(TRIM(c.gender)) NOT IN ('male', 'female') OR c.gender IS NULL)`)}::integer AS "children6To10Others",
+        ${countFn(hbCond)}::integer AS "hbTotal",
+        ${countFn(`${hbCond} AND LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'male'`)}::integer AS "hbMale",
+        ${countFn(`${hbCond} AND LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'female'`)}::integer AS "hbFemale",
+        ${countFn(`${hbCond} AND (LOWER(TRIM(COALESCE(c.gender, b.gender))) NOT IN ('male', 'female') OR COALESCE(c.gender, b.gender) IS NULL)`)}::integer AS "hbOthers",
+        ${countFn(`${hbCond} AND LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'female' AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) BETWEEN 10 AND 19`)}::integer AS "hbFemaleAdolescent",
+        ${countFn(`${hbCond} AND LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'female' AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) > 19`)}::integer AS "hbFemaleAdult",
+        ${countFn(`${hbCond} AND LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'male' AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) > 19`)}::integer AS "hbMaleAdult",
+        ${countFn(`${hbCond} AND LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'male' AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) BETWEEN 10 AND 19`)}::integer AS "hbMaleAdolescent",
+        ${countFn(`${hbCond} AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) < 10`)}::integer AS "hbChildUnder10",
+        ${countFn(bpCond)}::integer AS "bpTotal",
+        ${countFn(`${bpCond} AND LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'male'`)}::integer AS "bpMale",
+        ${countFn(`${bpCond} AND LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'female'`)}::integer AS "bpFemale",
+        ${countFn(`${bpCond} AND (LOWER(TRIM(COALESCE(c.gender, b.gender))) NOT IN ('male', 'female') OR COALESCE(c.gender, b.gender) IS NULL)`)}::integer AS "bpOthers",
+        ${countFn(padsAdolescentsCond)}::integer AS "padsAdolescents",
+        ${countFn(padsWomenCond)}::integer AS "padsWomen"
       FROM "ActivityReport" r
       INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
       LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id

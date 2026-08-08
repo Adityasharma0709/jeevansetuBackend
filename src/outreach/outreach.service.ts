@@ -661,6 +661,28 @@ export class OutreachService {
         { label: 'Children (0-5 Years)', male: toNumber(row.childrenUnder5Male), female: toNumber(row.childrenUnder5Female), others: toNumber(row.childrenUnder5Others), total: toNumber(row.childrenUnder5) },
         { label: 'Children (6-9 Years)', male: toNumber(row.children6To10Male), female: toNumber(row.children6To10Female), others: toNumber(row.children6To10Others), total: toNumber(row.children6To10) }
       ],
+      healthScreenings: [
+        {
+          label: 'Hb Screenings (Female)',
+          adolescentGirl: toNumber(row.hbFemaleAdolescent),
+          woman: toNumber(row.hbFemaleAdult),
+          total: toNumber(row.hbFemaleAdolescent) + toNumber(row.hbFemaleAdult)
+        },
+        {
+          label: 'Hb Screenings (Male & Children)',
+          men: toNumber(row.hbMaleAdult),
+          adolescentBoy: toNumber(row.hbMaleAdolescent),
+          children: toNumber(row.hbChildUnder10),
+          total: toNumber(row.hbMaleAdult) + toNumber(row.hbMaleAdolescent) + toNumber(row.hbChildUnder10)
+        },
+        { label: 'BP Screenings', male: toNumber(row.bpMale), female: toNumber(row.bpFemale), others: toNumber(row.bpOthers), total: toNumber(row.bpTotal) },
+        {
+          label: 'Sanitary Pads Distributed',
+          adolescentGirl: toNumber(row.padsAdolescents),
+          woman: toNumber(row.padsWomen),
+          total: toNumber(row.padsAdolescents) + toNumber(row.padsWomen)
+        }
+      ],
       activities: [
         { label: 'YOUNG MARRIED WOMEN', count: toNumber(row.youngMarriedWomen), countColor: 'text-gray-900' },
         { label: 'PREGNANT WOMEN', count: toNumber(row.pregnantWomen), countColor: 'text-gray-900' },
@@ -679,6 +701,46 @@ export class OutreachService {
         { label: 'OTHER BENEFICIARIES', count: toNumber(row.otherBeneficiaries), countColor: 'text-gray-900' },
       ]
     };
+  }
+
+  async getOutreachDynamicsDetails(user: any, groupName: string, unique?: boolean) {
+    const roles = user.roles?.map((r: any) => r.role?.name || r.name) || [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
+    const isAnalyst = roles.includes('ANALYST');
+    const isAdmin = roles.includes('ADMIN');
+    const isManager = roles.includes('MANAGER');
+
+    // 1. Resolve Project IDs
+    let targetProjectIds: number[] = [];
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: { userId: user.userId },
+      select: { projectId: true }
+    });
+    targetProjectIds = [...new Set(assignments.map(a => a.projectId))];
+    if (targetProjectIds.length === 0) {
+      const projects = await this.prisma.project.findMany({ select: { id: true } });
+      targetProjectIds = projects.map(p => p.id);
+    }
+
+    // 2. Resolve User Hierarchy Filters
+    let reporterIds: number[] = [];
+    if (isSuperAdmin || isAdmin || isAnalyst) {
+      // No filter by default
+    } else if (isManager) {
+      const managedUsers = await this.prisma.user.findMany({
+        where: { createdByAdminId: user.userId },
+        select: { id: true }
+      });
+      reporterIds = [user.userId, ...managedUsers.map(u => u.id)];
+    } else {
+      reporterIds = [user.userId];
+    }
+
+    return this.outreachDynamics.getDetails(groupName, {
+      projectIds: targetProjectIds,
+      reporterIds,
+      creatorIds: reporterIds
+    });
   }
 
   async getActionDetails(user: any, groupName: string, activityId?: number, sessionId?: number, unique?: boolean) {
@@ -717,167 +779,152 @@ export class OutreachService {
 
     const clean = (groupName || '').trim().toUpperCase();
 
-    // Check if it is one of the 8 dynamic categories
-    const isDynamic = clean.includes('PREGNANT') || clean.includes('LACTATING') || clean.includes('MOTHER') ||
-                     clean.includes('SAM') || clean.includes('MAM') || clean.includes('ADOLESCENT') ||
-                     clean.includes('EBF') || clean.includes('CF') || clean.includes('DUE') || clean.includes('DELIVERY');
-
-    let rawRecords: any[] = [];
-
-    if (isDynamic) {
-      rawRecords = await this.outreachDynamics.getDetails(groupName, {
-        projectIds: targetProjectIds,
-        reporterIds,
-        creatorIds: reporterIds
-      });
-    } else {
-      const conditions: string[] = [
-        `b."projectId" IN (${projectIdsStr})`
-      ];
-      if (activityId) conditions.push(`r."activityId" = ${activityId}`);
-      if (sessionId) conditions.push(`r."sessionId" = ${sessionId}`);
-      if (reporterIds.length > 0) {
-        conditions.push(`r."reportedById" IN (${reporterIds.join(',')})`);
-      }
-      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-      let groupCondition = '1=1';
-
-      const pregnantWomenCond = `r."childId" IS NULL AND r."reportData"->>'pregnancyStatus' = 'Currently Pregnant'`;
-      const lactatingWomenCond = `
-        r."childId" IS NULL AND EXISTS (
-          SELECT 1 FROM "BeneficiaryChild" c_sub
-          WHERE c_sub."beneficiaryId" = r."beneficiaryId"
-            AND c_sub."dateOfBirth" > r.date - INTERVAL '2 years'
-        )
-      `;
-      const mam0to5Cond = `r."childId" IS NOT NULL AND r."reportData"->>'samMamStatus' = 'MAM' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) <= 5`;
-      const sam0to5Cond = `r."childId" IS NOT NULL AND r."reportData"->>'samMamStatus' = 'SAM' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) <= 5`;
-      const youngMarriedWomenCond = `
-        r."childId" IS NULL 
-        AND LOWER(TRIM(b.gender)) = 'female' 
-        AND b."maritalStatus" = 'Married' 
-        AND EXTRACT(YEAR FROM AGE(r.date, b."dateOfBirth")) BETWEEN 15 AND 24 
-        AND (r."reportData"->>'pregnancyStatus' IS NULL OR r."reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
-      `;
-      const infantsLessThan1Cond = `r."childId" IS NOT NULL AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 1`;
-      const toddlers1To3Cond = `r."childId" IS NOT NULL AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) >= 1 AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 3`;
-      const childrenBelow6GirlsCond = `r."childId" IS NOT NULL AND LOWER(TRIM(c.gender)) = 'female' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) >= 3 AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 6`;
-      const childrenBelow6BoysCond = `r."childId" IS NOT NULL AND LOWER(TRIM(c.gender)) = 'male' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) >= 3 AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 6`;
-      const childrenAbove6GirlsCond = `r."childId" IS NOT NULL AND LOWER(TRIM(c.gender)) = 'female' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) >= 6 AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 10`;
-      const childrenAbove6BoysCond = `r."childId" IS NOT NULL AND LOWER(TRIM(c.gender)) = 'male' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) >= 6 AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 10`;
-      const adolescentGirlsCond = `LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'female' AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) BETWEEN 10 AND 19`;
-      const adolescentBoysCond = `LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'male' AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) BETWEEN 10 AND 19`;
-      const stakeholdersCond = `LOWER(TRIM(b."typeof")) = 'stakeholder'`;
-
-      const otherBeneficiariesCond = `
-        NOT (${pregnantWomenCond}
-          OR ${lactatingWomenCond}
-          OR ${mam0to5Cond}
-          OR ${sam0to5Cond}
-          OR ${youngMarriedWomenCond}
-          OR ${infantsLessThan1Cond}
-          OR ${toddlers1To3Cond}
-          OR ${childrenBelow6GirlsCond}
-          OR ${childrenBelow6BoysCond}
-          OR ${childrenAbove6GirlsCond}
-          OR ${childrenAbove6BoysCond}
-          OR ${adolescentGirlsCond}
-          OR ${adolescentBoysCond}
-          OR ${stakeholdersCond})
-      `;
-
-      switch (clean) {
-        case 'PREGNANT WOMEN':
-          groupCondition = pregnantWomenCond;
-          break;
-        case 'LACTATING WOMEN':
-          groupCondition = lactatingWomenCond;
-          break;
-        case 'MAM (0-5)':
-          groupCondition = mam0to5Cond;
-          break;
-        case 'SAM (0-5)':
-          groupCondition = sam0to5Cond;
-          break;
-        case 'YOUNG MARRIED WOMEN':
-          groupCondition = youngMarriedWomenCond;
-          break;
-        case 'INFANT':
-          groupCondition = infantsLessThan1Cond;
-          break;
-        case 'TODDLER':
-          groupCondition = toddlers1To3Cond;
-          break;
-        case 'CHILDREN BELOW 6 (3-6 YEARS) - GIRLS':
-          groupCondition = childrenBelow6GirlsCond;
-          break;
-        case 'CHILDREN BELOW 6 (3-6 YEARS) - BOYS':
-          groupCondition = childrenBelow6BoysCond;
-          break;
-        case 'CHILDREN ABOVE 6 (6-9 YEARS) - GIRLS':
-          groupCondition = childrenAbove6GirlsCond;
-          break;
-        case 'CHILDREN ABOVE 6 (6-9 YEARS) - BOYS':
-          groupCondition = childrenAbove6BoysCond;
-          break;
-        case 'ADOLESCENT GIRLS':
-          groupCondition = adolescentGirlsCond;
-          break;
-        case 'ADOLESCENT BOYS':
-          groupCondition = adolescentBoysCond;
-          break;
-        case 'STAKEHOLDERS':
-          groupCondition = stakeholdersCond;
-          break;
-        case 'OTHER BENEFICIARIES':
-          groupCondition = otherBeneficiariesCond;
-          break;
-        default:
-          groupCondition = '1=1';
-          break;
-      }
-
-      const selectQuery = `
-        SELECT * FROM (
-          SELECT ${unique ? 'DISTINCT ON (COALESCE(r."childId", r."beneficiaryId"))' : ''}
-            r.id AS "reportId",
-            r."beneficiaryId" AS "benIntId",
-            r."childId" AS "childIntId",
-            COALESCE(r."childId", r."beneficiaryId") AS "uniqueEntityId",
-            r.date AS "reportingDate",
-            COALESCE(c.uid, b.uid) AS "beneficiaryId",
-            COALESCE(c.name, b.name) AS "beneficiaryName",
-            b."typeof",
-            a."awcName" AS awc,
-            p.name AS project,
-            act.name AS activity,
-            sess.name AS session,
-            r."reportData",
-            COALESCE(c.gender, b.gender) AS gender,
-            b."maritalStatus",
-            EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
-            (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
-            COALESCE(b.district, 'N/A') AS district,
-            COALESCE(b.block, 'N/A') AS block,
-            COALESCE(b.village, 'N/A') AS village,
-            'N/A' AS school,
-            CASE WHEN r."childId" IS NOT NULL THEN b.name ELSE 'N/A' END AS "motherName"
-          FROM "ActivityReport" r
-          INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
-          LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
-          LEFT JOIN "Awc" a ON b."awcId" = a.id
-          LEFT JOIN "Project" p ON b."projectId" = p.id
-          LEFT JOIN "Activity" act ON r."activityId" = act.id
-          LEFT JOIN "Session" sess ON r."sessionId" = sess.id
-          ${whereClause}
-          ${whereClause ? 'AND' : 'WHERE'} ${groupCondition}
-          ORDER BY ${unique ? 'COALESCE(r."childId", r."beneficiaryId"), r.date DESC' : 'r.date DESC'}
-        ) sub
-        ORDER BY "reportingDate" DESC;
-      `;
-      rawRecords = await this.prisma.$queryRawUnsafe(selectQuery);
+    const conditions: string[] = [
+      `b."projectId" IN (${projectIdsStr})`
+    ];
+    if (activityId) conditions.push(`r."activityId" = ${activityId}`);
+    if (sessionId) conditions.push(`r."sessionId" = ${sessionId}`);
+    if (reporterIds.length > 0) {
+      conditions.push(`r."reportedById" IN (${reporterIds.join(',')})`);
     }
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    let groupCondition = '1=1';
+
+    const pregnantWomenCond = `r."childId" IS NULL AND r."reportData"->>'pregnancyStatus' = 'Currently Pregnant'`;
+    const lactatingWomenCond = `
+      r."childId" IS NULL AND EXISTS (
+        SELECT 1 FROM "BeneficiaryChild" c_sub
+        WHERE c_sub."beneficiaryId" = r."beneficiaryId"
+          AND c_sub."dateOfBirth" > r.date - INTERVAL '2 years'
+      )
+    `;
+    const mam0to5Cond = `r."childId" IS NOT NULL AND r."reportData"->>'samMamStatus' = 'MAM' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) <= 5`;
+    const sam0to5Cond = `r."childId" IS NOT NULL AND r."reportData"->>'samMamStatus' = 'SAM' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) <= 5`;
+    const youngMarriedWomenCond = `
+      r."childId" IS NULL 
+      AND LOWER(TRIM(b.gender)) = 'female' 
+      AND b."maritalStatus" = 'Married' 
+      AND EXTRACT(YEAR FROM AGE(r.date, b."dateOfBirth")) BETWEEN 15 AND 24 
+      AND (r."reportData"->>'pregnancyStatus' IS NULL OR r."reportData"->>'pregnancyStatus' NOT IN ('Currently Pregnant', 'Baby Delivered'))
+    `;
+    const infantsLessThan1Cond = `r."childId" IS NOT NULL AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 1`;
+    const toddlers1To3Cond = `r."childId" IS NOT NULL AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) >= 1 AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 3`;
+    const childrenBelow6GirlsCond = `r."childId" IS NOT NULL AND LOWER(TRIM(c.gender)) = 'female' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) >= 3 AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 6`;
+    const childrenBelow6BoysCond = `r."childId" IS NOT NULL AND LOWER(TRIM(c.gender)) = 'male' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) >= 3 AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 6`;
+    const childrenAbove6GirlsCond = `r."childId" IS NOT NULL AND LOWER(TRIM(c.gender)) = 'female' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) >= 6 AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 10`;
+    const childrenAbove6BoysCond = `r."childId" IS NOT NULL AND LOWER(TRIM(c.gender)) = 'male' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) >= 6 AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) < 10`;
+    const adolescentGirlsCond = `LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'female' AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) BETWEEN 10 AND 19`;
+    const adolescentBoysCond = `LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'male' AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) BETWEEN 10 AND 19`;
+    const stakeholdersCond = `LOWER(TRIM(b."typeof")) = 'stakeholder'`;
+
+    const otherBeneficiariesCond = `
+      NOT (${pregnantWomenCond}
+        OR ${lactatingWomenCond}
+        OR ${mam0to5Cond}
+        OR ${sam0to5Cond}
+        OR ${youngMarriedWomenCond}
+        OR ${infantsLessThan1Cond}
+        OR ${toddlers1To3Cond}
+        OR ${childrenBelow6GirlsCond}
+        OR ${childrenBelow6BoysCond}
+        OR ${childrenAbove6GirlsCond}
+        OR ${childrenAbove6BoysCond}
+        OR ${adolescentGirlsCond}
+        OR ${adolescentBoysCond}
+        OR ${stakeholdersCond})
+    `;
+
+    switch (clean) {
+      case 'PREGNANT WOMEN':
+        groupCondition = pregnantWomenCond;
+        break;
+      case 'LACTATING WOMEN':
+        groupCondition = lactatingWomenCond;
+        break;
+      case 'MAM (0-5)':
+        groupCondition = mam0to5Cond;
+        break;
+      case 'SAM (0-5)':
+        groupCondition = sam0to5Cond;
+        break;
+      case 'YOUNG MARRIED WOMEN':
+        groupCondition = youngMarriedWomenCond;
+        break;
+      case 'INFANT':
+        groupCondition = infantsLessThan1Cond;
+        break;
+      case 'TODDLER':
+        groupCondition = toddlers1To3Cond;
+        break;
+      case 'CHILDREN BELOW 6 (3-6 YEARS) - GIRLS':
+        groupCondition = childrenBelow6GirlsCond;
+        break;
+      case 'CHILDREN BELOW 6 (3-6 YEARS) - BOYS':
+        groupCondition = childrenBelow6BoysCond;
+        break;
+      case 'CHILDREN ABOVE 6 (6-9 YEARS) - GIRLS':
+        groupCondition = childrenAbove6GirlsCond;
+        break;
+      case 'CHILDREN ABOVE 6 (6-9 YEARS) - BOYS':
+        groupCondition = childrenAbove6BoysCond;
+        break;
+      case 'ADOLESCENT GIRLS':
+        groupCondition = adolescentGirlsCond;
+        break;
+      case 'ADOLESCENT BOYS':
+        groupCondition = adolescentBoysCond;
+        break;
+      case 'STAKEHOLDERS':
+        groupCondition = stakeholdersCond;
+        break;
+      case 'OTHER BENEFICIARIES':
+        groupCondition = otherBeneficiariesCond;
+        break;
+      default:
+        groupCondition = '1=1';
+        break;
+    }
+
+    const selectQuery = `
+      SELECT * FROM (
+        SELECT ${unique ? 'DISTINCT ON (COALESCE(r."childId", r."beneficiaryId"))' : ''}
+          r.id AS "reportId",
+          r."beneficiaryId" AS "benIntId",
+          r."childId" AS "childIntId",
+          COALESCE(r."childId", r."beneficiaryId") AS "uniqueEntityId",
+          r.date AS "reportingDate",
+          COALESCE(c.uid, b.uid) AS "beneficiaryId",
+          COALESCE(c.name, b.name) AS "beneficiaryName",
+          b."typeof",
+          a."awcName" AS awc,
+          p.name AS project,
+          act.name AS activity,
+          sess.name AS session,
+          r."reportData",
+          COALESCE(c.gender, b.gender) AS gender,
+          b."maritalStatus",
+          EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
+          (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
+          COALESCE(b.district, 'N/A') AS district,
+          COALESCE(b.block, 'N/A') AS block,
+          COALESCE(b.village, 'N/A') AS village,
+          'N/A' AS school,
+          CASE WHEN r."childId" IS NOT NULL THEN b.name ELSE 'N/A' END AS "motherName"
+        FROM "ActivityReport" r
+        INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
+        LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
+        LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "Project" p ON b."projectId" = p.id
+        LEFT JOIN "Activity" act ON r."activityId" = act.id
+        LEFT JOIN "Session" sess ON r."sessionId" = sess.id
+        ${whereClause}
+        ${whereClause ? 'AND' : 'WHERE'} ${groupCondition}
+        ORDER BY ${unique ? 'COALESCE(r."childId", r."beneficiaryId"), r.date DESC' : 'r.date DESC'}
+      ) sub
+      ORDER BY "reportingDate" DESC;
+    `;
+    const rawRecords = await this.prisma.$queryRawUnsafe(selectQuery) as any[];
 
     return rawRecords.map(record => ({
       id: record.id || record.beneficiaryId,
@@ -1411,6 +1458,12 @@ export class OutreachService {
         activity: true,
         session: true,
         child: true,
+        reportedBy: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
       orderBy: { date: 'desc' },
     });

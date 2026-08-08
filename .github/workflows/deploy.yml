@@ -49,6 +49,7 @@ jobs:
               -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
               -e JWT_SECRET="${{ secrets.JWT_SECRET }}" \
               -e NODE_ENV="production" \
+              -e ORIGIN="https://www.jeevansetu.org" \
               -e PORT="3000" \
               ${{ secrets.DOCKERHUB_USERNAME }}/jeevansetu-backend:latest
             docker image prune -f

@@ -8,6 +8,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      ORIGIN: https://www.jeevansetu.org
     ports:
       - "3000:3000"
     restart: unless-stopped

@@ -213,6 +213,28 @@ export class AnalystService {
         { label: 'Children (0-5 Years)', male: toNumber(row.childrenUnder5Male), female: toNumber(row.childrenUnder5Female), others: toNumber(row.childrenUnder5Others), total: toNumber(row.childrenUnder5) },
         { label: 'Children (6-9 Years)', male: toNumber(row.children6To10Male), female: toNumber(row.children6To10Female), others: toNumber(row.children6To10Others), total: toNumber(row.children6To10) }
       ],
+      healthScreenings: [
+        {
+          label: 'Hb Screenings (Female)',
+          adolescentGirl: toNumber(row.hbFemaleAdolescent),
+          woman: toNumber(row.hbFemaleAdult),
+          total: toNumber(row.hbFemaleAdolescent) + toNumber(row.hbFemaleAdult)
+        },
+        {
+          label: 'Hb Screenings (Male & Children)',
+          men: toNumber(row.hbMaleAdult),
+          adolescentBoy: toNumber(row.hbMaleAdolescent),
+          children: toNumber(row.hbChildUnder10),
+          total: toNumber(row.hbMaleAdult) + toNumber(row.hbMaleAdolescent) + toNumber(row.hbChildUnder10)
+        },
+        { label: 'BP Screenings', male: toNumber(row.bpMale), female: toNumber(row.bpFemale), others: toNumber(row.bpOthers), total: toNumber(row.bpTotal) },
+        {
+          label: 'Sanitary Pads Distributed',
+          adolescentGirl: toNumber(row.padsAdolescents),
+          woman: toNumber(row.padsWomen),
+          total: toNumber(row.padsAdolescents) + toNumber(row.padsWomen)
+        }
+      ],
       activities: [
         { label: 'YOUNG MARRIED WOMEN', count: toNumber(row.youngMarriedWomen), countColor: 'text-gray-900' },
         { label: 'PREGNANT WOMEN', count: toNumber(row.pregnantWomen), countColor: 'text-gray-900' },
