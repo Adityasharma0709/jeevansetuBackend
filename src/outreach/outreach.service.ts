@@ -686,6 +686,7 @@ export class OutreachService {
       activities: [
         { label: 'YOUNG MARRIED WOMEN', count: toNumber(row.youngMarriedWomen), countColor: 'text-gray-900' },
         { label: 'PREGNANT WOMEN', count: toNumber(row.pregnantWomen), countColor: 'text-gray-900' },
+        { label: 'HIGH RISK PREGNANT WOMEN', count: toNumber(row.hrpWomen), countColor: 'text-red-600' },
         { label: 'MAM (0-5)', count: toNumber(row.mam0to5), countColor: 'text-green-600' },
         { label: 'CHILDREN BELOW 6 (3-6 YEARS) - GIRLS', count: toNumber(row.childrenBelow6Girls), countColor: 'text-gray-900' },
         { label: 'CHILDREN BELOW 6 (3-6 YEARS) - BOYS', count: toNumber(row.childrenBelow6Boys), countColor: 'text-gray-900' },
@@ -742,29 +743,31 @@ export class OutreachService {
       creatorIds: reporterIds
     });
 
+    const cleanVal = (val: any) => (val === 'N/A' || val === 'NA' || !val) ? '-' : val;
+
     return rawRecords.map((record: any) => ({
       id: record.id,
       benId: record.benId ? Number(record.benId) : null,
       name: record.name,
       group: record.group,
-      awc: record.awc || '-',
-      project: record.project || '-',
-      gender: record.gender || '-',
-      guardianName: record.guardianName || '-',
-      activity: record.activity || '-',
-      session: record.session || '-',
+      awc: cleanVal(record.awc),
+      project: cleanVal(record.project),
+      gender: cleanVal(record.gender),
+      guardianName: cleanVal(record.guardianName),
+      activity: cleanVal(record.activity),
+      session: cleanVal(record.session),
       reportingDate: record.reportingDate && !isNaN(Date.parse(record.reportingDate))
         ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
         : '-',
-      age: record.age || '-',
-      childNameAndAge: record.childNameAndAge || '-',
-      beneficiaryType: record.beneficiaryType || '-',
-      district: record.district || '-',
-      block: record.block || '-',
-      village: record.village || '-',
-      school: record.school || '-',
-      motherName: record.motherName || '-',
-      healthCenter: record.healthCenter || '-',
+      age: cleanVal(record.age),
+      childNameAndAge: cleanVal(record.childNameAndAge),
+      beneficiaryType: cleanVal(record.beneficiaryType),
+      district: cleanVal(record.district),
+      block: cleanVal(record.block),
+      village: cleanVal(record.village),
+      school: cleanVal(record.school),
+      motherName: cleanVal(record.motherName),
+      healthCenter: cleanVal(record.healthCenter),
     }));
   }
 
@@ -817,6 +820,12 @@ export class OutreachService {
     let groupCondition = '1=1';
 
     const pregnantWomenCond = `r."childId" IS NULL AND r."reportData"->>'pregnancyStatus' = 'Currently Pregnant'`;
+    const hrpCond = `
+      r."childId" IS NULL 
+      AND r."reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
+      AND (r."reportData"->>'pregnancyOutcome' IS NULL OR r."reportData"->>'pregnancyOutcome' = 'null' OR r."reportData"->>'pregnancyOutcome' = '')
+      AND r."reportData"->>'highRiskPregnant' = 'Yes'
+    `;
     const lactatingWomenCond = `
       r."childId" IS NULL AND EXISTS (
         SELECT 1 FROM "BeneficiaryChild" c_sub
@@ -863,6 +872,9 @@ export class OutreachService {
     switch (clean) {
       case 'PREGNANT WOMEN':
         groupCondition = pregnantWomenCond;
+        break;
+      case 'HIGH RISK PREGNANT WOMEN':
+        groupCondition = hrpCond;
         break;
       case 'LACTATING WOMEN':
         groupCondition = lactatingWomenCond;
@@ -931,11 +943,12 @@ export class OutreachService {
           b."maritalStatus",
           EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
           (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
-          COALESCE(b.district, 'N/A') AS district,
-          COALESCE(b.block, 'N/A') AS block,
-          COALESCE(b.village, 'N/A') AS village,
-          'N/A' AS school,
-          CASE WHEN r."childId" IS NOT NULL THEN b.name ELSE 'N/A' END AS "motherName"
+          COALESCE(b.district, '-') AS district,
+          COALESCE(b.block, '-') AS block,
+          COALESCE(b.village, '-') AS village,
+          COALESCE(s_sch.name, '-') AS school,
+          COALESCE(hc.name, '-') AS "healthCenter",
+          CASE WHEN r."childId" IS NOT NULL THEN b.name ELSE '-' END AS "motherName"
         FROM "ActivityReport" r
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
         LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
@@ -943,6 +956,8 @@ export class OutreachService {
         LEFT JOIN "Project" p ON b."projectId" = p.id
         LEFT JOIN "Activity" act ON r."activityId" = act.id
         LEFT JOIN "Session" sess ON r."sessionId" = sess.id
+        LEFT JOIN "School" s_sch ON b."schoolId" = s_sch.id
+        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
         ${whereClause}
         ${whereClause ? 'AND' : 'WHERE'} ${groupCondition}
         ORDER BY ${unique ? 'COALESCE(r."childId", r."beneficiaryId"), r.date DESC' : 'r.date DESC'}
@@ -951,29 +966,32 @@ export class OutreachService {
     `;
     const rawRecords = await this.prisma.$queryRawUnsafe(selectQuery) as any[];
 
+    const cleanVal = (val: any) => (val === 'N/A' || val === 'NA' || !val) ? '-' : val;
+
     return rawRecords.map(record => ({
       id: record.id || record.beneficiaryId,
       benId: record.benId ? Number(record.benId) : (record.benIntId ? Number(record.benIntId) : null),
       reportId: record.reportId,
       name: record.name || record.beneficiaryName,
       group: record.group || groupName,
-      awc: record.awc || 'N/A',
-      project: record.project || 'N/A',
-      gender: record.gender || 'N/A',
-      guardianName: record.guardianName || record.motherName || 'N/A',
-      activity: record.activity || 'N/A',
-      session: record.session || 'N/A',
+      awc: cleanVal(record.awc),
+      project: cleanVal(record.project),
+      gender: cleanVal(record.gender),
+      guardianName: cleanVal(record.guardianName || record.motherName),
+      activity: cleanVal(record.activity),
+      session: cleanVal(record.session),
       reportingDate: record.reportingDate && !isNaN(Date.parse(record.reportingDate))
         ? new Date(record.reportingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-        : 'N/A',
-      age: record.age || (record.age_years !== undefined ? `${record.age_years} Y` : 'N/A'),
-      childNameAndAge: record.childNameAndAge || 'N/A',
-      beneficiaryType: record.typeof || 'N/A',
-      district: record.district || 'N/A',
-      block: record.block || 'N/A',
-      village: record.village || 'N/A',
-      school: 'N/A',
-      motherName: record.motherName || 'N/A',
+        : '-',
+      age: record.age || (record.age_years !== undefined ? `${record.age_years} Y` : '-'),
+      childNameAndAge: cleanVal(record.childNameAndAge),
+      beneficiaryType: cleanVal(record.typeof),
+      district: cleanVal(record.district),
+      block: cleanVal(record.block),
+      village: cleanVal(record.village),
+      school: cleanVal(record.school),
+      healthCenter: cleanVal(record.healthCenter),
+      motherName: cleanVal(record.motherName),
     }));
   }
 

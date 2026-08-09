@@ -71,6 +71,12 @@ export class CoverageDashboardService {
       : (cond: string) => `COUNT(*) FILTER (WHERE ${cond})`;
 
     const pregnantWomenCond = `r."childId" IS NULL AND r."reportData"->>'pregnancyStatus' = 'Currently Pregnant'`;
+    const hrpCond = `
+      r."childId" IS NULL 
+      AND r."reportData"->>'pregnancyStatus' = 'Currently Pregnant' 
+      AND (r."reportData"->>'pregnancyOutcome' IS NULL OR r."reportData"->>'pregnancyOutcome' = 'null' OR r."reportData"->>'pregnancyOutcome' = '')
+      AND r."reportData"->>'highRiskPregnant' = 'Yes'
+    `;
     const lactatingWomenCond = `
       r."childId" IS NULL AND EXISTS (
         SELECT 1 FROM "BeneficiaryChild" c_sub
@@ -140,6 +146,7 @@ export class CoverageDashboardService {
       SELECT 
         COUNT(*)::integer AS "totalReports",
         ${countFn(pregnantWomenCond)}::integer AS "pregnantWomen",
+        ${countFn(hrpCond)}::integer AS "hrpWomen",
         ${countFn(lactatingWomenCond)}::integer AS "lactatingWomen",
         ${countFn(mam0to5Cond)}::integer AS "mam0to5",
         ${countFn(sam0to5Cond)}::integer AS "sam0to5",

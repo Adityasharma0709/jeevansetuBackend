@@ -740,27 +740,29 @@ export class OutreachDynamicsService {
       rawRecords = await this.prisma.$queryRawUnsafe(queryStr);
     }
 
+    const cleanVal = (val: any) => (val === 'N/A' || val === 'NA' || !val) ? '-' : val;
+
     return rawRecords.map(record => ({
       id: record.id,
       benId: record.benId ? Number(record.benId) : null,
       name: record.name,
-      group: record.group,
-      awc: record.awc,
-      project: record.project || 'N/A',
-      gender: record.gender || 'N/A',
-      guardianName: record.guardianName || 'N/A',
-      activity: record.activity || 'N/A',
-      session: record.session || 'N/A',
+      group: cleanVal(record.group),
+      awc: cleanVal(record.awc),
+      project: cleanVal(record.project),
+      gender: cleanVal(record.gender),
+      guardianName: cleanVal(record.guardianName),
+      activity: cleanVal(record.activity),
+      session: cleanVal(record.session),
       reportingDate: record.reportingDate,
-      age: record.age || 'N/A',
-      childNameAndAge: record.childNameAndAge || 'N/A',
-      beneficiaryType: record.typeof || 'N/A',
-      district: record.district || 'N/A',
-      block: record.block || 'N/A',
-      village: record.village || 'N/A',
-      school: record.school || 'N/A',
-      motherName: record.motherName || 'N/A',
-      healthCenter: record.healthCenter || 'N/A'
+      age: cleanVal(record.age),
+      childNameAndAge: cleanVal(record.childNameAndAge),
+      beneficiaryType: cleanVal(record.typeof),
+      district: cleanVal(record.district),
+      block: cleanVal(record.block),
+      village: cleanVal(record.village),
+      school: cleanVal(record.school),
+      motherName: cleanVal(record.motherName),
+      healthCenter: cleanVal(record.healthCenter)
     }));
   }
 }
