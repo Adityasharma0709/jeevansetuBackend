@@ -569,6 +569,7 @@ export class AnalystService {
           act.name AS activity,
           sess.name AS session,
           r."reportData",
+          rep_u.name AS "reportedBy",
           COALESCE(c.gender, b.gender) AS gender,
           b."maritalStatus",
           EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
@@ -588,6 +589,7 @@ export class AnalystService {
         LEFT JOIN "Session" sess ON r."sessionId" = sess.id
         LEFT JOIN "School" s_sch ON b."schoolId" = s_sch.id
         LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
+        LEFT JOIN "User" rep_u ON r."reportedById" = rep_u.id
         ${whereClause}
         ${whereClause ? 'AND' : 'WHERE'} ${groupCondition}
         ORDER BY ${unique ? 'COALESCE(r."childId", r."beneficiaryId"), r.date DESC' : 'r.date DESC'}
@@ -634,6 +636,7 @@ export class AnalystService {
         school: cleanVal(record.school),
         healthCenter: cleanVal(record.healthCenter),
         motherName: cleanVal(record.motherName),
+        reportedBy: record.reportedBy || '-',
       };
     });
   }
@@ -786,6 +789,9 @@ export class AnalystService {
             village: true,
           },
         },
+        createdBy: {
+          select: { name: true, email: true }
+        }
       },
     });
   }
@@ -817,6 +823,9 @@ export class AnalystService {
           },
         },
         children: true,
+        createdBy: {
+          select: { name: true, email: true }
+        }
       },
     });
 

@@ -7,8 +7,8 @@ export class AuthController {
   constructor(private authService: AuthService) { }
 
   @Post('login')
-  login(@Body('email') email: string, @Body('password') password: string) {
-    return this.authService.login(email, password);
+  login(@Body('email') emailOrMobile: string, @Body('password') password: string) {
+    return this.authService.login(emailOrMobile, password);
   }
 
   @UseGuards(AuthGuard('jwt'))

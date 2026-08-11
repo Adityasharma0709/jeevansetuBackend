@@ -7,9 +7,18 @@ import { JwtService } from '@nestjs/jwt';
 export class AuthService {
   constructor(private jwtService: JwtService, private prisma: PrismaService) { }
 
-  async login(email: string, password: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+  async login(emailOrMobile: string, password: string) {
+    if (!emailOrMobile) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: emailOrMobile },
+          { mobileNumber: emailOrMobile },
+        ],
+      },
       include: {
         roles: {
           include: { role: true },

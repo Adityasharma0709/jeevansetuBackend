@@ -939,6 +939,7 @@ export class OutreachService {
           act.name AS activity,
           sess.name AS session,
           r."reportData",
+          rep_u.name AS "reportedBy",
           COALESCE(c.gender, b.gender) AS gender,
           b."maritalStatus",
           EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
@@ -958,6 +959,7 @@ export class OutreachService {
         LEFT JOIN "Session" sess ON r."sessionId" = sess.id
         LEFT JOIN "School" s_sch ON b."schoolId" = s_sch.id
         LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
+        LEFT JOIN "User" rep_u ON r."reportedById" = rep_u.id
         ${whereClause}
         ${whereClause ? 'AND' : 'WHERE'} ${groupCondition}
         ORDER BY ${unique ? 'COALESCE(r."childId", r."beneficiaryId"), r.date DESC' : 'r.date DESC'}
@@ -992,6 +994,7 @@ export class OutreachService {
       school: cleanVal(record.school),
       healthCenter: cleanVal(record.healthCenter),
       motherName: cleanVal(record.motherName),
+      reportedBy: record.reportedBy || '-',
     }));
   }
 
@@ -1038,6 +1041,7 @@ export class OutreachService {
       include: {
         beneficiary: {
           select: {
+            id: true,
             name: true,
             uid: true,
             mobileNumber: true,
@@ -1048,11 +1052,16 @@ export class OutreachService {
               include: {
                 group: true
               }
+            },
+            createdBy: {
+              select: { name: true }
             }
           }
         },
         child: {
           select: {
+            id: true,
+            beneficiaryId: true,
             name: true,
             uid: true,
             dateOfBirth: true,
@@ -1322,7 +1331,10 @@ export class OutreachService {
           }
         },
         groups: { include: { group: true } },
-        activities: { include: { activity: true, session: true } }
+        activities: { include: { activity: true, session: true } },
+        createdBy: {
+          select: { name: true, email: true }
+        }
       }
     });
 
