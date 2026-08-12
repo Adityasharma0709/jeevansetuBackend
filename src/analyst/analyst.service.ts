@@ -483,20 +483,19 @@ export class AnalystService {
     const stakeholdersCond = `LOWER(TRIM(b."typeof")) = 'stakeholder'`;
 
     const otherBeneficiariesCond = `
-      NOT (${pregnantWomenCond}
-        OR ${lactatingWomenCond}
-        OR ${mam0to5Cond}
-        OR ${sam0to5Cond}
-        OR ${youngMarriedWomenCond}
-        OR ${infantsLessThan1Cond}
-        OR ${toddlers1To3Cond}
-        OR ${childrenBelow6GirlsCond}
-        OR ${childrenBelow6BoysCond}
-        OR ${childrenAbove6GirlsCond}
-        OR ${childrenAbove6BoysCond}
-        OR ${adolescentGirlsCond}
-        OR ${adolescentBoysCond}
-        OR ${stakeholdersCond})
+      (
+        EXISTS (
+          SELECT 1 FROM "GroupMember" gm_other
+          INNER JOIN "BeneficiaryGroup" bg_other ON gm_other."groupId" = bg_other.id
+          WHERE gm_other."beneficiaryId" = r."beneficiaryId"
+            AND UPPER(TRIM(bg_other.name)) LIKE 'OTHER BENEFICIARIES%'
+        ) OR EXISTS (
+          SELECT 1 FROM "ChildGroupMember" cgm_other
+          INNER JOIN "BeneficiaryGroup" bg_other ON cgm_other."groupId" = bg_other.id
+          WHERE cgm_other."childId" = r."childId"
+            AND UPPER(TRIM(bg_other.name)) LIKE 'OTHER BENEFICIARIES%'
+        )
+      )
     `;
 
     switch (gName) {
