@@ -52,4 +52,22 @@ jobs:
               -e ORIGIN="https://www.jeevansetu.org" \
               -e PORT="3000" \
               ${{ secrets.DOCKERHUB_USERNAME }}/jeevansetu-backend:latest
-            docker image prune -f
+            
+            # --- AUTOMATED DISK SPACE MAINTENANCE ---
+            # 1. Clean up old unused Docker images, containers, volumes, and build cache
+            docker system prune -af --volumes
+            
+            # 2. Clean package manager caches to reclaim space
+            sudo dnf clean all || sudo yum clean all || true
+            
+            # 3. Vacuum system journal logs to max 50MB
+            sudo journalctl --vacuum-size=50M || true
+            
+            # 4. Clean npm cache
+            npm cache clean --force || true
+            
+            # 5. Remove VS Code Server versions/bins that haven't been used in over 7 days
+            if [ -d "$HOME/.vscode-server/bin" ]; then
+              find "$HOME/.vscode-server/bin" -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} + || true
+            fi
+
