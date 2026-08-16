@@ -218,14 +218,15 @@ export class AnalystService {
           label: 'Hb Screenings (Female)',
           adolescentGirl: toNumber(row.hbFemaleAdolescent),
           woman: toNumber(row.hbFemaleAdult),
-          total: toNumber(row.hbFemaleAdolescent) + toNumber(row.hbFemaleAdult)
+          children: toNumber(row.hbFemaleChildUnder10),
+          total: toNumber(row.hbFemaleAdolescent) + toNumber(row.hbFemaleAdult) + toNumber(row.hbFemaleChildUnder10)
         },
         {
-          label: 'Hb Screenings (Male & Children)',
+          label: 'Hb Screenings (Male)',
           men: toNumber(row.hbMaleAdult),
           adolescentBoy: toNumber(row.hbMaleAdolescent),
-          children: toNumber(row.hbChildUnder10),
-          total: toNumber(row.hbMaleAdult) + toNumber(row.hbMaleAdolescent) + toNumber(row.hbChildUnder10)
+          children: toNumber(row.hbMaleChildUnder10),
+          total: toNumber(row.hbMaleAdult) + toNumber(row.hbMaleAdolescent) + toNumber(row.hbMaleChildUnder10)
         },
         { label: 'BP Screenings', male: toNumber(row.bpMale), female: toNumber(row.bpFemale), others: toNumber(row.bpOthers), total: toNumber(row.bpTotal) },
         {
