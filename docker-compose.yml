@@ -1,14 +1,15 @@
 services:
   backend:
-    build: .
-    container_name: jeevan-setu-backend
-    command: npm run start:prod
+    image: ${DOCKER_IMAGE:-jeevansetu-backend:latest}
+    build:
+      context: .
+    container_name: jeevansetu-backend
+    restart: unless-stopped
+    ports:
+      - 3000:3000
     env_file:
       - .env
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
-      ORIGIN: https://www.jeevansetu.org
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
+      ORIGIN: ${ORIGIN:-https://www.jeevansetu.org}

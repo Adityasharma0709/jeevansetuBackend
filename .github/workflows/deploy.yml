@@ -38,36 +38,50 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            # 1. Prepare application directory
+            mkdir -p ~/app && cd ~/app
+
+            # 2. Write production docker-compose.yml
+            cat << 'EOF' > docker-compose.yml
+            services:
+              backend:
+                image: ${{ secrets.DOCKERHUB_USERNAME }}/jeevansetu-backend:latest
+                container_name: jeevansetu-backend
+                restart: unless-stopped
+                ports:
+                  - "3000:3000"
+                env_file:
+                  - .env
+            EOF
+
+            # 3. Write production .env file
+            cat << EOF > .env
+            DATABASE_URL="${{ secrets.DATABASE_URL }}"
+            JWT_SECRET="${{ secrets.JWT_SECRET }}"
+            NODE_ENV="production"
+            ORIGIN="https://www.jeevansetu.org"
+            PORT="3000"
+            EOF
+
+            # 4. Pull latest image and recreate container with Docker Compose
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/jeevansetu-backend:latest
-            docker stop jeevansetu-backend || true
-            docker rm jeevansetu-backend || true
-            docker run -d \
-              --name jeevansetu-backend \
-              --restart unless-stopped \
-              -p 3000:3000 \
-              -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-              -e JWT_SECRET="${{ secrets.JWT_SECRET }}" \
-              -e NODE_ENV="production" \
-              -e ORIGIN="https://www.jeevansetu.org" \
-              -e PORT="3000" \
-              ${{ secrets.DOCKERHUB_USERNAME }}/jeevansetu-backend:latest
-            
+            docker compose pull
+            docker compose up -d --remove-orphans
+
             # --- AUTOMATED DISK SPACE MAINTENANCE ---
             # 1. Clean up old unused Docker images, containers, volumes, and build cache
             docker system prune -af --volumes
-            
+
             # 2. Clean package manager caches to reclaim space
             sudo dnf clean all || sudo yum clean all || true
-            
+
             # 3. Vacuum system journal logs to max 50MB
             sudo journalctl --vacuum-size=50M || true
-            
+
             # 4. Clean npm cache
             npm cache clean --force || true
-            
+
             # 5. Remove VS Code Server versions/bins that haven't been used in over 7 days
             if [ -d "$HOME/.vscode-server/bin" ]; then
               find "$HOME/.vscode-server/bin" -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} + || true
             fi
-
