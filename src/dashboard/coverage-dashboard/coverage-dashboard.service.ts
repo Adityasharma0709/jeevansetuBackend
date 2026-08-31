@@ -131,14 +131,14 @@ export class CoverageDashboardService {
       AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) BETWEEN 10 AND 19 
       AND r."reportData"->'screeningDetails'->>'pads' IS NOT NULL 
       AND r."reportData"->'screeningDetails'->>'pads' <> '' 
-      AND (r."reportData"->'screeningDetails'->>'pads')::integer > 0
+      AND r."reportData"->'screeningDetails'->>'pads' ~ '^[0-9]+(\.[0-9]+)?$' AND (r."reportData"->'screeningDetails'->>'pads')::numeric > 0
     `;
     const padsWomenCond = `
       LOWER(TRIM(COALESCE(c.gender, b.gender))) = 'female' 
       AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) > 19 
       AND r."reportData"->'screeningDetails'->>'pads' IS NOT NULL 
       AND r."reportData"->'screeningDetails'->>'pads' <> '' 
-      AND (r."reportData"->'screeningDetails'->>'pads')::integer > 0
+      AND r."reportData"->'screeningDetails'->>'pads' ~ '^[0-9]+(\.[0-9]+)?$' AND (r."reportData"->'screeningDetails'->>'pads')::numeric > 0
     `;
 
     const query = `

@@ -213,7 +213,8 @@ export class OutreachDynamicsService {
         AND r."reportData"->>'pregnancyStatus' = 'Currently Pregnant'
         AND r."reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
         AND r."reportData"->>'edd' IS NOT NULL
-        AND r."reportData"->>'edd' != '' 
+        AND r."reportData"->>'edd' != ''
+        AND r."reportData"->>'edd' ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$'
         AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') >= CURRENT_DATE
         AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days';
     `;
@@ -710,7 +711,8 @@ export class OutreachDynamicsService {
             AND r."reportData"->>'lmpDate' ~ '[0-9]{2}/[0-9]{2}/[0-9]{4}'
             AND r."reportData"->>'edd' IS NOT NULL
             AND r."reportData"->>'edd' != ''
-            AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') >= CURRENT_DATE
+        AND r."reportData"->>'edd' ~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$'
+        AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') >= CURRENT_DATE
             AND to_date(r."reportData"->>'edd', 'DD/MM/YYYY') < CURRENT_DATE + INTERVAL '30 days'
           ORDER BY r."beneficiaryId", r.date DESC
         )
