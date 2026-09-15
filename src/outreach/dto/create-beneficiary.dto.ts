@@ -14,12 +14,16 @@ import {
   BeneficiaryType,
 } from '../enums/beneficiary.enum';
 
-/** Converts DD/MM/YYYY → YYYY-MM-DD so that new Date(value) works in service. */
+/** Converts DD/MM/YYYY or DD-MM-YYYY → YYYY-MM-DD so that new Date(value) works in service. */
 function parseDDMMYYYY(value: any): string {
   if (typeof value !== 'string') return value;
-  const ddmmyyyy = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim());
+  const trimmed = value.trim();
+  const ddmmyyyy = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/.exec(trimmed);
   if (ddmmyyyy) {
-    return `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`;
+    const day = ddmmyyyy[1].padStart(2, '0');
+    const month = ddmmyyyy[2].padStart(2, '0');
+    const year = ddmmyyyy[3];
+    return `${year}-${month}-${day}`;
   }
   return value; // already ISO or other format — leave untouched
 }

@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -63,7 +64,18 @@ export class OutreachService {
     }
   }
 
-  private async ensureOutreachAssignedToBeneficiary(userId: number, beneficiary: { projectId: number; awcId?: number | null }) {
+  private async ensureOutreachAssignedToBeneficiary(userId: number, beneficiary: { projectId: number; awcId?: number | null; createdById?: number }) {
+    if (beneficiary.createdById === userId) return;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { roles: { select: { role: { select: { name: true } } } } }
+    });
+    const roles = user?.roles?.map(r => r.role.name) || [];
+    if (roles.includes('SUPER_ADMIN') || roles.includes('ADMIN') || roles.includes('MANAGER') || roles.includes('ANALYST')) {
+      return;
+    }
+
     const assigned = await this.prisma.userProjectLocation.findFirst({
       where: {
         userId,
@@ -96,44 +108,68 @@ export class OutreachService {
   }
   async createBeneficiary(dto: CreateBeneficiaryDto, user: any) {
     if (dto.beneficiaryType === 'Priority') {
-      if (!dto.locationId) {
-        throw new BadRequestException('locationId is required for Priority beneficiaries');
+      if (!dto.locationId && !dto.schoolId && !dto.healthCenterId) {
+        throw new BadRequestException(
+          'A location (AWC, School, or Health Center) is required for Priority beneficiaries',
+        );
       }
 
-      // 1. Get AWC and check its state
-      const awc = await this.prisma.awc.findUnique({
-        where: { id: dto.locationId },
-        select: { id: true, stateId: true, status: true },
-      });
-      if (!awc) throw new NotFoundException('AWC not found');
-      this.assertIsActive(awc.status, 'AWC');
+      let stateId: number | null = null;
+
+      if (dto.locationId) {
+        const awc = await this.prisma.awc.findUnique({
+          where: { id: dto.locationId },
+          select: { id: true, stateId: true, status: true },
+        });
+        if (!awc) throw new NotFoundException('AWC not found');
+        this.assertIsActive(awc.status, 'AWC');
+        stateId = awc.stateId;
+      } else if (dto.schoolId) {
+        const school = await this.prisma.school.findUnique({
+          where: { id: dto.schoolId },
+          select: { id: true, stateId: true, status: true },
+        });
+        if (!school) throw new NotFoundException('School not found');
+        this.assertIsActive(school.status, 'School');
+        stateId = school.stateId;
+      } else if (dto.healthCenterId) {
+        const hc = await this.prisma.healthCenter.findUnique({
+          where: { id: dto.healthCenterId },
+          select: { id: true, stateId: true, status: true },
+        });
+        if (!hc) throw new NotFoundException('Health Center not found');
+        this.assertIsActive(hc.status, 'Health Center');
+        stateId = hc.stateId;
+      }
 
       // 2. Check outreach assignment for this project and state
-      const assigned = await this.prisma.userProjectLocation.findFirst({
-        where: {
-          userId: user.userId,
-          projectId: dto.projectId,
-          stateId: awc.stateId
-        }
-      });
-
-      if (!assigned) {
-        const shares = await this.prisma.accountShare.findMany({
-          where: { toUserId: user.userId },
-          select: { fromUserId: true }
-        });
-        const sharedFromUserIds = shares.map(s => s.fromUserId);
-        const sharedAssigned = await this.prisma.userProjectLocation.findFirst({
+      if (stateId) {
+        const assigned = await this.prisma.userProjectLocation.findFirst({
           where: {
-            userId: { in: sharedFromUserIds },
+            userId: user.userId,
             projectId: dto.projectId,
-            stateId: awc.stateId
-          }
+            stateId,
+          },
         });
-        if (!sharedAssigned) {
-          throw new ForbiddenException(
-            'You are not assigned to this project or the state of this location'
-          );
+
+        if (!assigned) {
+          const shares = await this.prisma.accountShare.findMany({
+            where: { toUserId: user.userId },
+            select: { fromUserId: true },
+          });
+          const sharedFromUserIds = shares.map((s) => s.fromUserId);
+          const sharedAssigned = await this.prisma.userProjectLocation.findFirst({
+            where: {
+              userId: { in: sharedFromUserIds },
+              projectId: dto.projectId,
+              stateId,
+            },
+          });
+          if (!sharedAssigned) {
+            throw new ForbiddenException(
+              'You are not assigned to this project or the state of this location',
+            );
+          }
         }
       }
     } else {
@@ -142,25 +178,23 @@ export class OutreachService {
         where: {
           userId: user.userId,
           projectId: dto.projectId,
-        }
+        },
       });
 
       if (!assigned) {
         const shares = await this.prisma.accountShare.findMany({
           where: { toUserId: user.userId },
-          select: { fromUserId: true }
+          select: { fromUserId: true },
         });
-        const sharedFromUserIds = shares.map(s => s.fromUserId);
+        const sharedFromUserIds = shares.map((s) => s.fromUserId);
         const sharedAssigned = await this.prisma.userProjectLocation.findFirst({
           where: {
             userId: { in: sharedFromUserIds },
             projectId: dto.projectId,
-          }
+          },
         });
         if (!sharedAssigned) {
-          throw new ForbiddenException(
-            'You are not assigned to this project'
-          );
+          throw new ForbiddenException('You are not assigned to this project');
         }
       }
     }
@@ -176,85 +210,76 @@ export class OutreachService {
     }
     this.assertIsActive(project.status, 'Project');
 
-    // 4. Generate a robust and unique UID
-    const lastBen = await this.prisma.beneficiary.findFirst({
-      where: {
-        projectId: dto.projectId,
-        uid: { startsWith: project.projectCode }
-      },
-      orderBy: { uid: 'desc' },
-      select: { uid: true }
-    });
+    // 4. Generate a robust and unique UID using true numeric max calculation
+    const prefix = project.projectCode;
+    const prefixPattern = `^${prefix}`;
+    const numericPattern = `^${prefix}[0-9]+$`;
 
-    let nextVal = 1;
-    if (lastBen && lastBen.uid) {
-      const suffixStr = lastBen.uid.substring(project.projectCode.length);
-      const parsed = parseInt(suffixStr, 10);
-      if (!isNaN(parsed)) {
-        nextVal = parsed + 1;
-      }
-    }
+    const rows = await this.prisma.$queryRaw<Array<{ max: number | null }>>`
+      SELECT MAX(
+        CAST(
+          regexp_replace(UPPER("uid"), ${prefixPattern}, '')
+          AS INTEGER
+        )
+      ) AS max
+      FROM "Beneficiary"
+      WHERE UPPER("uid") ~ ${numericPattern}
+    `;
 
-    let uid = '';
-    let isUnique = false;
-    let attempts = 0;
-    while (!isUnique && attempts < 100) {
+    let nextVal = (rows[0]?.max ?? 0) + 1;
+
+    for (let attempt = 0; attempt < 100; attempt++) {
       const padded = String(nextVal).padStart(6, '0');
-      uid = `${project.projectCode}${padded}`;
-      const existing = await this.prisma.beneficiary.findUnique({
-        where: { uid },
-        select: { id: true }
-      });
-      if (!existing) {
-        isUnique = true;
-      } else {
-        nextVal++;
-        attempts++;
+      const uid = `${prefix}${padded}`;
+
+      try {
+        const ben = await this.prisma.beneficiary.create({
+          data: {
+            uid,
+            typeof: dto.beneficiaryType || 'Priority',
+            projectId: dto.projectId,
+            awcId: dto.locationId || null,
+            schoolId: dto.schoolId || null,
+            healthCenterId: dto.healthCenterId || null,
+            state: dto.state,
+            district: dto.district,
+            block: dto.block,
+            village: dto.village,
+            createdById: user.userId,
+
+            mobileNumber: dto.mobileNumber,
+            name: dto.name,
+            gender: dto.gender,
+            guardianName: dto.guardianName,
+            dateOfBirth: this.parseDateRobust(dto.dateOfBirth),
+
+            maritalStatus: dto.maritalStatus,
+            dateOfMarriage: dto.dateOfMarriage,
+            womanAgeAtMarriage: dto.womanAgeAtMarriage,
+            husbandAgeAtMarriage: dto.husbandAgeAtMarriage,
+
+            qualification: dto.qualification,
+            religion: dto.religion,
+            caste: dto.caste,
+
+            monthlyIncome: dto.monthlyIncome,
+            economicStatus: dto.economicStatus,
+            primaryIncomeSource: dto.primaryIncomeSource,
+            employmentStatus: dto.employmentStatus
+          }
+        });
+        await this.recalculateGroupsForBeneficiary(ben.id);
+        return ben;
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          nextVal++;
+          continue;
+        }
+        throw error;
       }
     }
 
-    if (!isUnique) {
-      throw new BadRequestException('Unable to generate a unique UID for the beneficiary');
-    }
-
-    // 5. Create beneficiary
-    const ben = await this.prisma.beneficiary.create({
-      data: {
-        uid,
-        typeof: dto.beneficiaryType || 'Priority',
-        projectId: dto.projectId,
-        awcId: dto.locationId || null,
-        schoolId: dto.schoolId || null,
-        healthCenterId: dto.healthCenterId || null,
-        state: dto.state,
-        district: dto.district,
-        block: dto.block,
-        village: dto.village,
-        createdById: user.userId,
-
-        mobileNumber: dto.mobileNumber,
-        name: dto.name,
-        gender: dto.gender,
-        guardianName: dto.guardianName,
-        dateOfBirth: new Date(dto.dateOfBirth),
-
-        maritalStatus: dto.maritalStatus,
-        dateOfMarriage: dto.dateOfMarriage,
-        womanAgeAtMarriage: dto.womanAgeAtMarriage,
-        husbandAgeAtMarriage: dto.husbandAgeAtMarriage,
-
-        qualification: dto.qualification,
-        religion: dto.religion,
-        caste: dto.caste,
-
-        monthlyIncome: dto.monthlyIncome,
-        economicStatus: dto.economicStatus,
-        primaryIncomeSource: dto.primaryIncomeSource,
-        employmentStatus: dto.employmentStatus
-      }
-    });
-    await this.recalculateGroupsForBeneficiary(ben.id);
-    return ben;
+    throw new BadRequestException('Unable to generate a unique UID for the beneficiary');
   }
 
   async raiseRequest(dto: any, user: any) {
@@ -1404,13 +1429,13 @@ export class OutreachService {
   // ── Family Members ─────────────────────────────────────────────────────────
 
   async addFamilyMember(beneficiaryId: number, dto: AddFamilyMemberDto, user: any) {
-    const userId = Number(user?.userId);
+    const userId = Number(user?.userId ?? user?.id ?? user?.sub);
     if (!Number.isFinite(userId)) throw new BadRequestException('Invalid user');
 
     // 1. Verify beneficiary exists
     const beneficiary = await this.prisma.beneficiary.findUnique({
       where: { id: beneficiaryId },
-      select: { id: true, uid: true, projectId: true, awcId: true },
+      select: { id: true, uid: true, projectId: true, awcId: true, createdById: true },
     });
     if (!beneficiary) throw new NotFoundException('Beneficiary not found');
 
@@ -1418,7 +1443,7 @@ export class OutreachService {
     await this.ensureOutreachAssignedToBeneficiary(userId, beneficiary);
 
     // 3. Age-based field validation
-    const dob = new Date(dto.dateOfBirth);
+    const dob = this.parseDateRobust(dto.dateOfBirth);
     const today = new Date();
     let ageYears = today.getFullYear() - dob.getFullYear();
     const m = today.getMonth() - dob.getMonth();
@@ -1426,63 +1451,62 @@ export class OutreachService {
       ageYears--;
     }
 
-    if (ageYears >= 3 && ageYears <= 14) {
-      if (!dto.schoolingStatus) {
-        throw new BadRequestException(`schoolingStatus is required for children (Age: ${ageYears})`);
-      }
-    } else if (ageYears > 14) {
-      if (!dto.employmentStatus) {
-        throw new BadRequestException(`employmentStatus is required for family members (Age: ${ageYears})`);
-      }
-    }
+    const schoolingStatus = ageYears >= 3 && ageYears <= 14 
+      ? (dto.schoolingStatus || 'Not studying') 
+      : null;
+    const employmentStatus = ageYears > 14 
+      ? (dto.employmentStatus || 'Not-Working') 
+      : null;
+    const qualification = ageYears > 6 
+      ? (dto.qualification || 'Primary (Class 1–5)') 
+      : null;
 
-    if (ageYears > 6) {
-      if (!dto.qualification) {
-        throw new BadRequestException(`qualification is required for family members (Age: ${ageYears})`);
-      }
-    }
-
-    // 4. Generate family member UID: <beneficiaryUid>+f<NN>
+    // 4. Generate family member UID with retry for concurrency safety
     const existingCount = await this.prisma.beneficiaryChild.count({
       where: { beneficiaryId },
     });
-    const suffix = String(existingCount + 1).padStart(2, '0');
-    const memberUid = `${beneficiary.uid}F${suffix}`;
+    
+    let suffixNum = existingCount + 1;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const suffix = String(suffixNum).padStart(2, '0');
+      const memberUid = `${beneficiary.uid}F${suffix}`;
 
-    // 5. Create family member record
-    const child = await this.prisma.beneficiaryChild.create({
-      data: {
-        uid: memberUid,
-        beneficiaryId,
-        name: dto.name,
-        relationship: dto.relationship,
-        dateOfBirth: new Date(dto.dateOfBirth),
-        gender: dto.gender,
-        schoolingStatus: (ageYears <= 14 ? (dto.schoolingStatus ?? null) : null) as any,
-        employmentStatus: (ageYears > 14 ? (dto.employmentStatus ?? null) : null) as any,
-        qualification: (ageYears > 6 ? (dto.qualification ?? null) : null) as any,
-      },
-    });
-    await this.recalculateGroupsForBeneficiary(beneficiaryId);
-    return child;
+      try {
+        const child = await this.prisma.beneficiaryChild.create({
+          data: {
+            uid: memberUid,
+            beneficiaryId,
+            name: dto.name || 'Family Member',
+            relationship: dto.relationship || 'Child',
+            dateOfBirth: dob,
+            gender: dto.gender || 'Other',
+            schoolingStatus: schoolingStatus as any,
+            employmentStatus: employmentStatus as any,
+            qualification: qualification as any,
+          },
+        });
+        await this.recalculateGroupsForBeneficiary(beneficiaryId);
+        return child;
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          suffixNum++;
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new InternalServerErrorException('Failed to generate unique UID for family member');
   }
 
   async getFamilyMembers(beneficiaryId: number, userId: number) {
-    const shares = await this.prisma.accountShare.findMany({
-      where: { toUserId: userId },
-      select: { fromUserId: true }
-    });
-    const sharedFromUserIds = shares.map(s => s.fromUserId);
-    const allowedUserIds = [userId, ...sharedFromUserIds];
-
-    const beneficiary = await this.prisma.beneficiary.findFirst({
-      where: {
-        id: beneficiaryId,
-        createdById: { in: allowedUserIds }
-      },
-      select: { id: true },
+    const beneficiary = await this.prisma.beneficiary.findUnique({
+      where: { id: beneficiaryId },
+      select: { id: true, projectId: true, awcId: true, createdById: true },
     });
     if (!beneficiary) throw new NotFoundException('Beneficiary not found');
+
+    await this.ensureOutreachAssignedToBeneficiary(userId, beneficiary);
 
     return this.prisma.beneficiaryChild.findMany({
       where: { beneficiaryId },
@@ -1491,21 +1515,13 @@ export class OutreachService {
   }
 
   async getReportsByBeneficiary(beneficiaryId: number, userId: number) {
-    const shares = await this.prisma.accountShare.findMany({
-      where: { toUserId: userId },
-      select: { fromUserId: true }
-    });
-    const sharedFromUserIds = shares.map(s => s.fromUserId);
-    const allowedUserIds = [userId, ...sharedFromUserIds];
-
-    const beneficiary = await this.prisma.beneficiary.findFirst({
-      where: {
-        id: beneficiaryId,
-        createdById: { in: allowedUserIds }
-      },
-      select: { id: true },
+    const beneficiary = await this.prisma.beneficiary.findUnique({
+      where: { id: beneficiaryId },
+      select: { id: true, projectId: true, awcId: true, createdById: true },
     });
     if (!beneficiary) throw new NotFoundException('Beneficiary not found');
+
+    await this.ensureOutreachAssignedToBeneficiary(userId, beneficiary);
 
     return this.prisma.activityReport.findMany({
       where: { beneficiaryId },
@@ -1544,7 +1560,7 @@ export class OutreachService {
       }
     }
 
-    const rawDob = dto.dateOfBirth ? new Date(dto.dateOfBirth) : member.dateOfBirth;
+    const rawDob = dto.dateOfBirth ? this.parseDateRobust(dto.dateOfBirth) : member.dateOfBirth;
     const today = new Date();
     let ageYears = today.getFullYear() - rawDob.getFullYear();
     const m = today.getMonth() - rawDob.getMonth();
@@ -1628,12 +1644,11 @@ export class OutreachService {
       }
     }
 
-    // We no longer fetch all reports for children since the group logic does not use it.
-
     const groupNames = new Set<string>();
-
     const age = this.calcAge(beneficiary.dateOfBirth);
-    const gender = (beneficiary.gender || '').trim();
+    const genderRaw = (beneficiary.gender || '').trim().toLowerCase();
+    const isFemale = genderRaw === 'female' || genderRaw === 'f';
+    const isMale = genderRaw === 'male' || genderRaw === 'm';
     const maritalStatus = beneficiary.maritalStatus;
 
     if (beneficiary.typeof === 'Stakeholder') {
@@ -1670,7 +1685,7 @@ export class OutreachService {
     const hasChildUnder2 = beneficiary.children.some(c => this.calcAge(c.dateOfBirth) <= 2);
 
     // Evaluate main beneficiary rules
-    if (gender === 'Female') {
+    if (isFemale) {
       if (age < 6) {
         if (latestSamMamStatus === 'SAM') {
           groupNames.add('SAM Children [0-5 Years]');
@@ -1722,7 +1737,7 @@ export class OutreachService {
           groupNames.add('Other Beneficiaries - Females');
         }
       }
-    } else if (gender === 'Male') {
+    } else if (isMale) {
       if (age < 6) {
         if (latestSamMamStatus === 'SAM') {
           groupNames.add('SAM Children [0-5 Years]');
@@ -1744,8 +1759,6 @@ export class OutreachService {
       }
     }
 
-
-
     // Sync database for primary beneficiary
     await this.syncGroupsForBeneficiary(beneficiaryId, Array.from(groupNames));
 
@@ -1753,7 +1766,9 @@ export class OutreachService {
     for (const child of beneficiary.children) {
       const childGroupNames = new Set<string>();
       const childAge = this.calcAge(child.dateOfBirth);
-      const childGender = (child.gender || '').trim();
+      const childGenderRaw = (child.gender || '').trim().toLowerCase();
+      const childIsFemale = childGenderRaw === 'female' || childGenderRaw === 'f';
+      const childIsMale = childGenderRaw === 'male' || childGenderRaw === 'm';
 
       // Fetch all reports for this specific child to find the most recent non-empty statuses
       const childReports = await this.prisma.activityReport.findMany({
@@ -1779,7 +1794,7 @@ export class OutreachService {
         }
       }
 
-      if (childGender === 'Female') {
+      if (childIsFemale) {
         if (childAge < 6) {
           if (childSamMamStatus === 'SAM') childGroupNames.add('SAM Children [0-5 Years]');
           else if (childSamMamStatus === 'MAM') childGroupNames.add('MAM Children [0-5 Years]');
@@ -1793,7 +1808,7 @@ export class OutreachService {
         } else if (childAge >= 20) {
           childGroupNames.add('Other Beneficiaries - Females');
         }
-      } else if (childGender === 'Male') {
+      } else if (childIsMale) {
         if (childAge < 6) {
           if (childSamMamStatus === 'SAM') childGroupNames.add('SAM Children [0-5 Years]');
           else if (childSamMamStatus === 'MAM') childGroupNames.add('MAM Children [0-5 Years]');

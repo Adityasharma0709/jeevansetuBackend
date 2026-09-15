@@ -10,11 +10,18 @@ import { RejectRequestDto } from './dto/reject-request.dto';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
+import { OutreachService } from '../outreach/outreach.service';
+import { AddFamilyMemberDto } from '../outreach/dto/add-family-member.dto';
+import { UpdateFamilyMemberDto } from '../outreach/dto/update-family-member.dto';
+
 @Controller('manager')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('MANAGER')
 export class ManagerController {
-  constructor(private readonly managerService: ManagerService) {}
+  constructor(
+    private readonly managerService: ManagerService,
+    private readonly outreachService: OutreachService,
+  ) {}
 
   @Get('dashboard/manager')
   getManagerDashboard(@Req() req) {
@@ -158,6 +165,24 @@ export class ManagerController {
   @Get('beneficiary/:id/family-members')
   getFamilyMembers(@Param('id', ParseIntPipe) id: number) {
     return this.managerService.getFamilyMembers(id);
+  }
+
+  @Post('beneficiary/:id/family-member')
+  addFamilyMember(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AddFamilyMemberDto,
+    @Req() req,
+  ) {
+    return this.outreachService.addFamilyMember(id, dto, req.user);
+  }
+
+  @Patch('family-member/:id')
+  updateFamilyMember(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateFamilyMemberDto,
+    @Req() req,
+  ) {
+    return this.outreachService.updateFamilyMember(id, dto, req.user);
   }
 
   @Get('beneficiary/:id/reports')

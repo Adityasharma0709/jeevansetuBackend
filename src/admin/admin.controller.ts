@@ -20,9 +20,16 @@ import { UpdateActivityDto } from './dto/update-activity.dto';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 
+import { OutreachService } from '../outreach/outreach.service';
+import { AddFamilyMemberDto } from '../outreach/dto/add-family-member.dto';
+import { UpdateFamilyMemberDto } from '../outreach/dto/update-family-member.dto';
+
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly outreachService: OutreachService,
+  ) {}
 
   // =========================
   // STATES
@@ -243,6 +250,28 @@ export class AdminController {
   @Get('beneficiary/:id/family-members')
   getFamilyMembers(@Param('id') id: string) {
     return this.adminService.getFamilyMembers(+id);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Post('beneficiary/:id/family-member')
+  addFamilyMember(
+    @Param('id') id: string,
+    @Body() dto: AddFamilyMemberDto,
+    @Req() req,
+  ) {
+    return this.outreachService.addFamilyMember(+id, dto, req.user);
+  }
+
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('ADMIN')
+  @Patch('family-member/:id')
+  updateFamilyMember(
+    @Param('id') id: string,
+    @Body() dto: UpdateFamilyMemberDto,
+    @Req() req,
+  ) {
+    return this.outreachService.updateFamilyMember(+id, dto, req.user);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)

@@ -2,11 +2,17 @@ import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { Gender } from '../enums/beneficiary.enum';
 
-/** Converts DD/MM/YYYY → YYYY-MM-DD so that new Date(value) works in service. */
+/** Converts DD/MM/YYYY or DD-MM-YYYY → YYYY-MM-DD so that new Date(value) works in service. */
 function parseDDMMYYYY(value: any): string {
   if (typeof value !== 'string') return value;
-  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim());
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  const trimmed = value.trim();
+  const ddmmyyyy = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/.exec(trimmed);
+  if (ddmmyyyy) {
+    const day = ddmmyyyy[1].padStart(2, '0');
+    const month = ddmmyyyy[2].padStart(2, '0');
+    const year = ddmmyyyy[3];
+    return `${year}-${month}-${day}`;
+  }
   return value;
 }
 

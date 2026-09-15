@@ -98,8 +98,20 @@ export class LocationsController {
   // =========================
 
   @Get('schools')
-  findAllSchools(@Query('projectId') projectId?: string) {
-    return this.locationsService.findAllSchools(projectId ? +projectId : undefined);
+  findAllSchools(
+    @Query('projectId') projectId?: string,
+    @Query('stateId') stateId?: string,
+    @Query('districtId') districtId?: string,
+    @Query('blockId') blockId?: string,
+    @Query('villageId') villageId?: string,
+  ) {
+    return this.locationsService.findAllSchools(
+      projectId ? +projectId : undefined,
+      stateId ? +stateId : undefined,
+      districtId ? +districtId : undefined,
+      blockId ? +blockId : undefined,
+      villageId ? +villageId : undefined,
+    );
   }
 
   @Put('schools/:id')
@@ -120,8 +132,20 @@ export class LocationsController {
   // =========================
 
   @Get('health-centers')
-  findAllHealthCenters(@Query('projectId') projectId?: string) {
-    return this.locationsService.findAllHealthCenters(projectId ? +projectId : undefined);
+  findAllHealthCenters(
+    @Query('projectId') projectId?: string,
+    @Query('stateId') stateId?: string,
+    @Query('districtId') districtId?: string,
+    @Query('blockId') blockId?: string,
+    @Query('villageId') villageId?: string,
+  ) {
+    return this.locationsService.findAllHealthCenters(
+      projectId ? +projectId : undefined,
+      stateId ? +stateId : undefined,
+      districtId ? +districtId : undefined,
+      blockId ? +blockId : undefined,
+      villageId ? +villageId : undefined,
+    );
   }
 
   @Put('health-centers/:id')
@@ -139,12 +163,24 @@ export class LocationsController {
 
   // =========================
   // GET ALL LOCATIONS
-  // (Optional filter by projectId)
+  // (Optional filter by projectId, stateId, districtId, blockId, villageId)
   // =========================
 
   @Get()
-  findAll(@Query('projectId') projectId?: string) {
-    return this.locationsService.findAll(projectId ? +projectId : undefined);
+  findAll(
+    @Query('projectId') projectId?: string,
+    @Query('stateId') stateId?: string,
+    @Query('districtId') districtId?: string,
+    @Query('blockId') blockId?: string,
+    @Query('villageId') villageId?: string,
+  ) {
+    return this.locationsService.findAll(
+      projectId ? +projectId : undefined,
+      stateId ? +stateId : undefined,
+      districtId ? +districtId : undefined,
+      blockId ? +blockId : undefined,
+      villageId ? +villageId : undefined,
+    );
   }
 
   // =========================

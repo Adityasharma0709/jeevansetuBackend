@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLocationDto } from './dto/create-location.dto';
@@ -10,8 +10,45 @@ const LOCATION_CODE_MIN_DIGITS = 1;
 const LOCATION_CODE_MAX_RETRIES = 5;
 
 @Injectable()
-export class LocationsService {
+export class LocationsService implements OnModuleInit {
   constructor(private prisma: PrismaService) {}
+
+  async onModuleInit() {
+    await this.ensureSequencesExist();
+  }
+
+  private async ensureSequencesExist() {
+    try {
+      const items = [
+        { seqName: 'awc_location_code_seq', tableName: 'Awc', prefix: LOCATION_CODE_PREFIX },
+        { seqName: 'school_location_code_seq', tableName: 'School', prefix: 'SCH' },
+        { seqName: 'health_center_location_code_seq', tableName: 'HealthCenter', prefix: 'HC' },
+      ];
+
+      for (const item of items) {
+        await this.prisma.$executeRawUnsafe(`
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relkind = 'S' AND relname = '${item.seqName}') THEN
+              CREATE SEQUENCE ${item.seqName};
+              PERFORM setval(
+                '${item.seqName}',
+                COALESCE((
+                  SELECT MAX(
+                    CAST(regexp_replace(UPPER("locationCode"), '^${item.prefix}', '') AS INTEGER)
+                  ) FROM "${item.tableName}"
+                  WHERE UPPER("locationCode") ~ '^${item.prefix}[0-9]+$'
+                ), 0) + 1,
+                false
+              );
+            END IF;
+          END $$;
+        `);
+      }
+    } catch (error) {
+      console.warn('Failed to ensure PostgreSQL location sequences exist:', error);
+    }
+  }
 
   private async assertProjectExists(projectId: number) {
     const existing = await this.prisma.project.findUnique({
@@ -34,8 +71,8 @@ export class LocationsService {
       ...awc,
       stateName: awc.state?.name,
       districtName: awc.district?.name,
-      block: awc.block?.name,
-      village: awc.village?.name,
+      blockName: typeof awc.block === 'object' ? awc.block?.name : awc.block,
+      villageName: typeof awc.village === 'object' ? awc.village?.name : awc.village,
     };
   }
 
@@ -48,8 +85,9 @@ export class LocationsService {
     let blockId: number | undefined = undefined;
     let villageId: number | undefined = undefined;
 
-    if (blockName && districtId) {
-      const name = blockName.trim().toUpperCase();
+    const trimmedBlock = blockName?.trim();
+    if (trimmedBlock && districtId) {
+      const name = trimmedBlock.toUpperCase();
       let block = await tx.block.findFirst({
         where: { name: { equals: name, mode: 'insensitive' }, districtId },
       });
@@ -59,8 +97,9 @@ export class LocationsService {
       blockId = block.id;
     }
 
-    if (villageName && blockId) {
-      const name = villageName.trim().toUpperCase();
+    const trimmedVillage = villageName?.trim();
+    if (trimmedVillage && blockId) {
+      const name = trimmedVillage.toUpperCase();
       let village = await tx.village.findFirst({
         where: { name: { equals: name, mode: 'insensitive' }, blockId },
       });
@@ -74,25 +113,39 @@ export class LocationsService {
   }
 
 
+  private async getNextSequenceValue(
+    tx: Prisma.TransactionClient,
+    seqName: string,
+    tableName: string,
+    prefix: string,
+  ): Promise<number> {
+    try {
+      const result = await tx.$queryRawUnsafe<Array<{ nextval: bigint | number | string }>>(
+        `SELECT nextval('${seqName}') AS nextval`
+      );
+      return Number(result[0].nextval);
+    } catch {
+      const rows = await tx.$queryRawUnsafe<Array<{ max: number | null }>>(`
+        SELECT MAX(
+          CAST(regexp_replace(UPPER("locationCode"), '^${prefix}', '') AS INTEGER)
+        ) AS max
+        FROM "${tableName}"
+        WHERE UPPER("locationCode") ~ '^${prefix}[0-9]+$'
+      `);
+      return (rows[0]?.max ?? 0) + 1;
+    }
+  }
+
   private async generateNextLocationCode(
     tx: Prisma.TransactionClient,
   ): Promise<string> {
     const prefix = LOCATION_CODE_PREFIX;
-    const prefixPattern = `^${prefix}`;
-    const numericPattern = `^${prefix}[0-9]+$`;
-
-    const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
-      SELECT MAX(
-        CAST(
-          regexp_replace(UPPER("locationCode"), ${prefixPattern}, '')
-          AS INTEGER
-        )
-      ) AS max
-      FROM "Awc"
-      WHERE UPPER("locationCode") ~ ${numericPattern}
-    `;
-
-    const nextNumber = (rows[0]?.max ?? 0) + 1;
+    const nextNumber = await this.getNextSequenceValue(
+      tx,
+      'awc_location_code_seq',
+      'Awc',
+      prefix,
+    );
     const numeric = String(nextNumber).padStart(LOCATION_CODE_MIN_DIGITS, '0');
     return `${prefix}${numeric}`;
   }
@@ -181,9 +234,22 @@ export class LocationsService {
     });
   }
 
-  async findAll(projectId?: number) {
+  async findAll(
+    projectId?: number,
+    stateId?: number,
+    districtId?: number,
+    blockId?: number,
+    villageId?: number,
+  ) {
+    const where: any = {};
+    if (projectId) where.projectId = projectId;
+    if (stateId) where.stateId = stateId;
+    if (districtId) where.districtId = districtId;
+    if (blockId) where.blockId = blockId;
+    if (villageId) where.villageId = villageId;
+
     const rows = await this.prisma.awc.findMany({
-      where: projectId ? { projectId } : {},
+      where,
       include: { 
         project: { select: { id: true, name: true } },
         state: { select: { name: true } },
@@ -244,29 +310,38 @@ export class LocationsService {
         dto.village,
       );
 
-      const { block, village, ...restDto } = dto;
+      const { block, village, awcName, locationCode, ...restDto } = dto;
       
       const updateData: any = {
         ...restDto,
-        locationCode: normalizedCode ? normalizedCode : undefined,
       };
 
+      const nameToUpdate = (dto as any).name || awcName;
+      if (nameToUpdate?.trim()) updateData.awcName = nameToUpdate.trim();
+      if (normalizedCode) updateData.locationCode = normalizedCode;
       if (dto.block !== undefined) updateData.blockId = blockId;
       if (dto.village !== undefined) updateData.villageId = villageId;
 
-      return this.toAwcResponse(
-        await tx.awc.update({
-          where: { id },
-          data: updateData,
-          include: { 
-            project: { select: { id: true, name: true } },
-            state: { select: { name: true } },
-            district: { select: { name: true } },
-            block: { select: { name: true } },
-            village: { select: { name: true } }
-          },
-        }),
-      );
+      try {
+        return this.toAwcResponse(
+          await tx.awc.update({
+            where: { id },
+            data: updateData,
+            include: { 
+              project: { select: { id: true, name: true } },
+              state: { select: { name: true } },
+              district: { select: { name: true } },
+              block: { select: { name: true } },
+              village: { select: { name: true } }
+            },
+          }),
+        );
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw new ConflictException('AWC code already exists');
+        }
+        throw error;
+      }
     });
   }
 
@@ -399,8 +474,8 @@ export class LocationsService {
       ...school,
       stateName: school.state?.name,
       districtName: school.district?.name,
-      block: school.block?.name,
-      village: school.village?.name,
+      blockName: typeof school.block === 'object' ? school.block?.name : school.block,
+      villageName: typeof school.village === 'object' ? school.village?.name : school.village,
     };
   }
 
@@ -410,8 +485,8 @@ export class LocationsService {
       ...hc,
       stateName: hc.state?.name,
       districtName: hc.district?.name,
-      block: hc.block?.name,
-      village: hc.village?.name,
+      blockName: typeof hc.block === 'object' ? hc.block?.name : hc.block,
+      villageName: typeof hc.village === 'object' ? hc.village?.name : hc.village,
     };
   }
 
@@ -419,21 +494,12 @@ export class LocationsService {
     tx: Prisma.TransactionClient,
   ): Promise<string> {
     const prefix = 'SCH';
-    const prefixPattern = `^${prefix}`;
-    const numericPattern = `^${prefix}[0-9]+$`;
-
-    const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
-      SELECT MAX(
-        CAST(
-          regexp_replace(UPPER("locationCode"), ${prefixPattern}, '')
-          AS INTEGER
-        )
-      ) AS max
-      FROM "School"
-      WHERE UPPER("locationCode") ~ ${numericPattern}
-    `;
-
-    const nextNumber = (rows[0]?.max ?? 0) + 1;
+    const nextNumber = await this.getNextSequenceValue(
+      tx,
+      'school_location_code_seq',
+      'School',
+      prefix,
+    );
     const numeric = String(nextNumber).padStart(1, '0');
     return `${prefix}${numeric}`;
   }
@@ -442,26 +508,20 @@ export class LocationsService {
     tx: Prisma.TransactionClient,
   ): Promise<string> {
     const prefix = 'HC';
-    const prefixPattern = `^${prefix}`;
-    const numericPattern = `^${prefix}[0-9]+$`;
-
-    const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
-      SELECT MAX(
-        CAST(
-          regexp_replace(UPPER("locationCode"), ${prefixPattern}, '')
-          AS INTEGER
-        )
-      ) AS max
-      FROM "HealthCenter"
-      WHERE UPPER("locationCode") ~ ${numericPattern}
-    `;
-
-    const nextNumber = (rows[0]?.max ?? 0) + 1;
+    const nextNumber = await this.getNextSequenceValue(
+      tx,
+      'health_center_location_code_seq',
+      'HealthCenter',
+      prefix,
+    );
     const numeric = String(nextNumber).padStart(1, '0');
     return `${prefix}${numeric}`;
   }
 
   async createBlock(districtId: number, name: string) {
+    if (!name?.trim()) {
+      throw new BadRequestException('Block name cannot be empty');
+    }
     const upperName = name.trim().toUpperCase();
     const existing = await this.prisma.block.findFirst({
       where: { name: { equals: upperName, mode: 'insensitive' }, districtId },
@@ -475,6 +535,9 @@ export class LocationsService {
   }
 
   async createVillage(blockId: number, name: string) {
+    if (!name?.trim()) {
+      throw new BadRequestException('Village name cannot be empty');
+    }
     const upperName = name.trim().toUpperCase();
     const existing = await this.prisma.village.findFirst({
       where: { name: { equals: upperName, mode: 'insensitive' }, blockId },
@@ -511,65 +574,98 @@ export class LocationsService {
       };
 
       if (dto.type === 'AWC') {
-        const code = normalizedCode || (await this.generateNextLocationCode(tx));
-        const existing = await tx.awc.findFirst({ where: { locationCode: code } });
-        if (existing) throw new ConflictException('AWC code already exists');
-        return this.toAwcResponse(
-          await tx.awc.create({
-            data: {
-              ...commonData,
-              locationCode: code,
-              awcName: dto.name,
-            },
-            include: {
-              project: { select: { id: true, name: true } },
-              state: { select: { name: true } },
-              district: { select: { name: true } },
-              block: { select: { name: true } },
-              village: { select: { name: true } },
-            },
-          }),
-        );
+        for (let attempt = 0; attempt < LOCATION_CODE_MAX_RETRIES; attempt++) {
+          try {
+            const code = normalizedCode || (await this.generateNextLocationCode(tx));
+            if (normalizedCode) {
+              const existing = await tx.awc.findFirst({ where: { locationCode: code } });
+              if (existing) throw new ConflictException('AWC code already exists');
+            }
+            return await this.toAwcResponse(
+              await tx.awc.create({
+                data: {
+                  ...commonData,
+                  locationCode: code,
+                  awcName: dto.name,
+                },
+                include: {
+                  project: { select: { id: true, name: true } },
+                  state: { select: { name: true } },
+                  district: { select: { name: true } },
+                  block: { select: { name: true } },
+                  village: { select: { name: true } },
+                },
+              }),
+            );
+          } catch (error) {
+            if (normalizedCode || !(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) {
+              throw error;
+            }
+          }
+        }
+        throw new InternalServerErrorException('Failed to generate unique AWC code');
       } else if (dto.type === 'SCHOOL') {
-        const code = normalizedCode || (await this.generateNextSchoolCode(tx));
-        const existing = await tx.school.findFirst({ where: { locationCode: code } });
-        if (existing) throw new ConflictException('School code already exists');
-        return this.toSchoolResponse(
-          await tx.school.create({
-            data: {
-              ...commonData,
-              locationCode: code,
-              name: dto.name,
-            },
-            include: {
-              project: { select: { id: true, name: true } },
-              state: { select: { name: true } },
-              district: { select: { name: true } },
-              block: { select: { name: true } },
-              village: { select: { name: true } },
-            },
-          }),
-        );
+        for (let attempt = 0; attempt < LOCATION_CODE_MAX_RETRIES; attempt++) {
+          try {
+            const code = normalizedCode || (await this.generateNextSchoolCode(tx));
+            if (normalizedCode) {
+              const existing = await tx.school.findFirst({ where: { locationCode: code } });
+              if (existing) throw new ConflictException('School code already exists');
+            }
+            return await this.toSchoolResponse(
+              await tx.school.create({
+                data: {
+                  ...commonData,
+                  locationCode: code,
+                  name: dto.name,
+                },
+                include: {
+                  project: { select: { id: true, name: true } },
+                  state: { select: { name: true } },
+                  district: { select: { name: true } },
+                  block: { select: { name: true } },
+                  village: { select: { name: true } },
+                },
+              }),
+            );
+          } catch (error) {
+            if (normalizedCode || !(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) {
+              throw error;
+            }
+          }
+        }
+        throw new InternalServerErrorException('Failed to generate unique School code');
       } else if (dto.type === 'HEALTH_CENTER') {
-        const code = normalizedCode || (await this.generateNextHealthCenterCode(tx));
-        const existing = await tx.healthCenter.findFirst({ where: { locationCode: code } });
-        if (existing) throw new ConflictException('Health Center code already exists');
-        return this.toHealthCenterResponse(
-          await tx.healthCenter.create({
-            data: {
-              ...commonData,
-              locationCode: code,
-              name: dto.name,
-            },
-            include: {
-              project: { select: { id: true, name: true } },
-              state: { select: { name: true } },
-              district: { select: { name: true } },
-              block: { select: { name: true } },
-              village: { select: { name: true } },
-            },
-          }),
-        );
+        for (let attempt = 0; attempt < LOCATION_CODE_MAX_RETRIES; attempt++) {
+          try {
+            const code = normalizedCode || (await this.generateNextHealthCenterCode(tx));
+            if (normalizedCode) {
+              const existing = await tx.healthCenter.findFirst({ where: { locationCode: code } });
+              if (existing) throw new ConflictException('Health Center code already exists');
+            }
+            return await this.toHealthCenterResponse(
+              await tx.healthCenter.create({
+                data: {
+                  ...commonData,
+                  locationCode: code,
+                  name: dto.name,
+                },
+                include: {
+                  project: { select: { id: true, name: true } },
+                  state: { select: { name: true } },
+                  district: { select: { name: true } },
+                  block: { select: { name: true } },
+                  village: { select: { name: true } },
+                },
+              }),
+            );
+          } catch (error) {
+            if (normalizedCode || !(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) {
+              throw error;
+            }
+          }
+        }
+        throw new InternalServerErrorException('Failed to generate unique Health Center code');
       }
 
       throw new BadRequestException('Invalid institution type');
@@ -580,9 +676,22 @@ export class LocationsService {
   // SCHOOLS CRUD
   // =========================
 
-  async findAllSchools(projectId?: number) {
+  async findAllSchools(
+    projectId?: number,
+    stateId?: number,
+    districtId?: number,
+    blockId?: number,
+    villageId?: number,
+  ) {
+    const where: any = {};
+    if (projectId) where.projectId = projectId;
+    if (stateId) where.stateId = stateId;
+    if (districtId) where.districtId = districtId;
+    if (blockId) where.blockId = blockId;
+    if (villageId) where.villageId = villageId;
+
     const rows = await this.prisma.school.findMany({
-      where: projectId ? { projectId } : {},
+      where,
       include: {
         project: { select: { id: true, name: true } },
         state: { select: { name: true } },
@@ -627,30 +736,38 @@ export class LocationsService {
         dto.village,
       );
 
-      const updateData: any = {
-        name: dto.awcName, // Maps from form awcName / Name
-        locationCode: normalizedCode ? normalizedCode : undefined,
-        stateId: dto.stateId,
-        districtId,
-        projectId: dto.projectId,
-      };
+      const nameToUpdate = (dto as any).name || dto.awcName;
+      const updateData: any = {};
 
+      if (nameToUpdate?.trim()) updateData.name = nameToUpdate.trim();
+      if (normalizedCode) updateData.locationCode = normalizedCode;
+      if (dto.stateId !== undefined) updateData.stateId = dto.stateId;
+      if (dto.districtId !== undefined) updateData.districtId = districtId;
+      if (dto.projectId !== undefined) updateData.projectId = dto.projectId;
+      if (dto.status !== undefined) updateData.status = dto.status;
       if (dto.block !== undefined) updateData.blockId = blockId;
       if (dto.village !== undefined) updateData.villageId = villageId;
 
-      return this.toSchoolResponse(
-        await tx.school.update({
-          where: { id },
-          data: updateData,
-          include: {
-            project: { select: { id: true, name: true } },
-            state: { select: { name: true } },
-            district: { select: { name: true } },
-            block: { select: { name: true } },
-            village: { select: { name: true } },
-          },
-        }),
-      );
+      try {
+        return this.toSchoolResponse(
+          await tx.school.update({
+            where: { id },
+            data: updateData,
+            include: {
+              project: { select: { id: true, name: true } },
+              state: { select: { name: true } },
+              district: { select: { name: true } },
+              block: { select: { name: true } },
+              village: { select: { name: true } },
+            },
+          }),
+        );
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw new ConflictException('School code already exists');
+        }
+        throw error;
+      }
     });
   }
 
@@ -668,9 +785,22 @@ export class LocationsService {
   // HEALTH CENTERS CRUD
   // =========================
 
-  async findAllHealthCenters(projectId?: number) {
+  async findAllHealthCenters(
+    projectId?: number,
+    stateId?: number,
+    districtId?: number,
+    blockId?: number,
+    villageId?: number,
+  ) {
+    const where: any = {};
+    if (projectId) where.projectId = projectId;
+    if (stateId) where.stateId = stateId;
+    if (districtId) where.districtId = districtId;
+    if (blockId) where.blockId = blockId;
+    if (villageId) where.villageId = villageId;
+
     const rows = await this.prisma.healthCenter.findMany({
-      where: projectId ? { projectId } : {},
+      where,
       include: {
         project: { select: { id: true, name: true } },
         state: { select: { name: true } },
@@ -715,30 +845,38 @@ export class LocationsService {
         dto.village,
       );
 
-      const updateData: any = {
-        name: dto.awcName, // Maps from form awcName / Name
-        locationCode: normalizedCode ? normalizedCode : undefined,
-        stateId: dto.stateId,
-        districtId,
-        projectId: dto.projectId,
-      };
+      const nameToUpdate = (dto as any).name || dto.awcName;
+      const updateData: any = {};
 
+      if (nameToUpdate?.trim()) updateData.name = nameToUpdate.trim();
+      if (normalizedCode) updateData.locationCode = normalizedCode;
+      if (dto.stateId !== undefined) updateData.stateId = dto.stateId;
+      if (dto.districtId !== undefined) updateData.districtId = districtId;
+      if (dto.projectId !== undefined) updateData.projectId = dto.projectId;
+      if (dto.status !== undefined) updateData.status = dto.status;
       if (dto.block !== undefined) updateData.blockId = blockId;
       if (dto.village !== undefined) updateData.villageId = villageId;
 
-      return this.toHealthCenterResponse(
-        await tx.healthCenter.update({
-          where: { id },
-          data: updateData,
-          include: {
-            project: { select: { id: true, name: true } },
-            state: { select: { name: true } },
-            district: { select: { name: true } },
-            block: { select: { name: true } },
-            village: { select: { name: true } },
-          },
-        }),
-      );
+      try {
+        return this.toHealthCenterResponse(
+          await tx.healthCenter.update({
+            where: { id },
+            data: updateData,
+            include: {
+              project: { select: { id: true, name: true } },
+              state: { select: { name: true } },
+              district: { select: { name: true } },
+              block: { select: { name: true } },
+              village: { select: { name: true } },
+            },
+          }),
+        );
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw new ConflictException('Health Center code already exists');
+        }
+        throw error;
+      }
     });
   }
 
