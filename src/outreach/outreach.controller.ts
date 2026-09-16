@@ -106,6 +106,12 @@ export class OutreachController {
     @Query('projectId') projectId?: string,
     @Query('activityId') activityId?: string,
     @Query('sessionId') sessionId?: string,
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+    @Query('state') state?: string,
+    @Query('district') district?: string,
+    @Query('block') block?: string,
+    @Query('awc') awc?: string,
     @Query('unique') unique?: string,
   ) {
     return this.outreachService.getDashboardStats(
@@ -114,6 +120,12 @@ export class OutreachController {
       activityId ? +activityId : undefined,
       sessionId ? +sessionId : undefined,
       unique === 'true',
+      year,
+      month,
+      state,
+      district,
+      block,
+      awc,
     );
   }
 
@@ -125,6 +137,12 @@ export class OutreachController {
     @Query('group') group: string,
     @Query('activityId') activityId?: string,
     @Query('sessionId') sessionId?: string,
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+    @Query('state') state?: string,
+    @Query('district') district?: string,
+    @Query('block') block?: string,
+    @Query('awc') awc?: string,
     @Query('unique') unique?: string,
   ) {
     return this.outreachService.getActionDetails(
@@ -133,6 +151,12 @@ export class OutreachController {
       activityId ? +activityId : undefined,
       sessionId ? +sessionId : undefined,
       unique === 'true',
+      year,
+      month,
+      state,
+      district,
+      block,
+      awc,
     );
   }
 
@@ -142,12 +166,20 @@ export class OutreachController {
   getOutreachDynamicsDetails(
     @Req() req,
     @Query('group') group: string,
+    @Query('state') state?: string,
+    @Query('district') district?: string,
+    @Query('block') block?: string,
+    @Query('awc') awc?: string,
     @Query('unique') unique?: string,
   ) {
     return this.outreachService.getOutreachDynamicsDetails(
       req.user,
       group,
       unique === 'true',
+      state,
+      district,
+      block,
+      awc,
     );
   }
 

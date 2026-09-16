@@ -141,9 +141,13 @@ export class CoverageDashboardService {
       AND r."reportData"->'screeningDetails'->>'pads' ~ '^[0-9]+(\.[0-9]+)?$' AND (r."reportData"->'screeningDetails'->>'pads')::numeric > 0
     `;
 
+    const totalCountExpr = options.unique 
+      ? `COUNT(DISTINCT COALESCE(r."childId", r."beneficiaryId"))`
+      : `COUNT(*)`;
+
     const query = `
       SELECT 
-        COUNT(*)::integer AS "totalReports",
+        ${totalCountExpr}::integer AS "totalReports",
         ${countFn(pregnantWomenCond)}::integer AS "pregnantWomen",
         ${countFn(hrpCond)}::integer AS "hrpWomen",
         ${countFn(lactatingWomenCond)}::integer AS "lactatingWomen",

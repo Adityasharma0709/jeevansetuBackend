@@ -562,7 +562,19 @@ export class OutreachService {
     };
   }
 
-  async getDashboardStats(user: any, projectId?: number, activityId?: number, sessionId?: number, unique?: boolean) {
+  async getDashboardStats(
+    user: any,
+    projectId?: number,
+    activityId?: number,
+    sessionId?: number,
+    unique?: boolean,
+    year?: string,
+    month?: string,
+    state?: string,
+    district?: string,
+    block?: string,
+    awc?: string,
+  ) {
     const roles = user.roles?.map(r => r.role?.name || r.name) || [];
     const isSuperAdmin = roles.includes('SUPER_ADMIN');
     const isAnalyst = roles.includes('ANALYST');
@@ -656,10 +668,10 @@ export class OutreachService {
       projectIds: targetProjectIds,
       reporterIds,
       creatorIds: reporterIds,
-      state: undefined,
-      district: undefined,
-      block: undefined,
-      awc: undefined
+      state: state && state !== 'ALL' ? state : undefined,
+      district: district && district !== 'ALL' ? district : undefined,
+      block: block && block !== 'ALL' ? block : undefined,
+      awc: awc && awc !== 'ALL' ? awc : undefined
     });
     // ----------------------------------------------------
 
@@ -669,6 +681,12 @@ export class OutreachService {
       reporterIds: (isSuperAdmin || isAdmin || isAnalyst) ? undefined : reporterIds,
       activityId,
       sessionId,
+      state: state && state !== 'ALL' ? state : undefined,
+      district: district && district !== 'ALL' ? district : undefined,
+      block: block && block !== 'ALL' ? block : undefined,
+      awc: awc && awc !== 'ALL' ? awc : undefined,
+      year: year && year !== 'ALL' ? year : undefined,
+      month: month && month !== 'ALL' ? month : undefined,
       unique
     });
 
@@ -730,7 +748,15 @@ export class OutreachService {
     };
   }
 
-  async getOutreachDynamicsDetails(user: any, groupName: string, unique?: boolean) {
+  async getOutreachDynamicsDetails(
+    user: any,
+    groupName: string,
+    unique?: boolean,
+    state?: string,
+    district?: string,
+    block?: string,
+    awc?: string,
+  ) {
     const roles = user.roles?.map((r: any) => r.role?.name || r.name) || [];
     const isSuperAdmin = roles.includes('SUPER_ADMIN');
     const isAnalyst = roles.includes('ANALYST');
@@ -766,7 +792,11 @@ export class OutreachService {
     const rawRecords = await this.outreachDynamics.getDetails(groupName, {
       projectIds: targetProjectIds,
       reporterIds,
-      creatorIds: reporterIds
+      creatorIds: reporterIds,
+      state: state && state !== 'ALL' ? state : undefined,
+      district: district && district !== 'ALL' ? district : undefined,
+      block: block && block !== 'ALL' ? block : undefined,
+      awc: awc && awc !== 'ALL' ? awc : undefined,
     });
 
     const cleanVal = (val: any) => (val === 'N/A' || val === 'NA' || !val) ? '-' : val;
@@ -797,7 +827,19 @@ export class OutreachService {
     }));
   }
 
-  async getActionDetails(user: any, groupName: string, activityId?: number, sessionId?: number, unique?: boolean) {
+  async getActionDetails(
+    user: any,
+    groupName: string,
+    activityId?: number,
+    sessionId?: number,
+    unique?: boolean,
+    year?: string,
+    month?: string,
+    state?: string,
+    district?: string,
+    block?: string,
+    awc?: string,
+  ) {
     const roles = user.roles?.map((r: any) => r.role?.name || r.name) || [];
     const isSuperAdmin = roles.includes('SUPER_ADMIN');
     const isAnalyst = roles.includes('ANALYST');
@@ -840,6 +882,18 @@ export class OutreachService {
     if (sessionId) conditions.push(`r."sessionId" = ${sessionId}`);
     if (reporterIds.length > 0) {
       conditions.push(`r."reportedById" IN (${reporterIds.join(',')})`);
+    }
+
+    const escapeStr = (val: string) => (val || '').replace(/'/g, "''");
+    if (state && state !== 'ALL') conditions.push(`LOWER(b.state) = LOWER('${escapeStr(state)}')`);
+    if (district && district !== 'ALL') conditions.push(`LOWER(b.district) = LOWER('${escapeStr(district)}')`);
+    if (block && block !== 'ALL') conditions.push(`LOWER(b.block) = LOWER('${escapeStr(block)}')`);
+    if (awc && awc !== 'ALL') conditions.push(`LOWER(a."awcName") = LOWER('${escapeStr(awc)}')`);
+    if (year && year !== 'ALL') conditions.push(`EXTRACT(YEAR FROM r.date) = ${Number(year)}`);
+    if (month && month !== 'ALL') {
+      const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+      const mIdx = months.indexOf(month.toLowerCase()) + 1;
+      if (mIdx > 0) conditions.push(`EXTRACT(MONTH FROM r.date) = ${mIdx}`);
     }
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
