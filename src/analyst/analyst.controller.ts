@@ -36,6 +36,8 @@ export class AnalystController {
     @Query('state') state?: string,
     @Query('district') district?: string,
     @Query('block') block?: string,
+    @Query('village') village?: string,
+    @Query('institution') institution?: string,
     @Query('awc') awc?: string,
     @Query('unique') unique?: string,
   ) {
@@ -52,6 +54,8 @@ export class AnalystController {
       state,
       district,
       block,
+      village,
+      institution,
       awc,
       unique === 'true',
     );
@@ -67,6 +71,8 @@ export class AnalystController {
     @Query('state') state?: string,
     @Query('district') district?: string,
     @Query('block') block?: string,
+    @Query('village') village?: string,
+    @Query('institution') institution?: string,
     @Query('awc') awc?: string,
   ) {
     return this.analystService.getOutreachDynamicsDetails(
@@ -78,6 +84,8 @@ export class AnalystController {
       state,
       district,
       block,
+      village,
+      institution,
       awc
     );
   }
@@ -96,6 +104,8 @@ export class AnalystController {
     @Query('state') state?: string,
     @Query('district') district?: string,
     @Query('block') block?: string,
+    @Query('village') village?: string,
+    @Query('institution') institution?: string,
     @Query('awc') awc?: string,
     @Query('unique') unique?: string,
   ) {
@@ -112,6 +122,8 @@ export class AnalystController {
       state,
       district,
       block,
+      village,
+      institution,
       awc,
       unique === 'true',
     );

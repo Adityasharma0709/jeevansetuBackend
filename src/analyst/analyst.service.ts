@@ -69,6 +69,8 @@ export class AnalystService {
     state?: string,
     district?: string,
     block?: string,
+    village?: string,
+    institution?: string,
     awc?: string,
     unique?: boolean,
   ) {
@@ -181,6 +183,8 @@ export class AnalystService {
       state,
       district,
       block,
+      village,
+      institution,
       awc
     });
 
@@ -193,6 +197,8 @@ export class AnalystService {
       state,
       district,
       block,
+      village,
+      institution,
       awc,
       year,
       month,
@@ -264,6 +270,8 @@ export class AnalystService {
     state?: string,
     district?: string,
     block?: string,
+    village?: string,
+    institution?: string,
     awc?: string,
   ) {
     const assignments = await this.prisma.userProjectLocation.findMany({
@@ -360,6 +368,8 @@ export class AnalystService {
     state?: string,
     district?: string,
     block?: string,
+    village?: string,
+    institution?: string,
     awc?: string,
     unique?: boolean,
   ) {
@@ -430,8 +440,22 @@ export class AnalystService {
     if (block && block !== 'ALL') {
       conditions.push(`LOWER(b.block) = LOWER('${escapeStr(block)}')`);
     }
+    if (village && village !== 'ALL') {
+      conditions.push(`LOWER(COALESCE(b.village, vil_awc.name, vil_sch.name, vil_hc.name)) = LOWER('${escapeStr(village)}')`);
+    }
+    if (institution && institution !== 'ALL') {
+      conditions.push(`(
+        LOWER(a."awcName") = LOWER('${escapeStr(institution)}') OR 
+        LOWER(s_sch.name) = LOWER('${escapeStr(institution)}') OR 
+        LOWER(hc.name) = LOWER('${escapeStr(institution)}')
+      )`);
+    }
     if (awc && awc !== 'ALL') {
-      conditions.push(`LOWER(a."awcName") = LOWER('${escapeStr(awc)}')`);
+      conditions.push(`(
+        LOWER(a."awcName") = LOWER('${escapeStr(awc)}') OR 
+        LOWER(s_sch.name) = LOWER('${escapeStr(awc)}') OR 
+        LOWER(hc.name) = LOWER('${escapeStr(awc)}')
+      )`);
     }
 
     if (year && year !== 'ALL') {
@@ -574,9 +598,9 @@ export class AnalystService {
           b."maritalStatus",
           EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_years,
           (EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) * 12) + EXTRACT(MONTH FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) AS age_months,
-          COALESCE(b.district, '-') AS district,
-          COALESCE(b.block, '-') AS block,
-          COALESCE(b.village, '-') AS village,
+          COALESCE(b.district, dist_awc.name, dist_sch.name, dist_hc.name, '-') AS district,
+          COALESCE(b.block, blk_awc.name, blk_sch.name, blk_hc.name, '-') AS block,
+          COALESCE(b.village, vil_awc.name, vil_sch.name, vil_hc.name, '-') AS village,
           COALESCE(s_sch.name, '-') AS school,
           COALESCE(hc.name, '-') AS "healthCenter",
           CASE WHEN r."childId" IS NOT NULL THEN b.name ELSE '-' END AS "motherName"
@@ -584,11 +608,20 @@ export class AnalystService {
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
         LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "District" dist_awc ON a."districtId" = dist_awc.id
+        LEFT JOIN "Block" blk_awc ON a."blockId" = blk_awc.id
+        LEFT JOIN "Village" vil_awc ON a."villageId" = vil_awc.id
+        LEFT JOIN "School" s_sch ON b."schoolId" = s_sch.id
+        LEFT JOIN "District" dist_sch ON s_sch."districtId" = dist_sch.id
+        LEFT JOIN "Block" blk_sch ON s_sch."blockId" = blk_sch.id
+        LEFT JOIN "Village" vil_sch ON s_sch."villageId" = vil_sch.id
+        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
+        LEFT JOIN "District" dist_hc ON hc."districtId" = dist_hc.id
+        LEFT JOIN "Block" blk_hc ON hc."blockId" = blk_hc.id
+        LEFT JOIN "Village" vil_hc ON hc."villageId" = vil_hc.id
         LEFT JOIN "Project" p ON b."projectId" = p.id
         LEFT JOIN "Activity" act ON r."activityId" = act.id
         LEFT JOIN "Session" sess ON r."sessionId" = sess.id
-        LEFT JOIN "School" s_sch ON b."schoolId" = s_sch.id
-        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
         LEFT JOIN "User" rep_u ON r."reportedById" = rep_u.id
         ${whereClause}
         ${whereClause ? 'AND' : 'WHERE'} ${groupCondition}
@@ -733,7 +766,7 @@ export class AnalystService {
     }
 
     const awcs = await this.prisma.awc.findMany({
-      where: { projectId },
+      where: { projectId, status: 'ACTIVE' },
       include: {
         state: true,
         district: true,
@@ -743,9 +776,62 @@ export class AnalystService {
       orderBy: { awcName: 'asc' }
     });
 
+    const schools = await this.prisma.school.findMany({
+      where: { projectId, status: 'ACTIVE' },
+      include: {
+        state: true,
+        district: true,
+        block: true,
+        village: true,
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    const healthCenters = await this.prisma.healthCenter.findMany({
+      where: { projectId, status: 'ACTIVE' },
+      include: {
+        state: true,
+        district: true,
+        block: true,
+        village: true,
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    const mappedSchools = schools.map(s => {
+      const nameVal = s.name || (s as any).schoolName || '';
+      return {
+        ...s,
+        name: nameVal,
+        schoolName: nameVal,
+        awcName: nameVal,
+        institutionType: 'SCHOOL'
+      };
+    });
+
+    const mappedHealthCenters = healthCenters.map(hc => {
+      const nameVal = hc.name || (hc as any).healthCenterName || '';
+      return {
+        ...hc,
+        name: nameVal,
+        healthCenterName: nameVal,
+        awcName: nameVal,
+        institutionType: 'HEALTH_CENTER'
+      };
+    });
+
+    const mappedAwcs = awcs.map(a => ({
+      ...a,
+      name: a.awcName || (a as any).name || '',
+      awcName: a.awcName || (a as any).name || '',
+      institutionType: 'AWC'
+    }));
+
+    const allLocations = [...mappedAwcs, ...mappedSchools, ...mappedHealthCenters];
+
     return {
       states: finalAssignedStates,
-      awcs: awcs
+      awcs: allLocations
     };
   }
 
@@ -777,7 +863,7 @@ export class AnalystService {
       ];
     }
 
-    return this.prisma.beneficiary.findMany({
+    const beneficiaries = await this.prisma.beneficiary.findMany({
       where,
       orderBy: { name: 'asc' },
       include: {
@@ -789,10 +875,48 @@ export class AnalystService {
             village: true,
           },
         },
+        school: {
+          include: {
+            state: true,
+            district: true,
+            block: true,
+            village: true,
+          },
+        },
+        healthCenter: {
+          include: {
+            state: true,
+            district: true,
+            block: true,
+            village: true,
+          },
+        },
         createdBy: {
           select: { name: true, email: true }
         }
       },
+    });
+
+    return beneficiaries.map((b: any) => {
+      const loc = b.awc || b.school || b.healthCenter;
+      const villageName = b.village || loc?.village?.name || (typeof loc?.village === 'string' ? loc.village : null);
+      const instName = b.awc?.awcName || b.school?.name || b.school?.schoolName || b.healthCenter?.name || b.healthCenter?.healthCenterName || b.awc?.name || null;
+      const instCode = b.awc?.locationCode || b.school?.locationCode || b.healthCenter?.locationCode || null;
+      const instId = b.awcId || b.schoolId || b.healthCenterId || loc?.id || null;
+
+      return {
+        ...b,
+        village: villageName,
+        locationName: instName,
+        locationCode: instCode,
+        locationId: instId,
+        location: {
+          ...(loc || {}),
+          village: villageName,
+          name: instName,
+          locationCode: instCode,
+        }
+      };
     });
   }
 
@@ -886,9 +1010,64 @@ export class AnalystService {
         village: true
       }
     });
+    const schools = await this.prisma.school.findMany({
+      where: { projectId },
+      include: {
+        state: true,
+        district: true,
+        block: true,
+        village: true
+      }
+    });
+    const healthCenters = await this.prisma.healthCenter.findMany({
+      where: { projectId },
+      include: {
+        state: true,
+        district: true,
+        block: true,
+        village: true
+      }
+    });
+
+    const mappedSchools = schools.map(s => {
+      const nameVal = s.name || (s as any).schoolName || '';
+      return {
+        ...s,
+        name: nameVal,
+        schoolName: nameVal,
+        awcName: nameVal,
+        institutionType: 'SCHOOL'
+      };
+    });
+
+    const mappedHealthCenters = healthCenters.map(hc => {
+      const nameVal = hc.name || (hc as any).healthCenterName || '';
+      return {
+        ...hc,
+        name: nameVal,
+        healthCenterName: nameVal,
+        awcName: nameVal,
+        institutionType: 'HEALTH_CENTER'
+      };
+    });
+
+    const mappedAwcs = awcs.map(a => {
+      const nameVal = a.awcName || (a as any).name || '';
+      return {
+        ...a,
+        awcName: nameVal,
+        name: nameVal,
+        institutionType: 'AWC'
+      };
+    });
+
+    const combinedLocations = [...mappedAwcs, ...mappedSchools, ...mappedHealthCenters];
+
     return {
       states: projectStates.map(ps => ps.state),
-      awcs: awcs
+      awcs: combinedLocations,
+      schools: mappedSchools,
+      healthCenters: mappedHealthCenters
     };
   }
 }

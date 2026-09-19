@@ -10,18 +10,41 @@ export class CreateInstitutionDto {
   @IsInt()
   districtId: number;
 
-  @IsString()
-  block: string;
+  @IsOptional()
+  @IsInt()
+  blockId?: number;
 
+  @IsOptional()
   @IsString()
-  village: string;
+  block?: any;
+
+  @IsOptional()
+  @IsInt()
+  villageId?: number;
+
+  @IsOptional()
+  @IsString()
+  village?: any;
 
   @IsString()
   @IsIn(['AWC', 'HEALTH_CENTER', 'SCHOOL'])
   type: 'AWC' | 'HEALTH_CENTER' | 'SCHOOL';
 
+  @IsOptional()
   @IsString()
-  name: string;
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  awcName?: string;
+
+  @IsOptional()
+  @IsString()
+  schoolName?: string;
+
+  @IsOptional()
+  @IsString()
+  healthCenterName?: string;
 
   @IsOptional()
   @IsString()

@@ -530,14 +530,58 @@ export class ManagerService {
 
     const projectIds = [...new Set(assignments.map(a => a.projectId))];
 
-    return this.prisma.beneficiary.findMany({
+    const list = await this.prisma.beneficiary.findMany({
       where: { projectId: { in: projectIds } },
       include: {
         project: true,
-        awc: true,
+        awc: {
+          include: {
+            state: true,
+            district: true,
+            block: true,
+            village: true,
+          }
+        },
+        school: {
+          include: {
+            state: true,
+            district: true,
+            block: true,
+            village: true,
+          }
+        },
+        healthCenter: {
+          include: {
+            state: true,
+            district: true,
+            block: true,
+            village: true,
+          }
+        },
         createdBy: { select: { name: true, email: true, mobileNumber: true } }
       },
       orderBy: { createdAt: 'desc' }
+    });
+
+    return list.map((b: any) => {
+      const loc = b.awc || b.school || b.healthCenter;
+      const villageName = b.village || loc?.village?.name || (typeof loc?.village === 'string' ? loc.village : null);
+      const instName = b.awc?.awcName || b.school?.name || b.healthCenter?.name || null;
+      const instCode = b.awc?.locationCode || b.school?.locationCode || b.healthCenter?.locationCode || null;
+      const instId = b.awcId || b.schoolId || b.healthCenterId || loc?.id || null;
+
+      return {
+        ...b,
+        village: villageName,
+        locationName: instName,
+        locationCode: instCode,
+        locationId: instId,
+        location: {
+          ...(loc || {}),
+          name: instName,
+          village: villageName
+        }
+      };
     });
   }
 

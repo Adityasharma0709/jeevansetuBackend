@@ -10,13 +10,18 @@ import {
   ParseIntPipe,
 } from '@nestjs/common';
 import { LocationsService } from './locations.service';
-import { CreateLocationDto } from './dto/create-location.dto';
+import { CreateBlockDto, CreateVillageDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
 import { CreateInstitutionDto } from './dto/create-institution.dto';
+import { LocationQueryDto } from './dto/location-query.dto';
 
 @Controller('locations')
 export class LocationsController {
   constructor(private readonly locationsService: LocationsService) {}
+
+  // ===================================
+  // 1. HIERARCHY & BOUNDARY ENDPOINTS
+  // ===================================
 
   @Get('states')
   getStates() {
@@ -24,18 +29,18 @@ export class LocationsController {
   }
 
   @Get('districts/:stateId')
-  getDistricts(@Param('stateId') stateId: string) {
-    return this.locationsService.getDistricts(+stateId);
+  getDistricts(@Param('stateId', ParseIntPipe) stateId: number) {
+    return this.locationsService.getDistricts(stateId);
   }
 
   @Get('blocks/:districtId')
-  getBlocks(@Param('districtId') districtId: string) {
-    return this.locationsService.getBlocks(+districtId);
+  getBlocks(@Param('districtId', ParseIntPipe) districtId: number) {
+    return this.locationsService.getBlocks(districtId);
   }
 
   @Get('villages/:blockId')
-  getVillages(@Param('blockId') blockId: string) {
-    return this.locationsService.getVillages(+blockId);
+  getVillages(@Param('blockId', ParseIntPipe) blockId: number) {
+    return this.locationsService.getVillages(blockId);
   }
 
   @Get('villages/by-block-name/:districtId/:blockName')
@@ -61,42 +66,97 @@ export class LocationsController {
     return this.locationsService.assignStatesToProject(dto.projectId, dto.stateIds);
   }
 
-  // =========================
-  // CREATE LOCATION
-  // =========================
-
-  @Post()
-  create(@Body() dto: CreateLocationDto) {
-    return this.locationsService.create(dto);
-  }
-
-  // =========================
-  // CLUSTER MANAGEMENT (BLOCK & VILLAGE)
-  // =========================
-
   @Post('blocks')
-  createBlock(@Body() dto: { districtId: number; name: string }) {
+  createBlock(@Body() dto: CreateBlockDto) {
     return this.locationsService.createBlock(dto.districtId, dto.name);
   }
 
   @Post('villages')
-  createVillage(@Body() dto: { blockId: number; name: string }) {
+  createVillage(@Body() dto: CreateVillageDto) {
     return this.locationsService.createVillage(dto.blockId, dto.name);
   }
 
-  // =========================
-  // UNIFIED INSTITUTION CREATION
-  // =========================
+  // ===================================
+  // 2. UNIFIED INSTITUTION API (/locations/institutions/...)
+  // ===================================
+
+  @Get('institutions')
+  findAllInstitutions(@Query() query: LocationQueryDto) {
+    return this.locationsService.findAllInstitutions(query);
+  }
+
+  @Get('institutions/:type/:id')
+  findInstitutionByTypeAndId(
+    @Param('type') type: string,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.locationsService.findInstitutionByTypeAndId(type, id);
+  }
 
   @Post('institutions')
   createInstitution(@Body() dto: CreateInstitutionDto) {
     return this.locationsService.createInstitution(dto);
   }
 
-  // =========================
-  // SCHOOL ENDPOINTS
-  // =========================
+  @Put('institutions/:type/:id')
+  updateInstitutionByTypeAndId(
+    @Param('type') type: string,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateLocationDto,
+  ) {
+    return this.locationsService.updateInstitutionByTypeAndId(type, id, dto);
+  }
 
+  @Patch('institutions/:type/:id/status')
+  updateInstitutionStatusByTypeAndId(
+    @Param('type') type: string,
+    @Param('id', ParseIntPipe) id: number,
+    @Body('status') status: string,
+  ) {
+    return this.locationsService.updateInstitutionStatusByTypeAndId(type, id, status);
+  }
+
+  // ===================================
+  // 3. TYPE-SPECIFIC INSTITUTION ENDPOINTS
+  // ===================================
+
+  // AWCs
+  @Get('awcs')
+  findAllAwcs(
+    @Query('projectId') projectId?: string,
+    @Query('stateId') stateId?: string,
+    @Query('districtId') districtId?: string,
+    @Query('blockId') blockId?: string,
+    @Query('villageId') villageId?: string,
+  ) {
+    return this.locationsService.findAll(
+      projectId ? +projectId : undefined,
+      stateId ? +stateId : undefined,
+      districtId ? +districtId : undefined,
+      blockId ? +blockId : undefined,
+      villageId ? +villageId : undefined,
+    );
+  }
+
+  @Get('awcs/:id')
+  findOneAwc(@Param('id', ParseIntPipe) id: number) {
+    return this.locationsService.findOne(id);
+  }
+
+  @Put('awcs/:id')
+  updateAwc(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateLocationDto) {
+    return this.locationsService.update(id, dto);
+  }
+
+  @Patch('awcs/:id/status')
+  updateAwcStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('status') status: string,
+  ) {
+    return this.locationsService.updateStatus(id, status);
+  }
+
+  // SCHOOLS
   @Get('schools')
   findAllSchools(
     @Query('projectId') projectId?: string,
@@ -114,6 +174,11 @@ export class LocationsController {
     );
   }
 
+  @Get('schools/:id')
+  findOneSchool(@Param('id', ParseIntPipe) id: number) {
+    return this.locationsService.findOneSchool(id);
+  }
+
   @Put('schools/:id')
   updateSchool(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateLocationDto) {
     return this.locationsService.updateSchool(id, dto);
@@ -127,10 +192,7 @@ export class LocationsController {
     return this.locationsService.updateSchoolStatus(id, status);
   }
 
-  // =========================
-  // HEALTH CENTER ENDPOINTS
-  // =========================
-
+  // HEALTH CENTERS
   @Get('health-centers')
   findAllHealthCenters(
     @Query('projectId') projectId?: string,
@@ -148,6 +210,11 @@ export class LocationsController {
     );
   }
 
+  @Get('health-centers/:id')
+  findOneHealthCenter(@Param('id', ParseIntPipe) id: number) {
+    return this.locationsService.findOneHealthCenter(id);
+  }
+
   @Put('health-centers/:id')
   updateHealthCenter(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateLocationDto) {
     return this.locationsService.updateHealthCenter(id, dto);
@@ -159,68 +226,5 @@ export class LocationsController {
     @Body('status') status: string,
   ) {
     return this.locationsService.updateHealthCenterStatus(id, status);
-  }
-
-  // =========================
-  // GET ALL LOCATIONS
-  // (Optional filter by projectId, stateId, districtId, blockId, villageId)
-  // =========================
-
-  @Get()
-  findAll(
-    @Query('projectId') projectId?: string,
-    @Query('stateId') stateId?: string,
-    @Query('districtId') districtId?: string,
-    @Query('blockId') blockId?: string,
-    @Query('villageId') villageId?: string,
-  ) {
-    return this.locationsService.findAll(
-      projectId ? +projectId : undefined,
-      stateId ? +stateId : undefined,
-      districtId ? +districtId : undefined,
-      blockId ? +blockId : undefined,
-      villageId ? +villageId : undefined,
-    );
-  }
-
-  // =========================
-  // UPDATE LOCATION
-  // =========================
-
-  @Put(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateLocationDto) {
-    return this.locationsService.update(+id, dto);
-  }
-
-  // =========================
-  // DISABLE LOCATION
-  // (Soft delete)
-  // =========================
-
-  @Patch(':id/disable')
-  disable(@Param('id') id: string) {
-    return this.locationsService.disable(+id);
-  }
-
-  // =========================
-  // UPDATE LOCATION STATUS
-  // =========================
-
-  @Patch(':id/status')
-  updateStatus(
-    @Param('id') id: string,
-    @Body('status') status: string,
-  ) {
-    return this.locationsService.updateStatus(+id, status);
-  }
-
-  // =========================
-  // GET LOCATION BY ID
-  // ⚠ Keep dynamic route last
-  // =========================
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.locationsService.findOne(+id);
   }
 }

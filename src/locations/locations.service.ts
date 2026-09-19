@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
 import { CreateInstitutionDto } from './dto/create-institution.dto';
+import { LocationQueryDto } from './dto/location-query.dto';
+import { transformAwc, transformSchool, transformHealthCenter } from './transformers/location.transformer';
 
 const LOCATION_CODE_PREFIX = 'AWC';
 const LOCATION_CODE_MIN_DIGITS = 1;
@@ -65,48 +67,90 @@ export class LocationsService implements OnModuleInit {
     }
   }
 
-  private toAwcResponse(awc: any) {
-    if (!awc) return null;
+  private formatLocationResponse(entity: any) {
+    if (!entity) return null;
+    const blockName = entity.block && typeof entity.block === 'object'
+      ? entity.block.name
+      : (typeof entity.block === 'string' ? entity.block : null);
+
+    const villageName = entity.village && typeof entity.village === 'object'
+      ? entity.village.name
+      : (typeof entity.village === 'string' ? entity.village : null);
+
+    const stateName = entity.state && typeof entity.state === 'object'
+      ? entity.state.name
+      : (typeof entity.state === 'string' ? entity.state : null);
+
+    const districtName = entity.district && typeof entity.district === 'object'
+      ? entity.district.name
+      : (typeof entity.district === 'string' ? entity.district : null);
+
     return {
-      ...awc,
-      stateName: awc.state?.name,
-      districtName: awc.district?.name,
-      blockName: typeof awc.block === 'object' ? awc.block?.name : awc.block,
-      villageName: typeof awc.village === 'object' ? awc.village?.name : awc.village,
+      ...entity,
+      stateName: stateName ?? null,
+      districtName: districtName ?? null,
+      blockName: blockName ?? null,
+      villageName: villageName ?? null,
     };
+  }
+
+  private toAwcResponse(awc: any) {
+    return transformAwc(awc);
   }
 
   private async resolveBlockAndVillageIds(
     tx: Prisma.TransactionClient,
     districtId?: number,
-    blockName?: string,
-    villageName?: string,
+    blockInput?: any,
+    villageInput?: any,
+    explicitBlockId?: number,
+    explicitVillageId?: number,
   ) {
-    let blockId: number | undefined = undefined;
-    let villageId: number | undefined = undefined;
+    let blockId: number | undefined = explicitBlockId;
+    let villageId: number | undefined = explicitVillageId;
 
-    const trimmedBlock = blockName?.trim();
-    if (trimmedBlock && districtId) {
-      const name = trimmedBlock.toUpperCase();
-      let block = await tx.block.findFirst({
-        where: { name: { equals: name, mode: 'insensitive' }, districtId },
-      });
-      if (!block) {
-        block = await tx.block.create({ data: { name, districtId } });
+    if (!blockId && blockInput !== undefined && blockInput !== null) {
+      if (typeof blockInput === 'number' && !isNaN(blockInput)) {
+        blockId = blockInput;
+      } else if (typeof blockInput === 'object' && blockInput?.id) {
+        blockId = Number(blockInput.id);
+      } else if (typeof blockInput === 'string' || typeof blockInput === 'number') {
+        const strVal = String(blockInput).trim();
+        if (/^\d+$/.test(strVal)) {
+          blockId = parseInt(strVal, 10);
+        } else if (strVal && districtId) {
+          const upperName = strVal.toUpperCase();
+          let block = await tx.block.findFirst({
+            where: { name: { equals: upperName, mode: 'insensitive' }, districtId },
+          });
+          if (!block) {
+            block = await tx.block.create({ data: { name: upperName, districtId } });
+          }
+          blockId = block.id;
+        }
       }
-      blockId = block.id;
     }
 
-    const trimmedVillage = villageName?.trim();
-    if (trimmedVillage && blockId) {
-      const name = trimmedVillage.toUpperCase();
-      let village = await tx.village.findFirst({
-        where: { name: { equals: name, mode: 'insensitive' }, blockId },
-      });
-      if (!village) {
-        village = await tx.village.create({ data: { name, blockId } });
+    if (!villageId && villageInput !== undefined && villageInput !== null) {
+      if (typeof villageInput === 'number' && !isNaN(villageInput)) {
+        villageId = villageInput;
+      } else if (typeof villageInput === 'object' && villageInput?.id) {
+        villageId = Number(villageInput.id);
+      } else if (typeof villageInput === 'string' || typeof villageInput === 'number') {
+        const strVal = String(villageInput).trim();
+        if (/^\d+$/.test(strVal)) {
+          villageId = parseInt(strVal, 10);
+        } else if (strVal && blockId) {
+          const upperName = strVal.toUpperCase();
+          let village = await tx.village.findFirst({
+            where: { name: { equals: upperName, mode: 'insensitive' }, blockId },
+          });
+          if (!village) {
+            village = await tx.village.create({ data: { name: upperName, blockId } });
+          }
+          villageId = village.id;
+        }
       }
-      villageId = village.id;
     }
 
     return { blockId, villageId };
@@ -151,7 +195,9 @@ export class LocationsService implements OnModuleInit {
   }
 
   async create(dto: CreateLocationDto) {
-    await this.assertProjectExists(dto.projectId);
+    if (dto.projectId) {
+      await this.assertProjectExists(dto.projectId);
+    }
 
     const providedCode = dto.locationCode?.trim();
     const normalizedCode = providedCode ? providedCode.toUpperCase() : undefined;
@@ -162,10 +208,13 @@ export class LocationsService implements OnModuleInit {
         dto.districtId,
         dto.block,
         dto.village,
+        dto.blockId,
+        dto.villageId,
       );
 
-      const { block, village, ...restDto } = dto;
-      const awcData = { ...restDto, blockId, villageId };
+      const { block, village, awcName, name, blockId: rawBlockId, villageId: rawVillageId, ...restDto } = dto as any;
+      const finalAwcName = name || awcName;
+      const awcData = { ...restDto, awcName: finalAwcName, blockId, villageId };
 
       if (normalizedCode) {
         const existing = await tx.awc.findFirst({
@@ -308,9 +357,11 @@ export class LocationsService implements OnModuleInit {
         districtId || undefined,
         dto.block,
         dto.village,
+        dto.blockId,
+        dto.villageId,
       );
 
-      const { block, village, awcName, locationCode, ...restDto } = dto;
+      const { block, village, awcName, locationCode, blockId: rawBlockId, villageId: rawVillageId, ...restDto } = dto as any;
       
       const updateData: any = {
         ...restDto,
@@ -319,8 +370,8 @@ export class LocationsService implements OnModuleInit {
       const nameToUpdate = (dto as any).name || awcName;
       if (nameToUpdate?.trim()) updateData.awcName = nameToUpdate.trim();
       if (normalizedCode) updateData.locationCode = normalizedCode;
-      if (dto.block !== undefined) updateData.blockId = blockId;
-      if (dto.village !== undefined) updateData.villageId = villageId;
+      if (dto.block !== undefined || dto.blockId !== undefined) updateData.blockId = blockId;
+      if (dto.village !== undefined || dto.villageId !== undefined) updateData.villageId = villageId;
 
       try {
         return this.toAwcResponse(
@@ -350,7 +401,13 @@ export class LocationsService implements OnModuleInit {
       await this.prisma.awc.update({
         where: { id },
         data: { status },
-        include: { project: { select: { id: true, name: true } } },
+        include: { 
+          project: { select: { id: true, name: true } },
+          state: { select: { name: true } },
+          district: { select: { name: true } },
+          block: { select: { name: true } },
+          village: { select: { name: true } }
+        },
       }),
     );
   }
@@ -360,7 +417,13 @@ export class LocationsService implements OnModuleInit {
       await this.prisma.awc.update({
         where: { id },
         data: { status: 'INACTIVE' },
-        include: { project: { select: { id: true, name: true } } },
+        include: { 
+          project: { select: { id: true, name: true } },
+          state: { select: { name: true } },
+          district: { select: { name: true } },
+          block: { select: { name: true } },
+          village: { select: { name: true } }
+        },
       }),
     );
   }
@@ -469,25 +532,11 @@ export class LocationsService implements OnModuleInit {
   // ===================================
 
   private toSchoolResponse(school: any) {
-    if (!school) return null;
-    return {
-      ...school,
-      stateName: school.state?.name,
-      districtName: school.district?.name,
-      blockName: typeof school.block === 'object' ? school.block?.name : school.block,
-      villageName: typeof school.village === 'object' ? school.village?.name : school.village,
-    };
+    return transformSchool(school);
   }
 
   private toHealthCenterResponse(hc: any) {
-    if (!hc) return null;
-    return {
-      ...hc,
-      stateName: hc.state?.name,
-      districtName: hc.district?.name,
-      blockName: typeof hc.block === 'object' ? hc.block?.name : hc.block,
-      villageName: typeof hc.village === 'object' ? hc.village?.name : hc.village,
-    };
+    return transformHealthCenter(hc);
   }
 
   private async generateNextSchoolCode(
@@ -562,6 +611,8 @@ export class LocationsService implements OnModuleInit {
         dto.districtId,
         dto.block,
         dto.village,
+        dto.blockId,
+        dto.villageId,
       );
 
       const commonData = {
@@ -586,7 +637,7 @@ export class LocationsService implements OnModuleInit {
                 data: {
                   ...commonData,
                   locationCode: code,
-                  awcName: dto.name,
+                  awcName: dto.awcName || dto.name || '',
                 },
                 include: {
                   project: { select: { id: true, name: true } },
@@ -617,7 +668,7 @@ export class LocationsService implements OnModuleInit {
                 data: {
                   ...commonData,
                   locationCode: code,
-                  name: dto.name,
+                  name: dto.schoolName || dto.name || '',
                 },
                 include: {
                   project: { select: { id: true, name: true } },
@@ -648,7 +699,7 @@ export class LocationsService implements OnModuleInit {
                 data: {
                   ...commonData,
                   locationCode: code,
-                  name: dto.name,
+                  name: dto.healthCenterName || dto.name || '',
                 },
                 include: {
                   project: { select: { id: true, name: true } },
@@ -885,8 +936,141 @@ export class LocationsService implements OnModuleInit {
       await this.prisma.healthCenter.update({
         where: { id },
         data: { status },
-        include: { project: { select: { id: true, name: true } } },
+        include: {
+          project: { select: { id: true, name: true } },
+          state: { select: { name: true } },
+          district: { select: { name: true } },
+          block: { select: { name: true } },
+          village: { select: { name: true } },
+        },
       }),
     );
+  }
+
+  async findOneSchool(id: number) {
+    const row = await this.prisma.school.findUnique({
+      where: { id },
+      include: {
+        project: { select: { id: true, name: true } },
+        state: { select: { name: true } },
+        district: { select: { name: true } },
+        block: { select: { name: true } },
+        village: { select: { name: true } },
+      },
+    });
+    if (!row) throw new NotFoundException('School not found');
+    return this.toSchoolResponse(row);
+  }
+
+  async findOneHealthCenter(id: number) {
+    const row = await this.prisma.healthCenter.findUnique({
+      where: { id },
+      include: {
+        project: { select: { id: true, name: true } },
+        state: { select: { name: true } },
+        district: { select: { name: true } },
+        block: { select: { name: true } },
+        village: { select: { name: true } },
+      },
+    });
+    if (!row) throw new NotFoundException('Health Center not found');
+    return this.toHealthCenterResponse(row);
+  }
+
+  // ===================================
+  // UNIFIED INSTITUTION METHODS
+  // ===================================
+
+  async findAllInstitutions(query: LocationQueryDto) {
+    const where: any = {};
+    if (query.projectId) where.projectId = query.projectId;
+    if (query.stateId) where.stateId = query.stateId;
+    if (query.districtId) where.districtId = query.districtId;
+    if (query.blockId) where.blockId = query.blockId;
+    if (query.villageId) where.villageId = query.villageId;
+    if (query.status) where.status = query.status;
+
+    const includes = {
+      project: { select: { id: true, name: true } },
+      state: { select: { name: true } },
+      district: { select: { name: true } },
+      block: { select: { name: true } },
+      village: { select: { name: true } },
+    };
+
+    let awcs: any[] = [];
+    let schools: any[] = [];
+    let healthCenters: any[] = [];
+
+    if (!query.type || query.type === 'AWC') {
+      awcs = await this.prisma.awc.findMany({
+        where,
+        include: includes,
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    if (!query.type || query.type === 'SCHOOL') {
+      schools = await this.prisma.school.findMany({
+        where,
+        include: includes,
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    if (!query.type || query.type === 'HEALTH_CENTER') {
+      healthCenters = await this.prisma.healthCenter.findMany({
+        where,
+        include: includes,
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    const transformedAwcs = awcs.map(a => transformAwc(a));
+    const transformedSchools = schools.map(s => transformSchool(s));
+    const transformedHealthCenters = healthCenters.map(hc => transformHealthCenter(hc));
+
+    let result = [...transformedAwcs, ...transformedSchools, ...transformedHealthCenters];
+
+    if (query.search?.trim()) {
+      const q = query.search.trim().toLowerCase();
+      result = result.filter(item => 
+        (item.name?.toLowerCase() || '').includes(q) ||
+        (item.awcName?.toLowerCase() || '').includes(q) ||
+        (item.schoolName?.toLowerCase() || '').includes(q) ||
+        (item.healthCenterName?.toLowerCase() || '').includes(q) ||
+        (item.locationCode?.toLowerCase() || '').includes(q) ||
+        (item.villageName?.toLowerCase() || '').includes(q) ||
+        (item.blockName?.toLowerCase() || '').includes(q) ||
+        (item.districtName?.toLowerCase() || '').includes(q) ||
+        (item.stateName?.toLowerCase() || '').includes(q)
+      );
+    }
+
+    return result;
+  }
+
+  async findInstitutionByTypeAndId(type: string, id: number) {
+    const t = type.toUpperCase();
+    if (t === 'AWC') return this.findOne(id);
+    if (t === 'SCHOOL') return this.findOneSchool(id);
+    if (t === 'HEALTH_CENTER' || t === 'HEALTHCENTER') return this.findOneHealthCenter(id);
+    throw new BadRequestException(`Invalid institution type: ${type}`);
+  }
+
+  async updateInstitutionByTypeAndId(type: string, id: number, dto: UpdateLocationDto) {
+    const t = type.toUpperCase();
+    if (t === 'AWC') return this.update(id, dto);
+    if (t === 'SCHOOL') return this.updateSchool(id, dto);
+    if (t === 'HEALTH_CENTER' || t === 'HEALTHCENTER') return this.updateHealthCenter(id, dto);
+    throw new BadRequestException(`Invalid institution type: ${type}`);
+  }
+
+  async updateInstitutionStatusByTypeAndId(type: string, id: number, status: string) {
+    const t = type.toUpperCase();
+    if (t === 'AWC') return this.updateStatus(id, status);
+    if (t === 'SCHOOL') return this.updateSchoolStatus(id, status);
+    if (t === 'HEALTH_CENTER' || t === 'HEALTHCENTER') return this.updateHealthCenterStatus(id, status);
+    throw new BadRequestException(`Invalid institution type: ${type}`);
   }
 }

@@ -9,6 +9,8 @@ export interface CoverageDashboardOptions {
   state?: string;
   district?: string;
   block?: string;
+  village?: string;
+  institution?: string;
   awc?: string;
   year?: string;
   month?: string;
@@ -47,8 +49,22 @@ export class CoverageDashboardService {
     if (options.block && options.block !== 'ALL') {
       conditions.push(`LOWER(b.block) = LOWER('${escapeStr(options.block)}')`);
     }
+    if (options.village && options.village !== 'ALL') {
+      conditions.push(`LOWER(COALESCE(b.village, a_v.name, sch_v.name, hc_v.name)) = LOWER('${escapeStr(options.village)}')`);
+    }
+    if (options.institution && options.institution !== 'ALL') {
+      conditions.push(`(
+        LOWER(a."awcName") = LOWER('${escapeStr(options.institution)}') OR 
+        LOWER(sch.name) = LOWER('${escapeStr(options.institution)}') OR 
+        LOWER(hc.name) = LOWER('${escapeStr(options.institution)}')
+      )`);
+    }
     if (options.awc && options.awc !== 'ALL') {
-      conditions.push(`LOWER(a."awcName") = LOWER('${escapeStr(options.awc)}')`);
+      conditions.push(`(
+        LOWER(a."awcName") = LOWER('${escapeStr(options.awc)}') OR 
+        LOWER(sch.name) = LOWER('${escapeStr(options.awc)}') OR 
+        LOWER(hc.name) = LOWER('${escapeStr(options.awc)}')
+      )`);
     }
 
     if (options.year && options.year !== 'ALL') {
@@ -200,6 +216,11 @@ export class CoverageDashboardService {
       INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
       LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
       LEFT JOIN "Awc" a ON b."awcId" = a.id
+      LEFT JOIN "School" sch ON b."schoolId" = sch.id
+      LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
+      LEFT JOIN "Village" a_v ON a."villageId" = a_v.id
+      LEFT JOIN "Village" sch_v ON sch."villageId" = sch_v.id
+      LEFT JOIN "Village" hc_v ON hc."villageId" = hc_v.id
       ${whereClause};
     `;
 

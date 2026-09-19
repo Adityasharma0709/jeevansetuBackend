@@ -64,6 +64,58 @@ export class OutreachService {
     }
   }
 
+  async resolveBeneficiaryLocationStrings(dto: {
+    locationId?: number | null;
+    schoolId?: number | null;
+    healthCenterId?: number | null;
+    state?: string | null;
+    district?: string | null;
+    block?: string | null;
+    village?: string | null;
+  }) {
+    let state = dto.state || null;
+    let district = dto.district || null;
+    let block = dto.block || null;
+    let village = dto.village || null;
+
+    if ((!state || !district || !block || !village) && dto.locationId) {
+      const awc = await this.prisma.awc.findUnique({
+        where: { id: dto.locationId },
+        include: { state: true, district: true, block: true, village: true }
+      });
+      if (awc) {
+        state = state || awc.state?.name || null;
+        district = district || awc.district?.name || null;
+        block = block || awc.block?.name || null;
+        village = village || awc.village?.name || null;
+      }
+    } else if ((!state || !district || !block || !village) && dto.schoolId) {
+      const sch = await this.prisma.school.findUnique({
+        where: { id: dto.schoolId },
+        include: { state: true, district: true, block: true, village: true }
+      });
+      if (sch) {
+        state = state || sch.state?.name || null;
+        district = district || sch.district?.name || null;
+        block = block || sch.block?.name || null;
+        village = village || sch.village?.name || null;
+      }
+    } else if ((!state || !district || !block || !village) && dto.healthCenterId) {
+      const hc = await this.prisma.healthCenter.findUnique({
+        where: { id: dto.healthCenterId },
+        include: { state: true, district: true, block: true, village: true }
+      });
+      if (hc) {
+        state = state || hc.state?.name || null;
+        district = district || hc.district?.name || null;
+        block = block || hc.block?.name || null;
+        village = village || hc.village?.name || null;
+      }
+    }
+
+    return { state, district, block, village };
+  }
+
   private async ensureOutreachAssignedToBeneficiary(userId: number, beneficiary: { projectId: number; awcId?: number | null; createdById?: number }) {
     if (beneficiary.createdById === userId) return;
 
@@ -226,6 +278,16 @@ export class OutreachService {
       WHERE UPPER("uid") ~ ${numericPattern}
     `;
 
+    const resolvedLocs = await this.resolveBeneficiaryLocationStrings({
+      locationId: dto.locationId,
+      schoolId: dto.schoolId,
+      healthCenterId: dto.healthCenterId,
+      state: dto.state,
+      district: dto.district,
+      block: dto.block,
+      village: dto.village,
+    });
+
     let nextVal = (rows[0]?.max ?? 0) + 1;
 
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -241,10 +303,10 @@ export class OutreachService {
             awcId: dto.locationId || null,
             schoolId: dto.schoolId || null,
             healthCenterId: dto.healthCenterId || null,
-            state: dto.state,
-            district: dto.district,
-            block: dto.block,
-            village: dto.village,
+            state: resolvedLocs.state,
+            district: resolvedLocs.district,
+            block: resolvedLocs.block,
+            village: resolvedLocs.village,
             createdById: user.userId,
 
             mobileNumber: dto.mobileNumber,
@@ -573,6 +635,8 @@ export class OutreachService {
     state?: string,
     district?: string,
     block?: string,
+    village?: string,
+    institution?: string,
     awc?: string,
   ) {
     const roles = user.roles?.map(r => r.role?.name || r.name) || [];
@@ -671,6 +735,8 @@ export class OutreachService {
       state: state && state !== 'ALL' ? state : undefined,
       district: district && district !== 'ALL' ? district : undefined,
       block: block && block !== 'ALL' ? block : undefined,
+      village: village && village !== 'ALL' ? village : undefined,
+      institution: institution && institution !== 'ALL' ? institution : undefined,
       awc: awc && awc !== 'ALL' ? awc : undefined
     });
     // ----------------------------------------------------
@@ -684,6 +750,8 @@ export class OutreachService {
       state: state && state !== 'ALL' ? state : undefined,
       district: district && district !== 'ALL' ? district : undefined,
       block: block && block !== 'ALL' ? block : undefined,
+      village: village && village !== 'ALL' ? village : undefined,
+      institution: institution && institution !== 'ALL' ? institution : undefined,
       awc: awc && awc !== 'ALL' ? awc : undefined,
       year: year && year !== 'ALL' ? year : undefined,
       month: month && month !== 'ALL' ? month : undefined,
@@ -755,6 +823,8 @@ export class OutreachService {
     state?: string,
     district?: string,
     block?: string,
+    village?: string,
+    institution?: string,
     awc?: string,
   ) {
     const roles = user.roles?.map((r: any) => r.role?.name || r.name) || [];
@@ -796,6 +866,8 @@ export class OutreachService {
       state: state && state !== 'ALL' ? state : undefined,
       district: district && district !== 'ALL' ? district : undefined,
       block: block && block !== 'ALL' ? block : undefined,
+      village: village && village !== 'ALL' ? village : undefined,
+      institution: institution && institution !== 'ALL' ? institution : undefined,
       awc: awc && awc !== 'ALL' ? awc : undefined,
     });
 
@@ -838,6 +910,8 @@ export class OutreachService {
     state?: string,
     district?: string,
     block?: string,
+    village?: string,
+    institution?: string,
     awc?: string,
   ) {
     const roles = user.roles?.map((r: any) => r.role?.name || r.name) || [];
@@ -888,7 +962,21 @@ export class OutreachService {
     if (state && state !== 'ALL') conditions.push(`LOWER(b.state) = LOWER('${escapeStr(state)}')`);
     if (district && district !== 'ALL') conditions.push(`LOWER(b.district) = LOWER('${escapeStr(district)}')`);
     if (block && block !== 'ALL') conditions.push(`LOWER(b.block) = LOWER('${escapeStr(block)}')`);
-    if (awc && awc !== 'ALL') conditions.push(`LOWER(a."awcName") = LOWER('${escapeStr(awc)}')`);
+    if (village && village !== 'ALL') conditions.push(`LOWER(COALESCE(b.village, a_v.name, sch_v.name, hc_v.name)) = LOWER('${escapeStr(village)}')`);
+    if (institution && institution !== 'ALL') {
+      conditions.push(`(
+        LOWER(a."awcName") = LOWER('${escapeStr(institution)}') OR 
+        LOWER(s_sch.name) = LOWER('${escapeStr(institution)}') OR 
+        LOWER(hc.name) = LOWER('${escapeStr(institution)}')
+      )`);
+    }
+    if (awc && awc !== 'ALL') {
+      conditions.push(`(
+        LOWER(a."awcName") = LOWER('${escapeStr(awc)}') OR 
+        LOWER(s_sch.name) = LOWER('${escapeStr(awc)}') OR 
+        LOWER(hc.name) = LOWER('${escapeStr(awc)}')
+      )`);
+    }
     if (year && year !== 'ALL') conditions.push(`EXTRACT(YEAR FROM r.date) = ${Number(year)}`);
     if (month && month !== 'ALL') {
       const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
@@ -1033,11 +1121,14 @@ export class OutreachService {
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
         LEFT JOIN "BeneficiaryChild" c ON r."childId" = c.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
+        LEFT JOIN "School" s_sch ON b."schoolId" = s_sch.id
+        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
+        LEFT JOIN "Village" a_v ON a."villageId" = a_v.id
+        LEFT JOIN "Village" sch_v ON s_sch."villageId" = sch_v.id
+        LEFT JOIN "Village" hc_v ON hc."villageId" = hc_v.id
         LEFT JOIN "Project" p ON b."projectId" = p.id
         LEFT JOIN "Activity" act ON r."activityId" = act.id
         LEFT JOIN "Session" sess ON r."sessionId" = sess.id
-        LEFT JOIN "School" s_sch ON b."schoolId" = s_sch.id
-        LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
         LEFT JOIN "User" rep_u ON r."reportedById" = rep_u.id
         ${whereClause}
         ${whereClause ? 'AND' : 'WHERE'} ${groupCondition}
@@ -1227,11 +1318,34 @@ export class OutreachService {
       ];
     }
 
-    return this.prisma.beneficiary.findMany({
+    const list = await this.prisma.beneficiary.findMany({
       where,
       include: {
         project: true,
-        awc: true,
+        awc: {
+          include: {
+            state: true,
+            district: true,
+            block: true,
+            village: true,
+          }
+        },
+        school: {
+          include: {
+            state: true,
+            district: true,
+            block: true,
+            village: true,
+          }
+        },
+        healthCenter: {
+          include: {
+            state: true,
+            district: true,
+            block: true,
+            village: true,
+          }
+        },
         children: {
           include: {
             childGroups: {
@@ -1244,6 +1358,27 @@ export class OutreachService {
         }
       },
       orderBy: { createdAt: 'desc' }
+    });
+
+    return list.map((b: any) => {
+      const loc = b.awc || b.school || b.healthCenter;
+      const villageName = b.village || loc?.village?.name || (typeof loc?.village === 'string' ? loc.village : null);
+      const instName = b.awc?.awcName || b.school?.name || b.healthCenter?.name || null;
+      const instCode = b.awc?.locationCode || b.school?.locationCode || b.healthCenter?.locationCode || null;
+      const instId = b.awcId || b.schoolId || b.healthCenterId || loc?.id || null;
+
+      return {
+        ...b,
+        village: villageName,
+        locationName: instName,
+        locationCode: instCode,
+        locationId: instId,
+        location: {
+          ...(loc || {}),
+          name: instName,
+          village: villageName
+        }
+      };
     });
   }
 
@@ -1456,7 +1591,7 @@ export class OutreachService {
       where.stateId = { in: finalAssignedStateIds };
     }
 
-    // 2. Fetch all AWCs in the project (filtered by states if necessary), including full hierarchy
+    // 2. Fetch all AWCs, Schools, and Health Centers in the project (filtered by states if necessary), including full hierarchy
     const awcs = await this.prisma.awc.findMany({
       where,
       include: {
@@ -1474,9 +1609,79 @@ export class OutreachService {
       ]
     });
 
+    const schools = await this.prisma.school.findMany({
+      where,
+      include: {
+        state: true,
+        district: true,
+        block: true,
+        village: true
+      },
+      orderBy: [
+        { state: { name: 'asc' } },
+        { district: { name: 'asc' } },
+        { block: { name: 'asc' } },
+        { village: { name: 'asc' } },
+        { name: 'asc' }
+      ]
+    });
+
+    const healthCenters = await this.prisma.healthCenter.findMany({
+      where,
+      include: {
+        state: true,
+        district: true,
+        block: true,
+        village: true
+      },
+      orderBy: [
+        { state: { name: 'asc' } },
+        { district: { name: 'asc' } },
+        { block: { name: 'asc' } },
+        { village: { name: 'asc' } },
+        { name: 'asc' }
+      ]
+    });
+
+    const mappedSchools = schools.map(s => {
+      const nameVal = s.name || (s as any).schoolName || '';
+      return {
+        ...s,
+        name: nameVal,
+        schoolName: nameVal,
+        awcName: nameVal,
+        institutionType: 'SCHOOL'
+      };
+    });
+
+    const mappedHealthCenters = healthCenters.map(hc => {
+      const nameVal = hc.name || (hc as any).healthCenterName || '';
+      return {
+        ...hc,
+        name: nameVal,
+        healthCenterName: nameVal,
+        awcName: nameVal,
+        institutionType: 'HEALTH_CENTER'
+      };
+    });
+
+    const mappedAwcs = awcs.map(a => {
+      const nameVal = a.awcName || (a as any).name || '';
+      return {
+        ...a,
+        awcName: nameVal,
+        name: nameVal,
+        institutionType: 'AWC'
+      };
+    });
+
+    const combinedLocations = [...mappedAwcs, ...mappedSchools, ...mappedHealthCenters];
+
     return {
       states: finalAssignedStates,
-      awcs: awcs
+      awcs: combinedLocations,
+      schools: mappedSchools,
+      healthCenters: mappedHealthCenters
     };
   }
 

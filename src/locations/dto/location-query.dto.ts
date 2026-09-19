@@ -1,55 +1,43 @@
 import { IsInt, IsOptional, IsString, IsIn } from 'class-validator';
+import { Type } from 'class-transformer';
 
-export class UpdateLocationDto {
+export class LocationQueryDto {
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   projectId?: number;
 
   @IsOptional()
-  @IsString()
-  locationCode?: string;
-
-  @IsOptional()
-  @IsString()
-  awcName?: string;
-
-  @IsOptional()
-  @IsString()
-  schoolName?: string;
-
-  @IsOptional()
-  @IsString()
-  healthCenterName?: string;
-
-  @IsOptional()
-  @IsString()
-  name?: string;
-
-  @IsOptional()
+  @Type(() => Number)
   @IsInt()
   stateId?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   districtId?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   blockId?: number;
 
   @IsOptional()
-  @IsString()
-  block?: any;
-
-  @IsOptional()
+  @Type(() => Number)
   @IsInt()
   villageId?: number;
 
   @IsOptional()
   @IsString()
-  village?: any;
+  @IsIn(['AWC', 'SCHOOL', 'HEALTH_CENTER'])
+  type?: 'AWC' | 'SCHOOL' | 'HEALTH_CENTER';
 
   @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsString()
   @IsIn(['ACTIVE', 'INACTIVE'])
   status?: string;
 }
