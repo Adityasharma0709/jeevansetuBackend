@@ -488,8 +488,8 @@ export class AnalystService {
           AND c_sub."dateOfBirth" > r.date - INTERVAL '2 years'
       )
     `;
-    const mam0to5Cond = `r."childId" IS NOT NULL AND r."reportData"->>'samMamStatus' = 'MAM' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) <= 5`;
-    const sam0to5Cond = `r."childId" IS NOT NULL AND r."reportData"->>'samMamStatus' = 'SAM' AND EXTRACT(YEAR FROM AGE(r.date, c."dateOfBirth")) <= 5`;
+    const mam0to5Cond = `r."reportData"->>'samMamStatus' = 'MAM' AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) <= 5`;
+    const sam0to5Cond = `r."reportData"->>'samMamStatus' = 'SAM' AND EXTRACT(YEAR FROM AGE(r.date, COALESCE(c."dateOfBirth", b."dateOfBirth"))) <= 5`;
     const youngMarriedWomenCond = `
       r."childId" IS NULL 
       AND LOWER(TRIM(b.gender)) = 'female' 
@@ -509,16 +509,20 @@ export class AnalystService {
 
     const otherBeneficiariesCond = `
       (
-        EXISTS (
-          SELECT 1 FROM "GroupMember" gm_other
-          INNER JOIN "BeneficiaryGroup" bg_other ON gm_other."groupId" = bg_other.id
-          WHERE gm_other."beneficiaryId" = r."beneficiaryId"
-            AND UPPER(TRIM(bg_other.name)) LIKE 'OTHER BENEFICIARIES%'
-        ) OR EXISTS (
-          SELECT 1 FROM "ChildGroupMember" cgm_other
-          INNER JOIN "BeneficiaryGroup" bg_other ON cgm_other."groupId" = bg_other.id
-          WHERE cgm_other."childId" = r."childId"
-            AND UPPER(TRIM(bg_other.name)) LIKE 'OTHER BENEFICIARIES%'
+        (
+          r."childId" IS NULL AND EXISTS (
+            SELECT 1 FROM "GroupMember" gm_other
+            INNER JOIN "BeneficiaryGroup" bg_other ON gm_other."groupId" = bg_other.id
+            WHERE gm_other."beneficiaryId" = r."beneficiaryId"
+              AND UPPER(TRIM(bg_other.name)) LIKE 'OTHER BENEFICIARIES%'
+          )
+        ) OR (
+          r."childId" IS NOT NULL AND EXISTS (
+            SELECT 1 FROM "ChildGroupMember" cgm_other
+            INNER JOIN "BeneficiaryGroup" bg_other ON cgm_other."groupId" = bg_other.id
+            WHERE cgm_other."childId" = r."childId"
+              AND UPPER(TRIM(bg_other.name)) LIKE 'OTHER BENEFICIARIES%'
+          )
         )
       )
     `;

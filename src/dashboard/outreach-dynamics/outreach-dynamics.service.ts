@@ -154,7 +154,9 @@ export class OutreachDynamicsService {
     // c. SAM Children
     const samCountQuery = `
       WITH LatestReports AS (
-        SELECT DISTINCT ON ("childId") "childId", "reportData"
+        SELECT DISTINCT ON (COALESCE(r."childId", r."beneficiaryId"))
+               COALESCE(r."childId", r."beneficiaryId") AS "uniqueId",
+               r."childId", r."beneficiaryId", r."reportData"
         FROM "ActivityReport" r
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
@@ -163,16 +165,17 @@ export class OutreachDynamicsService {
         LEFT JOIN "Village" a_v ON a."villageId" = a_v.id
         LEFT JOIN "Village" sch_v ON sch."villageId" = sch_v.id
         LEFT JOIN "Village" hc_v ON hc."villageId" = hc_v.id
-        WHERE b."projectId" IN (${projectIdsStr}) AND r."childId" IS NOT NULL
+        WHERE b."projectId" IN (${projectIdsStr})
           ${reporterFilterStr}
           ${locFilterStr}
-        ORDER BY "childId", r.date DESC
+        ORDER BY COALESCE(r."childId", r."beneficiaryId"), r.date DESC
       )
       SELECT COUNT(*) AS count
       FROM LatestReports lr
-      INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
+      INNER JOIN "Beneficiary" b ON lr."beneficiaryId" = b.id
+      LEFT JOIN "BeneficiaryChild" c ON lr."childId" = c.id
       WHERE lr."reportData"->>'samMamStatus' = 'SAM'
-        AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years';
+        AND COALESCE(c."dateOfBirth", b."dateOfBirth") >= CURRENT_DATE - INTERVAL '5 years';
     `;
     const samRaw: any[] = await this.prisma.$queryRawUnsafe(samCountQuery);
     const activeSamChildren = Number(samRaw[0]?.count || 0);
@@ -180,7 +183,9 @@ export class OutreachDynamicsService {
     // d. MAM Children
     const mamCountQuery = `
       WITH LatestReports AS (
-        SELECT DISTINCT ON ("childId") "childId", "reportData"
+        SELECT DISTINCT ON (COALESCE(r."childId", r."beneficiaryId"))
+               COALESCE(r."childId", r."beneficiaryId") AS "uniqueId",
+               r."childId", r."beneficiaryId", r."reportData"
         FROM "ActivityReport" r
         INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
@@ -189,16 +194,17 @@ export class OutreachDynamicsService {
         LEFT JOIN "Village" a_v ON a."villageId" = a_v.id
         LEFT JOIN "Village" sch_v ON sch."villageId" = sch_v.id
         LEFT JOIN "Village" hc_v ON hc."villageId" = hc_v.id
-        WHERE b."projectId" IN (${projectIdsStr}) AND r."childId" IS NOT NULL
+        WHERE b."projectId" IN (${projectIdsStr})
           ${reporterFilterStr}
           ${locFilterStr}
-        ORDER BY "childId", r.date DESC
+        ORDER BY COALESCE(r."childId", r."beneficiaryId"), r.date DESC
       )
       SELECT COUNT(*) AS count
       FROM LatestReports lr
-      INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
+      INNER JOIN "Beneficiary" b ON lr."beneficiaryId" = b.id
+      LEFT JOIN "BeneficiaryChild" c ON lr."childId" = c.id
       WHERE lr."reportData"->>'samMamStatus' = 'MAM'
-        AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years';
+        AND COALESCE(c."dateOfBirth", b."dateOfBirth") >= CURRENT_DATE - INTERVAL '5 years';
     `;
     const mamRaw: any[] = await this.prisma.$queryRawUnsafe(mamCountQuery);
     const activeMamChildren = Number(mamRaw[0]?.count || 0);
@@ -561,7 +567,9 @@ export class OutreachDynamicsService {
     } else if (clean.includes('SAM')) {
       queryStr = `
         WITH LatestReports AS (
-          SELECT DISTINCT ON ("childId") "childId", "reportData", r.date, r."activityId", r."sessionId"
+          SELECT DISTINCT ON (COALESCE(r."childId", r."beneficiaryId"))
+                 COALESCE(r."childId", r."beneficiaryId") AS "uniqueId",
+                 r."childId", r."beneficiaryId", r."reportData", r.date, r."activityId", r."sessionId"
           FROM "ActivityReport" r
           INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
           LEFT JOIN "Awc" a ON b."awcId" = a.id
@@ -570,21 +578,27 @@ export class OutreachDynamicsService {
         LEFT JOIN "Village" a_v ON a."villageId" = a_v.id
         LEFT JOIN "Village" sch_v ON sch."villageId" = sch_v.id
         LEFT JOIN "Village" hc_v ON hc."villageId" = hc_v.id
-          WHERE b."projectId" IN (${projectIdsStr}) AND r."childId" IS NOT NULL
+          WHERE b."projectId" IN (${projectIdsStr})
             ${reporterFilterStr}
             ${locFilterStr}
-          ORDER BY "childId", r.date DESC
+          ORDER BY COALESCE(r."childId", r."beneficiaryId"), r.date DESC
         )
-        SELECT c.uid AS id, b.id AS "benId", c.name, 'Child' AS typeof,
+        SELECT COALESCE(c.uid, b.uid) AS id, b.id AS "benId", COALESCE(c.name, b.name) AS name, 'Child' AS typeof,
                COALESCE((
+                 SELECT STRING_AGG(bg.name, ', ')
+                 FROM "GroupMember" gm
+                 INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+                 WHERE gm."beneficiaryId" = b.id
+               ), (
                  SELECT STRING_AGG(bg.name, ', ')
                  FROM "ChildGroupMember" cgm
                  INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
                  WHERE cgm."childId" = c.id
                ), 'N/A') AS group,
                COALESCE(a."awcName", 'N/A') AS awc,
-               p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
-               EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
+               p_proj.name AS project, COALESCE(c.gender, b.gender) AS gender,
+               CASE WHEN c.id IS NOT NULL THEN b.name ELSE COALESCE(b."guardianName", 'N/A') END AS "guardianName",
+               EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth")))::integer % 12 || 'm' AS age,
                'N/A' AS "childNameAndAge", 
                COALESCE(act.name, 'N/A') AS activity, 
                COALESCE(sess.name, 'N/A') AS session, 
@@ -593,11 +607,11 @@ export class OutreachDynamicsService {
                COALESCE(b.block, 'N/A') AS block,
                COALESCE(b.village, 'N/A') AS village,
                COALESCE(c."schoolingStatus", 'N/A') AS school,
-               b.name AS "motherName",
+               CASE WHEN c.id IS NOT NULL THEN b.name ELSE '-' END AS "motherName",
                COALESCE(hc.name, 'N/A') AS "healthCenter"
         FROM LatestReports lr
-        INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
-        INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
+        INNER JOIN "Beneficiary" b ON lr."beneficiaryId" = b.id
+        LEFT JOIN "BeneficiaryChild" c ON lr."childId" = c.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "School" sch ON b."schoolId" = sch.id
         LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
@@ -608,13 +622,15 @@ export class OutreachDynamicsService {
         LEFT JOIN "Activity" act ON lr."activityId" = act.id
         LEFT JOIN "Session" sess ON lr."sessionId" = sess.id
         WHERE lr."reportData"->>'samMamStatus' = 'SAM'
-          AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years'
+          AND COALESCE(c."dateOfBirth", b."dateOfBirth") >= CURRENT_DATE - INTERVAL '5 years'
         ORDER BY lr.date DESC;
       `;
     } else if (clean.includes('MAM')) {
       queryStr = `
         WITH LatestReports AS (
-          SELECT DISTINCT ON ("childId") "childId", "reportData", r.date, r."activityId", r."sessionId"
+          SELECT DISTINCT ON (COALESCE(r."childId", r."beneficiaryId"))
+                 COALESCE(r."childId", r."beneficiaryId") AS "uniqueId",
+                 r."childId", r."beneficiaryId", r."reportData", r.date, r."activityId", r."sessionId"
           FROM "ActivityReport" r
           INNER JOIN "Beneficiary" b ON r."beneficiaryId" = b.id
           LEFT JOIN "Awc" a ON b."awcId" = a.id
@@ -623,21 +639,27 @@ export class OutreachDynamicsService {
         LEFT JOIN "Village" a_v ON a."villageId" = a_v.id
         LEFT JOIN "Village" sch_v ON sch."villageId" = sch_v.id
         LEFT JOIN "Village" hc_v ON hc."villageId" = hc_v.id
-          WHERE b."projectId" IN (${projectIdsStr}) AND r."childId" IS NOT NULL
+          WHERE b."projectId" IN (${projectIdsStr})
             ${reporterFilterStr}
             ${locFilterStr}
-          ORDER BY "childId", r.date DESC
+          ORDER BY COALESCE(r."childId", r."beneficiaryId"), r.date DESC
         )
-        SELECT c.uid AS id, b.id AS "benId", c.name, 'Child' AS typeof,
+        SELECT COALESCE(c.uid, b.uid) AS id, b.id AS "benId", COALESCE(c.name, b.name) AS name, 'Child' AS typeof,
                COALESCE((
+                 SELECT STRING_AGG(bg.name, ', ')
+                 FROM "GroupMember" gm
+                 INNER JOIN "BeneficiaryGroup" bg ON gm."groupId" = bg.id
+                 WHERE gm."beneficiaryId" = b.id
+               ), (
                  SELECT STRING_AGG(bg.name, ', ')
                  FROM "ChildGroupMember" cgm
                  INNER JOIN "BeneficiaryGroup" bg ON cgm."groupId" = bg.id
                  WHERE cgm."childId" = c.id
                ), 'N/A') AS group,
                COALESCE(a."awcName", 'N/A') AS awc,
-               p_proj.name AS project, c.gender AS gender, b.name AS "guardianName",
-               EXTRACT(YEAR FROM AGE(CURRENT_DATE, c."dateOfBirth")) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, c."dateOfBirth"))::integer % 12 || 'm' AS age,
+               p_proj.name AS project, COALESCE(c.gender, b.gender) AS gender,
+               CASE WHEN c.id IS NOT NULL THEN b.name ELSE COALESCE(b."guardianName", 'N/A') END AS "guardianName",
+               EXTRACT(YEAR FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth"))) || 'y ' || EXTRACT(MONTH FROM AGE(CURRENT_DATE, COALESCE(c."dateOfBirth", b."dateOfBirth")))::integer % 12 || 'm' AS age,
                'N/A' AS "childNameAndAge", 
                COALESCE(act.name, 'N/A') AS activity, 
                COALESCE(sess.name, 'N/A') AS session, 
@@ -646,11 +668,11 @@ export class OutreachDynamicsService {
                COALESCE(b.block, 'N/A') AS block,
                COALESCE(b.village, 'N/A') AS village,
                COALESCE(c."schoolingStatus", 'N/A') AS school,
-               b.name AS "motherName",
+               CASE WHEN c.id IS NOT NULL THEN b.name ELSE '-' END AS "motherName",
                COALESCE(hc.name, 'N/A') AS "healthCenter"
         FROM LatestReports lr
-        INNER JOIN "BeneficiaryChild" c ON lr."childId" = c.id
-        INNER JOIN "Beneficiary" b ON c."beneficiaryId" = b.id
+        INNER JOIN "Beneficiary" b ON lr."beneficiaryId" = b.id
+        LEFT JOIN "BeneficiaryChild" c ON lr."childId" = c.id
         LEFT JOIN "Awc" a ON b."awcId" = a.id
         LEFT JOIN "School" sch ON b."schoolId" = sch.id
         LEFT JOIN "HealthCenter" hc ON b."healthCenterId" = hc.id
@@ -661,7 +683,7 @@ export class OutreachDynamicsService {
         LEFT JOIN "Activity" act ON lr."activityId" = act.id
         LEFT JOIN "Session" sess ON lr."sessionId" = sess.id
         WHERE lr."reportData"->>'samMamStatus' = 'MAM'
-          AND c."dateOfBirth" >= CURRENT_DATE - INTERVAL '5 years'
+          AND COALESCE(c."dateOfBirth", b."dateOfBirth") >= CURRENT_DATE - INTERVAL '5 years'
         ORDER BY lr.date DESC;
       `;
     } else if (clean.includes('ADOLESCENT')) {
