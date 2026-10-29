@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, UseGuards, Put, Req, ParseIntPipe, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, UseGuards, Put, Req, ParseIntPipe, Delete, Query } from '@nestjs/common';
 import { ManagerService } from './manager.service';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from 'src/auth/roles/roles.guard';
@@ -119,9 +119,27 @@ export class ManagerController {
   }
 
   @Get('beneficiaries')
-  getBeneficiaries(@Req() req) {
-    return this.managerService.getBeneficiaries(Number(req.user.userId));
+  getBeneficiaries(
+    @Req() req,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('typeTab') typeTab?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: 'asc' | 'desc',
+    @Query('all') all?: string,
+  ) {
+    return this.managerService.getBeneficiaries(Number(req.user.userId), {
+      page: page ? Math.max(1, parseInt(page, 10)) : 1,
+      limit: limit ? Math.max(1, parseInt(limit, 10)) : 10,
+      search: search?.trim(),
+      typeTab,
+      sortBy: sortBy || 'createdAt',
+      sortDir: sortDir || 'desc',
+      all: all === 'true',
+    });
   }
+
 
   @Get('my-requests')
   getMyRequests(@Req() req) {

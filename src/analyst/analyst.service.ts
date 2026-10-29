@@ -839,69 +839,209 @@ export class AnalystService {
     };
   }
 
-  async getBeneficiaryList(userId: number, search?: string, projectId?: number) {
+   async getBeneficiaryList(userId: number, query?: any) {
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId },
       select: { projectId: true },
     });
 
     if (!assignments.length) {
-      return [];
+      return {
+        data: [],
+        meta: { total: 0, page: 1, limit: 10, totalPages: 1 },
+        stats: { totalBeneficiaries: 0, priorityCount: 0, generalCount: 0, stakeholderCount: 0, registeredThisMonth: 0 }
+      };
     }
 
     const assignedProjectIds = [...new Set(assignments.map(a => a.projectId))];
+    const projectId = query?.projectId ? +query.projectId : undefined;
     const targetProjectIds = projectId ? [projectId] : assignedProjectIds;
 
     if (projectId && !assignedProjectIds.includes(projectId)) {
       throw new ForbiddenException('You do not have access to this project');
     }
 
-    const where: any = {
+    const page = query?.page ? Math.max(1, parseInt(query.page, 10)) : 1;
+    const limit = query?.limit ? Math.max(1, parseInt(query.limit, 10)) : 10;
+    const search = query?.search?.trim();
+    const typeTab = query?.typeTab || 'ALL';
+    const village = query?.village?.trim();
+    const institution = query?.institution?.trim();
+    const sortBy = query?.sortBy || 'createdAt';
+    const sortDir: 'asc' | 'desc' = query?.sortDir === 'asc' ? 'asc' : 'desc';
+    const isExport = query?.all === true || query?.all === 'true';
+
+    const baseWhere: any = {
       projectId: { in: targetProjectIds },
     };
 
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { uid: { contains: search, mode: 'insensitive' } },
-      ];
+    const andConditions: any[] = [{ projectId: { in: targetProjectIds } }];
+
+    // 1. Type tab filtering
+    if (typeTab === 'STAKEHOLDER') {
+      andConditions.push({ typeof: { equals: 'stakeholder', mode: 'insensitive' } });
+    } else if (typeTab === 'PRIORITY') {
+      andConditions.push({
+        NOT: { typeof: { equals: 'stakeholder', mode: 'insensitive' } },
+        OR: [
+          { guardianName: { not: null } },
+          { qualification: { not: null } },
+          { religion: { not: null } },
+          { caste: { not: null } },
+        ]
+      });
+    } else if (typeTab === 'GENERAL') {
+      andConditions.push({
+        NOT: { typeof: { equals: 'stakeholder', mode: 'insensitive' } },
+        guardianName: null,
+        qualification: null,
+        religion: null,
+        caste: null
+      });
     }
 
-    const beneficiaries = await this.prisma.beneficiary.findMany({
-      where,
-      orderBy: { name: 'asc' },
-      include: {
-        awc: {
-          include: {
-            state: true,
-            district: true,
-            block: true,
-            village: true,
-          },
-        },
-        school: {
-          include: {
-            state: true,
-            district: true,
-            block: true,
-            village: true,
-          },
-        },
-        healthCenter: {
-          include: {
-            state: true,
-            district: true,
-            block: true,
-            village: true,
-          },
-        },
-        createdBy: {
-          select: { name: true, email: true }
-        }
-      },
-    });
+    // 2. Village filter
+    if (village && village !== 'ALL') {
+      andConditions.push({
+        OR: [
+          { village: { equals: village, mode: 'insensitive' } },
+          { awc: { village: { name: { equals: village, mode: 'insensitive' } } } },
+          { school: { village: { name: { equals: village, mode: 'insensitive' } } } },
+          { healthCenter: { village: { name: { equals: village, mode: 'insensitive' } } } },
+        ]
+      });
+    }
 
-    return beneficiaries.map((b: any) => {
+    // 3. Institution filter
+    if (institution && institution !== 'ALL') {
+      const instConditions: any[] = [];
+      const numId = parseInt(institution, 10);
+      if (!isNaN(numId)) {
+        instConditions.push({ awcId: numId }, { schoolId: numId }, { healthCenterId: numId });
+      }
+      instConditions.push(
+        { awc: { locationCode: { equals: institution, mode: 'insensitive' } } },
+        { school: { locationCode: { equals: institution, mode: 'insensitive' } } },
+        { healthCenter: { locationCode: { equals: institution, mode: 'insensitive' } } },
+        { awc: { awcName: { contains: institution, mode: 'insensitive' } } },
+        { school: { name: { contains: institution, mode: 'insensitive' } } },
+        { healthCenter: { name: { contains: institution, mode: 'insensitive' } } }
+      );
+      andConditions.push({ OR: instConditions });
+    }
+
+    // 4. Search filter
+    if (search) {
+      andConditions.push({
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { uid: { contains: search, mode: 'insensitive' } },
+          { mobileNumber: { contains: search, mode: 'insensitive' } },
+          { village: { contains: search, mode: 'insensitive' } },
+          { project: { name: { contains: search, mode: 'insensitive' } } },
+          { createdBy: { name: { contains: search, mode: 'insensitive' } } },
+        ]
+      });
+    }
+
+    const where = { AND: andConditions };
+
+    // 5. Sorting
+    let orderBy: any = { createdAt: 'desc' };
+    if (sortBy === 'project') {
+      orderBy = { project: { name: sortDir } };
+    } else if (['name', 'uid', 'mobileNumber', 'dateOfBirth', 'createdAt'].includes(sortBy)) {
+      orderBy = { [sortBy]: sortDir };
+    }
+
+    const skip = (page - 1) * limit;
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+    // 6. Parallel query execution via Prisma $transaction
+    const [
+      total,
+      list,
+      totalBeneficiaries,
+      priorityCount,
+      stakeholderCount,
+      generalCount,
+      registeredThisMonth
+    ] = await this.prisma.$transaction([
+      this.prisma.beneficiary.count({ where }),
+      this.prisma.beneficiary.findMany({
+        where,
+        skip: isExport ? undefined : skip,
+        take: isExport ? undefined : limit,
+        orderBy,
+        include: {
+          project: true,
+          awc: {
+            include: {
+              state: true,
+              district: true,
+              block: true,
+              village: true,
+            },
+          },
+          school: {
+            include: {
+              state: true,
+              district: true,
+              block: true,
+              village: true,
+            },
+          },
+          healthCenter: {
+            include: {
+              state: true,
+              district: true,
+              block: true,
+              village: true,
+            },
+          },
+          createdBy: {
+            select: { name: true, email: true }
+          }
+        },
+      }),
+      this.prisma.beneficiary.count({ where: baseWhere }),
+      this.prisma.beneficiary.count({
+        where: {
+          ...baseWhere,
+          NOT: { typeof: { equals: 'stakeholder', mode: 'insensitive' } },
+          OR: [
+            { guardianName: { not: null } },
+            { qualification: { not: null } },
+            { religion: { not: null } },
+            { caste: { not: null } },
+          ]
+        }
+      }),
+      this.prisma.beneficiary.count({
+        where: {
+          ...baseWhere,
+          typeof: { equals: 'stakeholder', mode: 'insensitive' }
+        }
+      }),
+      this.prisma.beneficiary.count({
+        where: {
+          ...baseWhere,
+          NOT: { typeof: { equals: 'stakeholder', mode: 'insensitive' } },
+          guardianName: null,
+          qualification: null,
+          religion: null,
+          caste: null
+        }
+      }),
+      this.prisma.beneficiary.count({
+        where: {
+          ...baseWhere,
+          createdAt: { gte: startOfMonth }
+        }
+      })
+    ]);
+
+    const formattedData = list.map((b: any) => {
       const loc = b.awc || b.school || b.healthCenter;
       const villageName = b.village || loc?.village?.name || (typeof loc?.village === 'string' ? loc.village : null);
       const instName = b.awc?.awcName || b.school?.name || b.school?.schoolName || b.healthCenter?.name || b.healthCenter?.healthCenterName || b.awc?.name || null;
@@ -922,7 +1062,27 @@ export class AnalystService {
         }
       };
     });
+
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    return {
+      data: formattedData,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages
+      },
+      stats: {
+        totalBeneficiaries,
+        priorityCount,
+        generalCount,
+        stakeholderCount,
+        registeredThisMonth
+      }
+    };
   }
+
 
   async getBeneficiary(id: number, userId: number) {
     const assignments = await this.prisma.userProjectLocation.findMany({

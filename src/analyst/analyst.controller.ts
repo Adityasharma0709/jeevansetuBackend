@@ -152,13 +152,11 @@ export class AnalystController {
   @Get('beneficiary-list')
   getBeneficiaryList(
     @Req() req,
-    @Query('search') search?: string,
-    @Query('projectId') projectId?: string,
+    @Query() query: any,
   ) {
     return this.analystService.getBeneficiaryList(
       req.user.userId,
-      search,
-      projectId ? +projectId : undefined,
+      query,
     );
   }
 

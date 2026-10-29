@@ -34,6 +34,7 @@ model District {
   healthCenters HealthCenter[]
   schools       School[]
   blocks  Block[]
+  @@index([stateId])
 }
 
 model Block {
@@ -45,6 +46,7 @@ model Block {
   awcs       Awc[]
   healthCenters HealthCenter[]
   schools       School[]
+  @@index([districtId])
 }
 
 model Village {
@@ -55,6 +57,7 @@ model Village {
   awcs    Awc[]
   healthCenters HealthCenter[]
   schools       School[]
+  @@index([blockId])
 }
 
 
@@ -96,6 +99,8 @@ model User {
   sharesFrom  AccountShare[] @relation("ShareFrom")
   sharesTo    AccountShare[] @relation("ShareTo")
   sharesManaged AccountShare[] @relation("ShareManager")
+
+  @@index([createdByAdminId])
 }
 
 model Role {
@@ -114,6 +119,7 @@ model UserRole {
   role Role @relation(fields: [roleId], references: [id])
 
   @@unique([userId, roleId])
+  @@index([roleId])
 }
 
 /**
@@ -166,6 +172,11 @@ model Awc {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@index([projectId])
+  @@index([stateId])
+  @@index([districtId])
+  @@index([blockId])
+  @@index([villageId])
 }
 
 model HealthCenter {
@@ -192,6 +203,12 @@ model HealthCenter {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([stateId])
+  @@index([districtId])
+  @@index([blockId])
+  @@index([villageId])
 }
 
 model School {
@@ -218,6 +235,12 @@ model School {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([stateId])
+  @@index([districtId])
+  @@index([blockId])
+  @@index([villageId])
 }
 
 model UserProjectLocation {
@@ -231,6 +254,7 @@ model UserProjectLocation {
   state   State?  @relation(fields: [stateId], references: [id])
 
   @@unique([userId, projectId, stateId])
+  @@index([projectId])
 }
 
 model ProjectState {
@@ -241,6 +265,7 @@ model ProjectState {
   state     State    @relation(fields: [stateId], references: [id])
 
   @@unique([projectId, stateId])
+  @@index([stateId])
 }
 
 /**
@@ -264,6 +289,11 @@ payload       Json
   requestedBy User  @relation("requestedBy", fields: [requestedById], references: [id])
   approvedBy  User? @relation("approvedBy", fields: [approvedById], references: [id])
   targetAdmin User? @relation("targetAdmin", fields: [targetAdminId], references: [id])
+
+  @@index([status])
+  @@index([requestedById])
+  @@index([targetAdminId])
+  @@index([createdAt])
 }
 
 /**
@@ -322,6 +352,16 @@ model Beneficiary {
   activities BeneficiaryActivity[]
   reports    ActivityReport[]
   groups     GroupMember[]
+
+  @@index([projectId])
+  @@index([createdById])
+  @@index([name])
+  @@index([mobileNumber])
+  @@index([createdAt])
+  @@index([awcId])
+  @@index([schoolId])
+  @@index([healthCenterId])
+  @@index([projectId, createdAt]) 
 }
 
 model GroupMember {
@@ -335,6 +375,7 @@ model GroupMember {
   assignedAt DateTime @default(now())
 
   @@unique([beneficiaryId, groupId])
+  @@index([groupId])
 }
 
 model BeneficiaryChild {
@@ -353,6 +394,9 @@ model BeneficiaryChild {
   beneficiary Beneficiary @relation(fields: [beneficiaryId], references: [id])
   reports     ActivityReport[]
   childGroups ChildGroupMember[]
+
+  @@index([beneficiaryId])
+  @@index([name])
 }
 
 model ChildGroupMember {
@@ -366,6 +410,7 @@ model ChildGroupMember {
   assignedAt    DateTime @default(now())
 
   @@unique([childId, groupId])
+  @@index([groupId])
 }
 
 /**
@@ -384,8 +429,9 @@ status String @default("ACTIVE")
   activities GroupActivity[]
   members    GroupMember[]
   childMembers ChildGroupMember[]
-
   createdAt DateTime @default(now())
+
+  @@index([createdById])
 }
 
 model Activity {
@@ -403,8 +449,10 @@ model Activity {
   sessions      Session[]
   beneficiaries BeneficiaryActivity[]
   reports       ActivityReport[]
-
   createdAt DateTime @default(now())
+
+  @@index([projectId])
+  @@index([createdById])
 }
 
 model GroupActivity {
@@ -416,6 +464,7 @@ model GroupActivity {
   activity Activity         @relation(fields: [activityId], references: [id])
 
   @@unique([groupId, activityId])
+  @@index([activityId])
 }
 
 model Session {
@@ -429,8 +478,10 @@ model Session {
   activity      Activity              @relation(fields: [activityId], references: [id])
   beneficiaries BeneficiaryActivity[]
   reports       ActivityReport[]
-
   createdAt DateTime @default(now())
+
+  @@index([activityId])
+  @@index([createdById])
 }
 
 model BeneficiaryActivity {
@@ -444,6 +495,8 @@ model BeneficiaryActivity {
   session     Session     @relation(fields: [sessionId], references: [id])
 
   @@unique([beneficiaryId, activityId, sessionId])
+  @@index([activityId])
+  @@index([sessionId])
 }
 
 /**
@@ -469,6 +522,14 @@ model ActivityReport {
   activity    Activity    @relation(fields: [activityId], references: [id])
   session     Session     @relation(fields: [sessionId], references: [id])
   reportedBy  User        @relation(fields: [reportedById], references: [id])
+
+  @@index([beneficiaryId])
+  @@index([childId])
+  @@index([activityId])
+  @@index([sessionId])
+  @@index([reportedById])
+  @@index([date])
+  @@index([createdAt])
 }
 
 /**
@@ -488,6 +549,9 @@ model AuditLog {
 
   performedById Int
   performedBy   User @relation(fields: [performedById], references: [id])
+  @@index([entity, entityId])
+  @@index([performedById])
+  @@index([createdAt])
 }
 
 model AccountShare {
@@ -502,4 +566,6 @@ model AccountShare {
   manager     User     @relation("ShareManager", fields: [managerId], references: [id], onDelete: Cascade)
 
   @@unique([fromUserId, toUserId])
+  @@index([toUserId])
+  @@index([managerId])
 }

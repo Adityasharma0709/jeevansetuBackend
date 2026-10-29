@@ -520,50 +520,125 @@ export class ManagerService {
   }
 
   // Refactored to fetch beneficiaries natively mapped to the assigned Projects & Locations.
-  async getBeneficiaries(managerId: number) {
+   // Native Server-Side Search, Filter, Sort & Pagination for Manager Beneficiaries
+  async getBeneficiaries(managerId: number, query?: any) {
     const assignments = await this.prisma.userProjectLocation.findMany({
       where: { userId: managerId },
       select: { projectId: true, stateId: true }
     });
 
-    if (assignments.length === 0) return [];
+    if (assignments.length === 0) {
+      return {
+        data: [],
+        meta: { total: 0, page: 1, limit: 10, totalPages: 1 },
+        stats: { totalBeneficiaries: 0, priorityCount: 0, generalCount: 0, stakeholderCount: 0, registeredThisMonth: 0 }
+      };
+    }
 
     const projectIds = [...new Set(assignments.map(a => a.projectId))];
+    const baseProjectWhere = { projectId: { in: projectIds } };
 
-    const list = await this.prisma.beneficiary.findMany({
-      where: { projectId: { in: projectIds } },
-      include: {
-        project: true,
-        awc: {
-          include: {
-            state: true,
-            district: true,
-            block: true,
-            village: true,
-          }
-        },
-        school: {
-          include: {
-            state: true,
-            district: true,
-            block: true,
-            village: true,
-          }
-        },
-        healthCenter: {
-          include: {
-            state: true,
-            district: true,
-            block: true,
-            village: true,
-          }
-        },
-        createdBy: { select: { name: true, email: true, mobileNumber: true } }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    const page = query?.page ? Math.max(1, parseInt(query.page, 10)) : 1;
+    const limit = query?.limit ? Math.max(1, parseInt(query.limit, 10)) : 10;
+    const search = query?.search?.trim();
+    const typeTab = query?.typeTab || 'ALL';
+    const sortBy = query?.sortBy || 'createdAt';
+    const sortDir: 'asc' | 'desc' = query?.sortDir === 'asc' ? 'asc' : 'desc';
+    const isExport = query?.all === true || query?.all === 'true';
 
-    return list.map((b: any) => {
+    // Build Prisma where filter
+    const where: any = { ...baseProjectWhere };
+
+    if (typeTab === 'STAKEHOLDER') {
+      where.typeof = { equals: 'stakeholder', mode: 'insensitive' };
+    } else if (typeTab === 'PRIORITY') {
+      where.NOT = { typeof: { equals: 'stakeholder', mode: 'insensitive' } };
+      where.OR = [
+        { guardianName: { not: null } },
+        { qualification: { not: null } },
+        { religion: { not: null } },
+        { caste: { not: null } },
+      ];
+    } else if (typeTab === 'GENERAL') {
+      where.NOT = { typeof: { equals: 'stakeholder', mode: 'insensitive' } };
+      where.guardianName = null;
+      where.qualification = null;
+      where.religion = null;
+      where.caste = null;
+    }
+
+    if (search) {
+      const searchConditions = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { uid: { contains: search, mode: 'insensitive' } },
+        { mobileNumber: { contains: search, mode: 'insensitive' } },
+        { village: { contains: search, mode: 'insensitive' } },
+        { project: { name: { contains: search, mode: 'insensitive' } } },
+        { createdBy: { name: { contains: search, mode: 'insensitive' } } },
+      ];
+
+      if (where.OR) {
+        where.AND = [
+          { OR: where.OR },
+          { OR: searchConditions }
+        ];
+        delete where.OR;
+      } else {
+        where.OR = searchConditions;
+      }
+    }
+
+    // Build orderBy
+    let orderBy: any = { createdAt: 'desc' };
+    if (sortBy === 'project') {
+      orderBy = { project: { name: sortDir } };
+    } else if (['name', 'uid', 'mobileNumber', 'dateOfBirth', 'createdAt'].includes(sortBy)) {
+      orderBy = { [sortBy]: sortDir };
+    }
+
+    const skip = (page - 1) * limit;
+
+    // Run Count + Records Query in parallel via Prisma $transaction
+    const [total, list] = await this.prisma.$transaction([
+      this.prisma.beneficiary.count({ where }),
+      this.prisma.beneficiary.findMany({
+        where,
+        skip: isExport ? undefined : skip,
+        take: isExport ? undefined : limit,
+        orderBy,
+        include: {
+          project: true,
+          awc: {
+            include: {
+              state: true,
+              district: true,
+              block: true,
+              village: true,
+            }
+          },
+          school: {
+            include: {
+              state: true,
+              district: true,
+              block: true,
+              village: true,
+            }
+          },
+          healthCenter: {
+            include: {
+              state: true,
+              district: true,
+              block: true,
+              village: true,
+            }
+          },
+          createdBy: { select: { name: true, email: true, mobileNumber: true } }
+        }
+      })
+    ]);
+
+    // Format location structures
+    const formattedData = list.map((b: any) => {
       const loc = b.awc || b.school || b.healthCenter;
       const villageName = b.village || loc?.village?.name || (typeof loc?.village === 'string' ? loc.village : null);
       const instName = b.awc?.awcName || b.school?.name || b.healthCenter?.name || null;
@@ -583,7 +658,61 @@ export class ManagerService {
         }
       };
     });
+
+    if (isExport && !query?.page) {
+      return formattedData;
+    }
+
+    // Calculate manager-level summary stats
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const [totalBeneficiaries, stakeholderCount, registeredThisMonth, priorityCount] = await Promise.all([
+      this.prisma.beneficiary.count({ where: baseProjectWhere }),
+      this.prisma.beneficiary.count({
+        where: {
+          ...baseProjectWhere,
+          typeof: { equals: 'stakeholder', mode: 'insensitive' }
+        }
+      }),
+      this.prisma.beneficiary.count({
+        where: {
+          ...baseProjectWhere,
+          createdAt: { gte: startOfMonth }
+        }
+      }),
+      this.prisma.beneficiary.count({
+        where: {
+          ...baseProjectWhere,
+          NOT: { typeof: { equals: 'stakeholder', mode: 'insensitive' } },
+          OR: [
+            { guardianName: { not: null } },
+            { qualification: { not: null } },
+            { religion: { not: null } },
+            { caste: { not: null } },
+          ]
+        }
+      })
+    ]);
+
+    const generalCount = Math.max(0, totalBeneficiaries - stakeholderCount - priorityCount);
+
+    return {
+      data: formattedData,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(total / limit))
+      },
+      stats: {
+        totalBeneficiaries,
+        priorityCount,
+        generalCount,
+        stakeholderCount,
+        registeredThisMonth
+      }
+    };
   }
+
 
   async updateRequestStatus(id: number, status: 'APPROVED' | 'REJECTED', managerId: number) {
     const req = await this.prisma.approvalRequest.findUnique({ where: { id } });
