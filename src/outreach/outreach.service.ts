@@ -1172,92 +1172,205 @@ export class OutreachService {
     }));
   }
 
-  async getMyReports(user: any, projectId?: number) {
+  async getMyReports(user: any, query?: any) {
     const roles = user.roles?.map(r => r.role?.name || r.name) || [];
     const isSuperAdmin = roles.includes('SUPER_ADMIN');
     const isAnalyst = roles.includes('ANALYST');
     const isAdmin = roles.includes('ADMIN');
     const isManager = roles.includes('MANAGER');
 
-    let where: any = {};
+    const baseRoleWhere: any = {};
 
     if (!isSuperAdmin) {
       if (isAnalyst) {
+        const projectId = query?.projectId ? +query.projectId : undefined;
         if (!projectId) {
-          throw new BadRequestException('projectId is required for Analyst role');
+          const assignments = await this.prisma.userProjectLocation.findMany({
+            where: { userId: user.userId },
+            select: { projectId: true }
+          });
+          baseRoleWhere.beneficiary = { projectId: { in: [...new Set(assignments.map(a => a.projectId))] } };
+        } else {
+          baseRoleWhere.beneficiary = { projectId };
         }
-        where.beneficiary = { projectId };
       } else if (isAdmin) {
         const assignments = await this.prisma.userProjectLocation.findMany({
           where: { userId: user.userId },
           select: { projectId: true }
         });
-        where.beneficiary = { projectId: { in: assignments.map(a => a.projectId) } };
+        baseRoleWhere.beneficiary = { projectId: { in: assignments.map(a => a.projectId) } };
       } else if (isManager) {
         const managedUsers = await this.prisma.user.findMany({
           where: { createdByAdminId: user.userId },
           select: { id: true }
         });
         const managedIds = managedUsers.map(u => u.id);
-        where.reportedById = { in: [...managedIds, user.userId] };
+        baseRoleWhere.reportedById = { in: [...managedIds, user.userId] };
       } else {
         const shares = await this.prisma.accountShare.findMany({
           where: { toUserId: user.userId },
           select: { fromUserId: true }
         });
         const sharedFromUserIds = shares.map(s => s.fromUserId);
-        where.reportedById = { in: [user.userId, ...sharedFromUserIds] };
+        baseRoleWhere.reportedById = { in: [user.userId, ...sharedFromUserIds] };
       }
     }
 
-    return this.prisma.activityReport.findMany({
-      where,
-      include: {
-        beneficiary: {
-          select: {
-            id: true,
-            name: true,
-            uid: true,
-            mobileNumber: true,
-            dateOfBirth: true,
-            gender: true,
-            typeof: true,
-            groups: {
-              include: {
-                group: true
+    const page = query?.page ? Math.max(1, parseInt(query.page, 10)) : 1;
+    const limit = query?.limit ? Math.max(1, parseInt(query.limit, 10)) : 10;
+    const search = query?.search?.trim();
+    const screening = (query?.screening || 'ALL').toUpperCase();
+    const sortBy = query?.sortBy || 'createdAt';
+    const sortDir: 'asc' | 'desc' = query?.sortDir === 'asc' ? 'asc' : 'desc';
+    const isExport = query?.all === true || query?.all === 'true';
+
+    const andConditions: any[] = [];
+    if (Object.keys(baseRoleWhere).length > 0) {
+      andConditions.push(baseRoleWhere);
+    }
+
+    // Direct beneficiaryId filter if passed
+    if (query?.beneficiaryId) {
+      andConditions.push({ beneficiaryId: +query.beneficiaryId });
+    }
+
+    // Direct projectId filter if passed
+    if (query?.projectId && !baseRoleWhere.beneficiary) {
+      andConditions.push({ beneficiary: { projectId: +query.projectId } });
+    }
+
+    // Screening filter
+    if (screening === 'YES') {
+      andConditions.push({
+        OR: [
+          { reportData: { path: ['screening'], string_contains: 'Yes' } },
+          { reportData: { path: ['screening'], string_contains: 'yes' } },
+        ]
+      });
+    } else if (screening === 'NO') {
+      andConditions.push({
+        NOT: {
+          OR: [
+            { reportData: { path: ['screening'], string_contains: 'Yes' } },
+            { reportData: { path: ['screening'], string_contains: 'yes' } },
+          ]
+        }
+      });
+    }
+
+    // Date range filter
+    if (query?.startDate || query?.endDate) {
+      const dateFilter: any = {};
+      if (query.startDate) {
+        const start = new Date(query.startDate);
+        start.setHours(0, 0, 0, 0);
+        dateFilter.gte = start;
+      }
+      if (query.endDate) {
+        const end = new Date(query.endDate);
+        end.setHours(23, 59, 59, 999);
+        dateFilter.lte = end;
+      }
+      andConditions.push({ date: dateFilter });
+    }
+
+    // Search filter
+    if (search) {
+      andConditions.push({
+        OR: [
+          { beneficiary: { name: { contains: search, mode: 'insensitive' } } },
+          { beneficiary: { uid: { contains: search, mode: 'insensitive' } } },
+          { beneficiary: { mobileNumber: { contains: search, mode: 'insensitive' } } },
+          { child: { name: { contains: search, mode: 'insensitive' } } },
+          { child: { uid: { contains: search, mode: 'insensitive' } } },
+          { activity: { name: { contains: search, mode: 'insensitive' } } },
+          { session: { name: { contains: search, mode: 'insensitive' } } },
+        ]
+      });
+    }
+
+    const where = andConditions.length > 0 ? { AND: andConditions } : {};
+
+    let orderBy: any = { createdAt: 'desc' };
+    if (sortBy === 'beneficiaryId') {
+      orderBy = { beneficiary: { uid: sortDir } };
+    } else if (sortBy === 'beneficiaryName') {
+      orderBy = { beneficiary: { name: sortDir } };
+    } else if (sortBy === 'activity') {
+      orderBy = { activity: { name: sortDir } };
+    } else if (sortBy === 'session') {
+      orderBy = { session: { name: sortDir } };
+    } else if (sortBy === 'date') {
+      orderBy = { date: sortDir };
+    } else if (sortBy === 'createdAt') {
+      orderBy = { createdAt: sortDir };
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [total, reports] = await this.prisma.$transaction([
+      this.prisma.activityReport.count({ where }),
+      this.prisma.activityReport.findMany({
+        where,
+        skip: isExport ? undefined : skip,
+        take: isExport ? undefined : limit,
+        orderBy,
+        include: {
+          beneficiary: {
+            select: {
+              id: true,
+              name: true,
+              uid: true,
+              mobileNumber: true,
+              dateOfBirth: true,
+              gender: true,
+              typeof: true,
+              groups: {
+                include: {
+                  group: true
+                }
+              },
+              createdBy: {
+                select: { name: true }
               }
-            },
-            createdBy: {
-              select: { name: true }
             }
-          }
-        },
-        child: {
-          select: {
-            id: true,
-            beneficiaryId: true,
-            name: true,
-            uid: true,
-            dateOfBirth: true,
-            gender: true,
-            childGroups: {
-              include: {
-                group: true
+          },
+          child: {
+            select: {
+              id: true,
+              beneficiaryId: true,
+              name: true,
+              uid: true,
+              dateOfBirth: true,
+              gender: true,
+              childGroups: {
+                include: {
+                  group: true
+                }
               }
             }
-          }
-        },
-        activity: { select: { name: true } },
-        session: { select: { name: true } },
-        reportedBy: {
-          select: {
-            id: true,
-            name: true
+          },
+          activity: { select: { name: true } },
+          session: { select: { name: true } },
+          reportedBy: {
+            select: {
+              id: true,
+              name: true
+            }
           }
         }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+      })
+    ]);
+
+    return {
+      data: reports,
+      meta: {
+        total,
+        page,
+        limit: isExport ? total : limit,
+        totalPages: isExport ? 1 : Math.max(1, Math.ceil(total / limit))
+      }
+    };
   }
 
   async getDebugInfo() {
@@ -1268,39 +1381,40 @@ export class OutreachService {
 
     return { users, projects, awcs, assignments };
   }
-  async getBeneficiaryList(user: any, search?: string, projectId?: number) {
+  async getBeneficiaryList(user: any, query?: any) {
     const roles = user.roles?.map(r => r.role?.name || r.name) || [];
     const isSuperAdmin = roles.includes('SUPER_ADMIN');
     const isAnalyst = roles.includes('ANALYST');
     const isAdmin = roles.includes('ADMIN');
     const isManager = roles.includes('MANAGER');
 
-    let where: any = {};
+    const baseRoleWhere: any = {};
 
     if (!isSuperAdmin) {
       if (isAnalyst) {
+        const projectId = query?.projectId ? +query.projectId : undefined;
         if (!projectId) {
           const assignments = await this.prisma.userProjectLocation.findMany({
             where: { userId: user.userId },
             select: { projectId: true }
           });
-          where.projectId = { in: [...new Set(assignments.map(a => a.projectId))] };
+          baseRoleWhere.projectId = { in: [...new Set(assignments.map(a => a.projectId))] };
         } else {
-          where.projectId = projectId;
+          baseRoleWhere.projectId = projectId;
         }
       } else if (isAdmin) {
         const assignments = await this.prisma.userProjectLocation.findMany({
           where: { userId: user.userId },
           select: { projectId: true }
         });
-        where.projectId = { in: assignments.map(a => a.projectId) };
+        baseRoleWhere.projectId = { in: assignments.map(a => a.projectId) };
       } else if (isManager) {
         const managedUsers = await this.prisma.user.findMany({
           where: { createdByAdminId: user.userId },
           select: { id: true }
         });
         const managedIds = managedUsers.map(u => u.id);
-        where.createdById = { in: [...managedIds, user.userId] };
+        baseRoleWhere.createdById = { in: [...managedIds, user.userId] };
       } else {
         // Outreach workers only see beneficiaries they personally registered or are shared with them
         const shares = await this.prisma.accountShare.findMany({
@@ -1308,63 +1422,166 @@ export class OutreachService {
           select: { fromUserId: true }
         });
         const sharedFromUserIds = shares.map(s => s.fromUserId);
-        where.createdById = { in: [user.userId, ...sharedFromUserIds] };
+        baseRoleWhere.createdById = { in: [user.userId, ...sharedFromUserIds] };
       }
     }
 
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { uid: { contains: search, mode: 'insensitive' } },
-        { mobileNumber: { contains: search, mode: 'insensitive' } },
-        { children: { some: { name: { contains: search, mode: 'insensitive' } } } },
-        { children: { some: { uid: { contains: search, mode: 'insensitive' } } } },
-      ];
+    const page = query?.page ? Math.max(1, parseInt(query.page, 10)) : 1;
+    const limit = query?.limit ? Math.max(1, parseInt(query.limit, 10)) : 10;
+    const search = query?.search?.trim();
+    const typeTab = query?.typeTab || 'ALL';
+    const sortBy = query?.sortBy || 'createdAt';
+    const sortDir: 'asc' | 'desc' = query?.sortDir === 'asc' ? 'asc' : 'desc';
+    const isExport = query?.all === true || query?.all === 'true';
+
+    const andConditions: any[] = [];
+    if (Object.keys(baseRoleWhere).length > 0) {
+      andConditions.push(baseRoleWhere);
     }
 
-    const list = await this.prisma.beneficiary.findMany({
-      where,
-      include: {
-        project: true,
-        awc: {
-          include: {
-            state: true,
-            district: true,
-            block: true,
-            village: true,
-          }
-        },
-        school: {
-          include: {
-            state: true,
-            district: true,
-            block: true,
-            village: true,
-          }
-        },
-        healthCenter: {
-          include: {
-            state: true,
-            district: true,
-            block: true,
-            village: true,
-          }
-        },
-        children: {
-          include: {
-            childGroups: {
-              include: { group: true }
-            }
-          }
-        },
-        createdBy: {
-          select: { name: true, email: true }
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    // 1. Type tab filtering (All, Priority, General, Stakeholder)
+    if (typeTab === 'STAKEHOLDER') {
+      andConditions.push({ typeof: { equals: 'stakeholder', mode: 'insensitive' } });
+    } else if (typeTab === 'PRIORITY') {
+      andConditions.push({
+        NOT: { typeof: { equals: 'stakeholder', mode: 'insensitive' } },
+        OR: [
+          { guardianName: { not: null } },
+          { qualification: { not: null } },
+          { religion: { not: null } },
+          { caste: { not: null } },
+        ]
+      });
+    } else if (typeTab === 'GENERAL') {
+      andConditions.push({
+        NOT: { typeof: { equals: 'stakeholder', mode: 'insensitive' } },
+        guardianName: null,
+        qualification: null,
+        religion: null,
+        caste: null
+      });
+    }
 
-    return list.map((b: any) => {
+    // 2. Search filter
+    if (search) {
+      andConditions.push({
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { uid: { contains: search, mode: 'insensitive' } },
+          { mobileNumber: { contains: search, mode: 'insensitive' } },
+          { village: { contains: search, mode: 'insensitive' } },
+          { project: { name: { contains: search, mode: 'insensitive' } } },
+          { children: { some: { name: { contains: search, mode: 'insensitive' } } } },
+          { children: { some: { uid: { contains: search, mode: 'insensitive' } } } },
+        ]
+      });
+    }
+
+    const where = andConditions.length > 0 ? { AND: andConditions } : {};
+
+    // 3. Sorting
+    let orderBy: any = { createdAt: 'desc' };
+    if (sortBy === 'project') {
+      orderBy = { project: { name: sortDir } };
+    } else if (['name', 'uid', 'mobileNumber', 'dateOfBirth', 'createdAt'].includes(sortBy)) {
+      orderBy = { [sortBy]: sortDir };
+    }
+
+    const skip = (page - 1) * limit;
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+    // 4. Parallel execution via Prisma $transaction
+    const [
+      total,
+      list,
+      totalBeneficiaries,
+      priorityCount,
+      stakeholderCount,
+      generalCount,
+      registeredThisMonth
+    ] = await this.prisma.$transaction([
+      this.prisma.beneficiary.count({ where }),
+      this.prisma.beneficiary.findMany({
+        where,
+        skip: isExport ? undefined : skip,
+        take: isExport ? undefined : limit,
+        orderBy,
+        include: {
+          project: true,
+          awc: {
+            include: {
+              state: true,
+              district: true,
+              block: true,
+              village: true,
+            }
+          },
+          school: {
+            include: {
+              state: true,
+              district: true,
+              block: true,
+              village: true,
+            }
+          },
+          healthCenter: {
+            include: {
+              state: true,
+              district: true,
+              block: true,
+              village: true,
+            }
+          },
+          children: {
+            include: {
+              childGroups: {
+                include: { group: true }
+              }
+            }
+          },
+          createdBy: {
+            select: { name: true, email: true }
+          }
+        },
+      }),
+      this.prisma.beneficiary.count({ where: baseRoleWhere }),
+      this.prisma.beneficiary.count({
+        where: {
+          ...baseRoleWhere,
+          NOT: { typeof: { equals: 'stakeholder', mode: 'insensitive' } },
+          OR: [
+            { guardianName: { not: null } },
+            { qualification: { not: null } },
+            { religion: { not: null } },
+            { caste: { not: null } },
+          ]
+        }
+      }),
+      this.prisma.beneficiary.count({
+        where: {
+          ...baseRoleWhere,
+          typeof: { equals: 'stakeholder', mode: 'insensitive' }
+        }
+      }),
+      this.prisma.beneficiary.count({
+        where: {
+          ...baseRoleWhere,
+          NOT: { typeof: { equals: 'stakeholder', mode: 'insensitive' } },
+          guardianName: null,
+          qualification: null,
+          religion: null,
+          caste: null
+        }
+      }),
+      this.prisma.beneficiary.count({
+        where: {
+          ...baseRoleWhere,
+          createdAt: { gte: startOfMonth }
+        }
+      })
+    ]);
+
+    const formattedData = list.map((b: any) => {
       const loc = b.awc || b.school || b.healthCenter;
       const villageName = b.village || loc?.village?.name || (typeof loc?.village === 'string' ? loc.village : null);
       const instName = b.awc?.awcName || b.school?.name || b.healthCenter?.name || null;
@@ -1379,11 +1596,31 @@ export class OutreachService {
         locationId: instId,
         location: {
           ...(loc || {}),
+          village: villageName,
           name: instName,
-          village: villageName
+          locationCode: instCode,
         }
       };
     });
+
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    return {
+      data: formattedData,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages
+      },
+      stats: {
+        totalBeneficiaries,
+        priorityCount,
+        generalCount,
+        stakeholderCount,
+        registeredThisMonth
+      }
+    };
   }
 
   // Group Tagging
