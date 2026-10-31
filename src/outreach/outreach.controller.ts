@@ -55,8 +55,8 @@ export class OutreachController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('OUTREACH')
   @Get('my-requests')
-  getMyRequests(@Req() req) {
-    return this.outreachService.getMyRequests(req.user.userId);
+  getMyRequests(@Req() req, @Query() query: any) {
+    return this.outreachService.getMyRequests(req.user.userId, query);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)

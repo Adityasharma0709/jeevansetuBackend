@@ -501,48 +501,97 @@ export class AdminService {
     });
   }
 
-  async getManagerBeneficiaryRequests(adminId: number) {
-    const requests = await this.prisma.approvalRequest.findMany({
-      where: {
-        status: 'PENDING',
-        targetAdminId: adminId,
-        requestType: {
-          in: [
-            'UPDATE_BENEFICIARY',
-            'MODIFY_BENEFICIARY',
-            'CREATE_WORKER',
-            'MODIFY_WORKER',
-            'DEACTIVATE_WORKER',
-            'ACTIVATE_WORKER',
-          ],
-        },
-      },
-      include: {
-        requestedBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
+  async getManagerBeneficiaryRequests(adminId: number, query?: any) {
+    const isExport = query?.all === true || query?.all === 'true';
+    const hasPagination = query?.page !== undefined || query?.limit !== undefined;
+    const page = query?.page ? Math.max(1, Number(query.page)) : 1;
+    const limit = query?.limit ? Math.max(1, Math.min(100, Number(query.limit))) : 10;
+
+    const allowedTypes = [
+      'UPDATE_BENEFICIARY',
+      'MODIFY_BENEFICIARY',
+      'CREATE_WORKER',
+      'MODIFY_WORKER',
+      'DEACTIVATE_WORKER',
+      'ACTIVATE_WORKER',
+    ];
+
+    const where: Prisma.ApprovalRequestWhereInput = {
+      targetAdminId: adminId,
+      status: query?.status ? String(query.status).toUpperCase() : 'PENDING',
+      requestType: query?.type && allowedTypes.includes(String(query.type).toUpperCase())
+        ? String(query.type).toUpperCase()
+        : { in: allowedTypes },
+    };
+
+    if (query?.search) {
+      const search = String(query.search).trim();
+      where.OR = [
+        { requestedBy: { name: { contains: search, mode: 'insensitive' } } },
+        { requestedBy: { email: { contains: search, mode: 'insensitive' } } },
+        { requestType: { contains: search, mode: 'insensitive' } },
+        { remarks: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (!hasPagination && !isExport) {
+      const requests = await this.prisma.approvalRequest.findMany({
+        where,
+        include: {
+          requestedBy: {
+            select: { id: true, name: true, email: true },
           },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+      });
+      return this.enrichRequestsWithBeneficiaries(requests);
+    }
 
+    const skip = (page - 1) * limit;
+
+    const [total, requests] = await this.prisma.$transaction([
+      this.prisma.approvalRequest.count({ where }),
+      this.prisma.approvalRequest.findMany({
+        where,
+        skip: isExport ? undefined : skip,
+        take: isExport ? undefined : limit,
+        include: {
+          requestedBy: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const enriched = await this.enrichRequestsWithBeneficiaries(requests);
+
+    return {
+      data: enriched,
+      meta: {
+        total,
+        page: isExport ? 1 : page,
+        limit: isExport ? total : limit,
+        totalPages: isExport ? 1 : Math.max(1, Math.ceil(total / limit)),
+      },
+    };
+  }
+
+  private async enrichRequestsWithBeneficiaries(requests: any[]) {
     const benIds = [...new Set(requests.map(r => (r.payload as any)?.beneficiaryId).filter(Boolean))] as number[];
 
     if (benIds.length === 0) return requests;
 
     const beneficiaries = await this.prisma.beneficiary.findMany({
       where: { id: { in: benIds } },
-      select: { id: true, uid: true, name: true, mobileNumber: true }
+      select: { id: true, uid: true, name: true, mobileNumber: true },
     });
 
     const benMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
 
     return requests.map(r => ({
       ...r,
-      beneficiary: benMap[(r.payload as any)?.beneficiaryId] || null
+      beneficiary: benMap[(r.payload as any)?.beneficiaryId] || null,
     }));
   }
 

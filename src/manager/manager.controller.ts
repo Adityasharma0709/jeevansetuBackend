@@ -69,8 +69,8 @@ export class ManagerController {
   }
 
   @Get('beneficiary-requests')
-  getBeneficiaryRequests(@Req() req) {
-    return this.managerService.getBeneficiaryRequests(Number(req.user.userId));
+  getBeneficiaryRequests(@Req() req, @Query() query: any) {
+    return this.managerService.getBeneficiaryRequests(Number(req.user.userId), query);
   }
 
   @Patch('request/:id/approve')
@@ -113,9 +113,14 @@ export class ManagerController {
     return this.managerService.submitBeneficiaryUpdateRequest(id, changes, Number(req.user.userId));
   }
 
+  @Get('incoming-requests')
+  getIncomingRequests(@Req() req, @Query() query: any) {
+    return this.managerService.getIncomingRequests(Number(req.user.userId), query);
+  }
+
   @Get('profile-requests')
-  getProfileRequests(@Req() req) {
-    return this.managerService.getProfileRequests(Number(req.user.userId));
+  getProfileRequests(@Req() req, @Query() query: any) {
+    return this.managerService.getProfileRequests(Number(req.user.userId), query);
   }
 
   @Get('beneficiaries')
@@ -142,8 +147,8 @@ export class ManagerController {
 
 
   @Get('my-requests')
-  getMyRequests(@Req() req) {
-    return this.managerService.getMyRequests(Number(req.user.userId));
+  getMyRequests(@Req() req, @Query() query: any) {
+    return this.managerService.getMyRequests(Number(req.user.userId), query);
   }
 
   @Delete('my-requests/:id')

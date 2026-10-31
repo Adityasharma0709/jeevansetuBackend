@@ -9,6 +9,7 @@ import {
   UseGuards,
   Req,
   Put,
+  Query,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AuthGuard } from '@nestjs/passport';
@@ -172,8 +173,8 @@ export class AdminController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Get('beneficiary-requests')
-  getManagerBeneficiaryRequests(@Req() req) {
-    return this.adminService.getManagerBeneficiaryRequests(req.user.userId);
+  getManagerBeneficiaryRequests(@Req() req, @Query() query: any) {
+    return this.adminService.getManagerBeneficiaryRequests(req.user.userId, query);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -209,8 +210,8 @@ export class AdminController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN')
   @Get('profile-requests')
-  getProfileRequests(@Req() req) {
-    return this.adminService.getManagerBeneficiaryRequests(req.user.userId);
+  getProfileRequests(@Req() req, @Query() query: any) {
+    return this.adminService.getManagerBeneficiaryRequests(req.user.userId, query);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)
