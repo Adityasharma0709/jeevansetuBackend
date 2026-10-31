@@ -1234,4 +1234,352 @@ export class AnalystService {
       healthCenters: mappedHealthCenters
     };
   }
+  async getReportLocations(userId: number) {
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: { userId },
+      select: { projectId: true },
+    });
+    if (!assignments.length) return { states: [], districtsByState: {}, allDistricts: [] };
+
+    const projectIds = [...new Set(assignments.map(a => a.projectId))];
+
+    const [projectStates, awcs, schools, healthCenters, beneficiaries] = await Promise.all([
+      this.prisma.projectState.findMany({
+        where: { projectId: { in: projectIds } },
+        include: { state: true },
+      }),
+      this.prisma.awc.findMany({
+        where: { projectId: { in: projectIds }, status: 'ACTIVE' },
+        include: { state: true, district: true },
+      }),
+      this.prisma.school.findMany({
+        where: { projectId: { in: projectIds }, status: 'ACTIVE' },
+        include: { state: true, district: true },
+      }),
+      this.prisma.healthCenter.findMany({
+        where: { projectId: { in: projectIds }, status: 'ACTIVE' },
+        include: { state: true, district: true },
+      }),
+      this.prisma.beneficiary.findMany({
+        where: { projectId: { in: projectIds } },
+        select: { state: true, district: true },
+      }),
+    ]);
+
+    const stateMap = new Map<string, Set<string>>();
+    const addStateDistrict = (s?: string | null, d?: string | null) => {
+      const stateName = (s || '').trim();
+      const distName = (d || '').trim();
+      if (!stateName) return;
+      if (!stateMap.has(stateName)) {
+        stateMap.set(stateName, new Set<string>());
+      }
+      if (distName) {
+        stateMap.get(stateName)!.add(distName);
+      }
+    };
+
+    projectStates.forEach(ps => addStateDistrict(ps.state?.name));
+    awcs.forEach(a => addStateDistrict(a.state?.name, a.district?.name));
+    schools.forEach(s => addStateDistrict(s.state?.name, s.district?.name));
+    healthCenters.forEach(h => addStateDistrict(h.state?.name, h.district?.name));
+    beneficiaries.forEach(b => addStateDistrict(b.state, b.district));
+
+    const states = Array.from(stateMap.keys()).sort((a, b) => a.localeCompare(b));
+    const districtsByState: Record<string, string[]> = {};
+    const allDistSet = new Set<string>();
+
+    for (const [sName, distSet] of stateMap.entries()) {
+      const distList = Array.from(distSet).sort((a, b) => a.localeCompare(b));
+      districtsByState[sName] = distList;
+      distList.forEach(d => allDistSet.add(d));
+    }
+
+    return {
+      states,
+      districtsByState,
+      allDistricts: Array.from(allDistSet).sort((a, b) => a.localeCompare(b)),
+    };
+  }
+
+  async getReports(userId: number, query?: any) {
+    const assignments = await this.prisma.userProjectLocation.findMany({
+      where: { userId },
+      select: { projectId: true },
+    });
+    if (!assignments.length) {
+      return {
+        data: [],
+        meta: { total: 0, page: 1, limit: 10, totalPages: 1 },
+        stats: { totalReports: 0, screenedCount: 0, unscreenedCount: 0 }
+      };
+    }
+
+    const assignedProjectIds = [...new Set(assignments.map(a => a.projectId))];
+    const page = query?.page ? Math.max(1, parseInt(query.page, 10)) : 1;
+    const limit = query?.limit ? Math.max(1, parseInt(query.limit, 10)) : 10;
+    const state = query?.state?.trim();
+    const district = query?.district?.trim();
+    const startDate = query?.startDate?.trim();
+    const endDate = query?.endDate?.trim();
+    const screening = query?.screening?.trim()?.toUpperCase();
+    const search = query?.search?.trim();
+    const isExport = query?.all === true || query?.all === 'true';
+
+    const andConditions: any[] = [
+      { beneficiary: { projectId: { in: assignedProjectIds } } }
+    ];
+
+    if (state && state !== 'ALL') {
+      andConditions.push({
+        OR: [
+          { beneficiary: { state: { equals: state, mode: 'insensitive' } } },
+          { beneficiary: { awc: { state: { name: { equals: state, mode: 'insensitive' } } } } },
+          { beneficiary: { school: { state: { name: { equals: state, mode: 'insensitive' } } } } },
+          { beneficiary: { healthCenter: { state: { name: { equals: state, mode: 'insensitive' } } } } },
+        ]
+      });
+    }
+
+    if (district && district !== 'ALL') {
+      andConditions.push({
+        OR: [
+          { beneficiary: { district: { equals: district, mode: 'insensitive' } } },
+          { beneficiary: { awc: { district: { name: { equals: district, mode: 'insensitive' } } } } },
+          { beneficiary: { school: { district: { name: { equals: district, mode: 'insensitive' } } } } },
+          { beneficiary: { healthCenter: { district: { name: { equals: district, mode: 'insensitive' } } } } },
+        ]
+      });
+    }
+
+    if (startDate || endDate) {
+      const dateFilter: any = {};
+      if (startDate) {
+        const sDate = new Date(startDate);
+        sDate.setHours(0, 0, 0, 0);
+        dateFilter.gte = sDate;
+      }
+      if (endDate) {
+        const eDate = new Date(endDate);
+        eDate.setHours(23, 59, 59, 999);
+        dateFilter.lte = eDate;
+      }
+      andConditions.push({ date: dateFilter });
+    }
+
+    if (screening === 'YES') {
+      andConditions.push({
+        OR: [
+          { reportData: { path: ['screening'], string_contains: 'Yes' } },
+          { reportData: { path: ['screening'], string_contains: 'yes' } },
+        ]
+      });
+    } else if (screening === 'NO') {
+      andConditions.push({
+        NOT: {
+          OR: [
+            { reportData: { path: ['screening'], string_contains: 'Yes' } },
+            { reportData: { path: ['screening'], string_contains: 'yes' } },
+          ]
+        }
+      });
+    }
+
+    if (search) {
+      andConditions.push({
+        OR: [
+          { beneficiary: { name: { contains: search, mode: 'insensitive' } } },
+          { beneficiary: { uid: { contains: search, mode: 'insensitive' } } },
+          { beneficiary: { mobileNumber: { contains: search, mode: 'insensitive' } } },
+          { child: { name: { contains: search, mode: 'insensitive' } } },
+          { activity: { name: { contains: search, mode: 'insensitive' } } },
+          { session: { name: { contains: search, mode: 'insensitive' } } },
+          { reportedBy: { name: { contains: search, mode: 'insensitive' } } },
+        ]
+      });
+    }
+
+    const where = { AND: andConditions };
+    const skip = (page - 1) * limit;
+
+    const [total, rawReports, screenedCount, unscreenedCount] = await this.prisma.$transaction([
+      this.prisma.activityReport.count({ where }),
+      this.prisma.activityReport.findMany({
+        where,
+        skip: isExport ? undefined : skip,
+        take: isExport ? undefined : limit,
+        orderBy: { date: 'desc' },
+        include: {
+          beneficiary: {
+            include: {
+              awc: {
+                include: {
+                  state: true,
+                  district: true,
+                  block: true,
+                  village: true,
+                },
+              },
+              school: {
+                include: {
+                  state: true,
+                  district: true,
+                  block: true,
+                  village: true,
+                },
+              },
+              healthCenter: {
+                include: {
+                  state: true,
+                  district: true,
+                  block: true,
+                  village: true,
+                },
+              },
+              groups: {
+                include: {
+                  group: true,
+                },
+              },
+            },
+          },
+          child: {
+            include: {
+              childGroups: {
+                include: {
+                  group: true,
+                },
+              },
+            },
+          },
+          activity: { select: { id: true, name: true } },
+          session: { select: { id: true, name: true } },
+          reportedBy: { select: { id: true, name: true, email: true } },
+        },
+      }),
+      this.prisma.activityReport.count({
+        where: {
+          ...where,
+          OR: [
+            { reportData: { path: ['screening'], string_contains: 'Yes' } },
+            { reportData: { path: ['screening'], string_contains: 'yes' } },
+          ],
+        },
+      }),
+      this.prisma.activityReport.count({
+        where: {
+          ...where,
+          NOT: {
+            OR: [
+              { reportData: { path: ['screening'], string_contains: 'Yes' } },
+              { reportData: { path: ['screening'], string_contains: 'yes' } },
+            ],
+          },
+        },
+      }),
+    ]);
+
+    const calculateAge = (dob?: Date | string | null): string => {
+      if (!dob) return '';
+      const birthDate = new Date(dob);
+      if (isNaN(birthDate.getTime())) return '';
+      const today = new Date();
+      let years = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        years--;
+      }
+      return years >= 0 ? `${years} yrs` : '';
+    };
+
+    const formatDate = (d?: Date | string | null): string => {
+      if (!d) return '';
+      const dateObj = new Date(d);
+      if (isNaN(dateObj.getTime())) return String(d);
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const year = dateObj.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
+
+    const data = rawReports.map((r: any) => {
+      const rd = (typeof r.reportData === 'string' ? JSON.parse(r.reportData) : r.reportData) || {};
+      const sd = rd.screeningDetails || {};
+      const baby = rd.babyDetails || {};
+
+      const b = r.beneficiary;
+      const awcObj = b?.awc;
+      const schoolObj = b?.school;
+      const hcObj = b?.healthCenter;
+
+      const stateName = b?.state || awcObj?.state?.name || schoolObj?.state?.name || hcObj?.state?.name || '';
+      const districtName = b?.district || awcObj?.district?.name || schoolObj?.district?.name || hcObj?.district?.name || '';
+      const blockName = b?.block || awcObj?.block?.name || schoolObj?.block?.name || hcObj?.block?.name || '';
+      const villageName = b?.village || awcObj?.village?.name || schoolObj?.village?.name || hcObj?.village?.name || '';
+
+      const isScreened = rd.screening === 'Yes' || rd.screening === 'yes' || rd.screening === true;
+
+      const ageVal = rd.age || (r.child ? calculateAge(r.child.dateOfBirth) : calculateAge(b?.dateOfBirth));
+      const groupVal = b?.groups?.[0]?.group?.name || r.child?.childGroups?.[0]?.group?.name || rd.groupText || '';
+
+      const bpVal = sd.bp || (sd.bpSystolic && sd.bpDiastolic ? `${sd.bpSystolic}/${sd.bpDiastolic}` : '');
+      const babyDobVal = baby.dob || baby.dateOfBirth || r.child?.dateOfBirth;
+
+      return {
+        id: r.id,
+        beneficiaryDbId: r.beneficiaryId,
+        state: stateName,
+        district: districtName,
+        block: blockName,
+        village: villageName,
+        school: schoolObj?.name || '',
+        awc: awcObj?.awcName || '',
+        healthCenter: hcObj?.name || '',
+        individualDashboard: `/analyst/beneficiary/${r.beneficiaryId}`,
+        beneficiaryId: b?.uid || '',
+        beneficiaryName: b?.name || '',
+        age: ageVal,
+        group: groupVal,
+        beneficiaryType: b?.typeof || '',
+        activity: r.activity?.name || '',
+        session: r.session?.name || '',
+        sessionDate: formatDate(r.date || rd.sessionDate),
+        screening: isScreened ? 'Yes' : 'No',
+        height: sd.height !== undefined && sd.height !== null && sd.height !== '' ? String(sd.height) : '',
+        weight: sd.weight !== undefined && sd.weight !== null && sd.weight !== '' ? String(sd.weight) : '',
+        hb: sd.hb !== undefined && sd.hb !== null && sd.hb !== '' ? String(sd.hb) : '',
+        bp: bpVal,
+        sugar: sd.sugar !== undefined && sd.sugar !== null && sd.sugar !== '' ? String(sd.sugar) : '',
+        cervicalCancer: sd.cervicalCancer || '',
+        breastCancer: sd.breastCancer || '',
+        pads: sd.pads !== undefined && sd.pads !== null && sd.pads !== '' ? String(sd.pads) : '',
+        pregnancyStatus: rd.pregnancyStatus || '',
+        lmpDate: rd.lmpDate ? formatDate(rd.lmpDate) : '',
+        edd: rd.edd ? formatDate(rd.edd) : '',
+        highRiskPregnant: rd.highRiskPregnant || '',
+        deliveryDate: rd.deliveryDate ? formatDate(rd.deliveryDate) : '',
+        babyName: baby.name || r.child?.name || '',
+        babyGender: baby.gender || r.child?.gender || '',
+        babyDob: babyDobVal ? formatDate(babyDobVal) : '',
+        samMamStatus: rd.samMamStatus || '',
+        reportedBy: r.reportedBy?.name || '',
+        raw: r,
+      };
+    });
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit: isExport ? total : limit,
+        totalPages: isExport ? 1 : Math.max(1, Math.ceil(total / limit)),
+      },
+      stats: {
+        totalReports: total,
+        screenedCount,
+        unscreenedCount,
+      },
+    };
+  }
 }

@@ -174,4 +174,13 @@ export class AnalystController {
   getReportsByBeneficiary(@Param('id') id: string, @Req() req) {
     return this.analystService.getReportsByBeneficiary(+id, req.user.userId);
   }
+  @Get('reports')
+  getReports(@Req() req, @Query() query: any) {
+    return this.analystService.getReports(req.user.userId, query);
+  }
+
+  @Get('report-locations')
+  getReportLocations(@Req() req) {
+    return this.analystService.getReportLocations(req.user.userId);
+  }
 }
