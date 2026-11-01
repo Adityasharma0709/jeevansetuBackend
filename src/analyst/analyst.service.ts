@@ -1520,6 +1520,7 @@ export class AnalystService {
       const isScreened = rd.screening === 'Yes' || rd.screening === 'yes' || rd.screening === true;
 
       const ageVal = rd.age || (r.child ? calculateAge(r.child.dateOfBirth) : calculateAge(b?.dateOfBirth));
+      const genderVal = r.child?.gender || b?.gender || rd.gender || '';
       const groupVal = b?.groups?.[0]?.group?.name || r.child?.childGroups?.[0]?.group?.name || rd.groupText || '';
 
       const bpVal = sd.bp || (sd.bpSystolic && sd.bpDiastolic ? `${sd.bpSystolic}/${sd.bpDiastolic}` : '');
@@ -1539,6 +1540,7 @@ export class AnalystService {
         beneficiaryId: b?.uid || '',
         beneficiaryName: b?.name || '',
         age: ageVal,
+        gender: genderVal,
         group: groupVal,
         beneficiaryType: b?.typeof || '',
         activity: r.activity?.name || '',
